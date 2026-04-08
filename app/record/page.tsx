@@ -13,7 +13,7 @@ type RelayEvent = {
   timestamp: number
 }
 
-export default function Page2() {
+export default function RecordPage() {
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const eventsRef = useRef<RelayEvent[]>([])
@@ -79,7 +79,6 @@ export default function Page2() {
         <iframe
           key="iframe"
           ref={iframeRef}
-          // src="https://www.redo.com"
           src="http://localhost:1111/"
           className="border-0"
           style={{

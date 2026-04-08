@@ -5,8 +5,9 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 
 const links = [
-  { href: "/", label: "Puppeteer" },
-  { href: "/page-2", label: "Page 2" },
+  { href: "/", label: "Home" },
+  { href: "/record", label: "Record" },
+  { href: "/render", label: "Render" },
 ];
 
 export default function HamburgerMenu() {
@@ -14,7 +15,13 @@ export default function HamburgerMenu() {
   const pathname = usePathname();
 
   return (
-    <div className="fixed top-4 left-4 z-50">
+    <div className="fixed top-4 left-4 z-50 flex items-center gap-2">
+      <Link
+        href="/"
+        className="text-lg font-bold tracking-tight text-zinc-900 dark:text-zinc-50"
+      >
+        VLAD
+      </Link>
       <button
         onClick={() => setOpen((prev) => !prev)}
         aria-label="Toggle menu"

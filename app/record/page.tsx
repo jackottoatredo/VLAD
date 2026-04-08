@@ -1,9 +1,7 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
 import RecordingControls from '@/app/components/RecordingControls'
-
-const VIRTUAL_WIDTH = 1280
-const VIRTUAL_HEIGHT = 720
+import { TARGET_URL, VIRTUAL_WIDTH, VIRTUAL_HEIGHT } from '@/lib/config'
 
 type RelayEvent = {
   eventType: string
@@ -19,6 +17,7 @@ export default function RecordPage() {
   const eventsRef = useRef<RelayEvent[]>([])
   const [scale, setScale] = useState(1)
   const [isRecording, setIsRecording] = useState(false)
+  const [savedSession, setSavedSession] = useState<string | null>(null)
   const sessionNameRef = useRef('')
 
   useEffect(() => {
@@ -46,6 +45,7 @@ export default function RecordPage() {
   function handleStart(sessionName: string) {
     sessionNameRef.current = sessionName
     eventsRef.current = []
+    setSavedSession(null)
     setIsRecording(true)
   }
 
@@ -62,12 +62,14 @@ export default function RecordPage() {
         events: eventsRef.current,
       }),
     })
+    setSavedSession(sessionNameRef.current)
   }
 
   return (
     <div className="flex min-h-screen w-full flex-col items-center justify-center bg-zinc-50 font-sans dark:bg-black">
       <RecordingControls
         isRecording={isRecording}
+        savedSession={savedSession}
         onStart={handleStart}
         onStop={handleStop}
       />
@@ -79,7 +81,7 @@ export default function RecordPage() {
         <iframe
           key="iframe"
           ref={iframeRef}
-          src="http://localhost:1111/"
+          src={TARGET_URL}
           className="border-0"
           style={{
             display: 'block',

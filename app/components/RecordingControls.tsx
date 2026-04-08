@@ -1,13 +1,15 @@
 'use client'
+import Link from 'next/link'
 import { useState } from 'react'
 
 type Props = {
   isRecording: boolean
+  savedSession: string | null
   onStart: (sessionName: string) => void
   onStop: () => void
 }
 
-export default function RecordingControls({ isRecording, onStart, onStop }: Props) {
+export default function RecordingControls({ isRecording, savedSession, onStart, onStop }: Props) {
   const [name, setName] = useState('')
 
   return (
@@ -32,6 +34,14 @@ export default function RecordingControls({ isRecording, onStart, onStop }: Prop
           <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-red-500" />
           Recording
         </span>
+      )}
+      {savedSession && !isRecording && (
+        <Link
+          href="/render"
+          className="rounded-md px-4 py-1.5 text-sm font-medium shadow-sm bg-zinc-100 text-zinc-800 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
+        >
+          Continue to rendering →
+        </Link>
       )}
     </div>
   )

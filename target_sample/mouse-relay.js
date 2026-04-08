@@ -48,8 +48,21 @@
     });
   }
 
+  var MODIFIER_KEYS = ['Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'NumLock', 'ScrollLock'];
+
+  function onKeyDown(e) {
+    if (MODIFIER_KEYS.indexOf(e.key) !== -1) return;
+    send({
+      eventType: 'keydown',
+      x: 0,
+      y: 0,
+      buttons: 0,
+      timestamp: e.timeStamp,
+      key: e.key,
+    });
+  }
+
   window.addEventListener('pointermove', onPointerMove);
-  window.addEventListener('pointerdown', onDiscreteEvent);
-  window.addEventListener('pointerup', onDiscreteEvent);
   window.addEventListener('click', onDiscreteEvent);
+  window.addEventListener('keydown', onKeyDown);
 })();

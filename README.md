@@ -21,7 +21,7 @@ The homepage now includes a recording form:
 - Enter a URL.
 - Optional: adjust width, height, and FPS.
 - Click **Record** to trigger `POST /api/record`.
-- An MP4 is saved in `public/recordings` and previewed in the UI.
+- An MP4 is saved in `public/renderings` and previewed in the UI.
 
 ## Recording API
 

@@ -6,7 +6,7 @@ import path from "node:path";
 import ffmpeg from "fluent-ffmpeg";
 import ffmpegPath from "ffmpeg-static";
 import puppeteer, { type Page } from "puppeteer";
-import { createDefaultActions, type CursorPosition } from "@/lib/recording/actions";
+import { createDefaultActions, type CursorPosition, type RecordingAction } from "@/lib/recording/actions";
 
 export type RecordingOptions = {
   url: string;
@@ -14,6 +14,8 @@ export type RecordingOptions = {
   height: number;
   fps: number;
   durationMs: number;
+  actions?: RecordingAction[];
+  onProgress?: (rendered: number, total: number) => void;
 };
 
 export type RecordingResult = {
@@ -114,11 +116,16 @@ async function renderFrames(
   framesDir: string,
   options: RecordingOptions
 ): Promise<number> {
-  const actions = createDefaultActions(options.durationMs);
+  const actions = options.actions ?? createDefaultActions(options.durationMs);
 
   if (actions.length === 0) {
     throw new Error("No recording actions were provided.");
   }
+
+  const totalFrames = actions.reduce(
+    (sum, action) => sum + Math.max(1, Math.round((action.durationMs / 1000) * options.fps)),
+    0
+  );
 
   let renderedFrames = 0;
   let cursorBetweenActions: CursorPosition | undefined;
@@ -138,6 +145,7 @@ async function renderFrames(
         await setCursorPosition(page, x, y);
 
         renderedFrames += 1;
+        options.onProgress?.(renderedFrames, totalFrames);
 
         const framePath = path.join(
           framesDir,
@@ -235,7 +243,7 @@ export async function recordUrlToMp4(options: RecordingOptions): Promise<Recordi
     void cleanupOldRecordings(24 * 60 * 60 * 1000);
 
     return {
-      videoUrl: `/renderings/${fileName}`,
+      videoUrl: `/recordings/${fileName}`,
       outputPath,
       totalDurationMs,
     };

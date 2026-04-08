@@ -1,5 +1,6 @@
-import { type Page } from "puppeteer";
+import { type Page, type KeyInput } from "puppeteer";
 import { getElementCenterBySelector, getElementCoordinateBySelector } from "@/lib/recording/dom-helpers";
+import { interpolatePosition, discreteEventsInWindow, type Keyframe } from "@/lib/recording/keyframes";
 
 export type CursorPosition = {
   x: number;
@@ -183,6 +184,69 @@ export function createReturnsAndClaimsAction(): RecordingAction {
       }
 
       return { x: cursorX, y: cursorY };
+    },
+  };
+}
+
+export function createReplayAction(
+  keyframes: ReadonlyArray<Keyframe>,
+  durationMs: number
+): RecordingAction {
+  return {
+    name: "session-replay",
+    durationMs,
+    async run(context): Promise<CursorPosition> {
+      const frameDurationMs = 1000 / context.fps;
+
+      if (keyframes.length === 0) {
+        const x = clampCoordinate(Math.round(context.width / 2), context.width);
+        const y = clampCoordinate(Math.round(context.height / 2), context.height);
+        for (let i = 0; i < context.frameCount; i++) {
+          await context.moveAndCapture(x, y);
+        }
+        return { x, y };
+      }
+
+      const positionKeyframes = keyframes.filter((kf) => kf.event !== "keydown");
+      const sessionDurationMs = keyframes[keyframes.length - 1].t;
+      const scale = sessionDurationMs > 0 ? durationMs / sessionDurationMs : 1;
+
+      let lastPosition: CursorPosition = {
+        x: clampCoordinate(Math.round(keyframes[0].x), context.width),
+        y: clampCoordinate(Math.round(keyframes[0].y), context.height),
+      };
+
+      for (let frameIndex = 0; frameIndex < context.frameCount; frameIndex++) {
+        const wallStart = Date.now();
+        const tFrame = (frameIndex * frameDurationMs) / scale;
+        const tPrev = frameIndex === 0 ? -1 : ((frameIndex - 1) * frameDurationMs) / scale;
+
+        const pos = interpolatePosition(positionKeyframes, tFrame);
+        const x = clampCoordinate(pos.x, context.width);
+        const y = clampCoordinate(pos.y, context.height);
+
+        for (const kf of discreteEventsInWindow(keyframes, tPrev, tFrame)) {
+          const ex = clampCoordinate(Math.round(kf.x), context.width);
+          const ey = clampCoordinate(Math.round(kf.y), context.height);
+          if (kf.event === "click") {
+            await context.page.mouse.click(ex, ey);
+          } else if (kf.event === "keydown" && kf.key) {
+            if (kf.key.length === 1) {
+              await context.page.keyboard.type(kf.key);
+            } else {
+              await context.page.keyboard.press(kf.key as KeyInput);
+            }
+          }
+        }
+
+        await context.moveAndCapture(x, y);
+        lastPosition = { x, y };
+
+        const remaining = frameDurationMs - (Date.now() - wallStart);
+        if (remaining > 0) await new Promise<void>((r) => setTimeout(r, remaining));
+      }
+
+      return lastPosition;
     },
   };
 }

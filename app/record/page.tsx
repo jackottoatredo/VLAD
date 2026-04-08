@@ -20,6 +20,13 @@ export default function RecordPage() {
   const [savedSession, setSavedSession] = useState<string | null>(null)
   const sessionNameRef = useRef('')
 
+  // Webcam
+  const streamRef = useRef<MediaStream | null>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const webcamChunksRef = useRef<Blob[]>([])
+  const webcamStartedAt = useRef<string>('')
+  const webcamVideoRef = useRef<HTMLVideoElement>(null)
+
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
@@ -42,27 +49,72 @@ export default function RecordPage() {
     return () => window.removeEventListener('message', handler)
   }, [isRecording])
 
+  useEffect(() => {
+    navigator.mediaDevices
+      .getUserMedia({ video: true, audio: true })
+      .then((stream) => {
+        streamRef.current = stream
+        if (webcamVideoRef.current) webcamVideoRef.current.srcObject = stream
+      })
+      .catch(() => {})
+
+    return () => {
+      streamRef.current?.getTracks().forEach((t) => t.stop())
+    }
+  }, [])
+
   function handleStart(sessionName: string) {
     sessionNameRef.current = sessionName
     eventsRef.current = []
     setSavedSession(null)
     setIsRecording(true)
+
+    if (streamRef.current) {
+      webcamChunksRef.current = []
+      webcamStartedAt.current = new Date().toISOString()
+      const mr = new MediaRecorder(streamRef.current, { mimeType: 'video/webm' })
+      mr.ondataavailable = (e) => {
+        if (e.data.size > 0) webcamChunksRef.current.push(e.data)
+      }
+      mediaRecorderRef.current = mr
+      mr.start(100)
+    }
   }
 
   async function handleStop() {
     setIsRecording(false)
-    await fetch('/api/save-session', {
+
+    const sessionName = sessionNameRef.current
+
+    const mousePromise = fetch('/api/save-session', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        session: sessionNameRef.current,
+        session: sessionName,
         recordedAt: new Date().toISOString(),
         virtualWidth: VIRTUAL_WIDTH,
         virtualHeight: VIRTUAL_HEIGHT,
         events: eventsRef.current,
       }),
     })
-    setSavedSession(sessionNameRef.current)
+
+    const webcamPromise = new Promise<void>((resolve) => {
+      const mr = mediaRecorderRef.current
+      if (!mr || mr.state === 'inactive') { resolve(); return }
+      mr.onstop = async () => {
+        const blob = new Blob(webcamChunksRef.current, { type: 'video/webm' })
+        const fd = new FormData()
+        fd.append('session', sessionName)
+        fd.append('video', blob, `${sessionName}_webcam.webm`)
+        fd.append('startedAt', webcamStartedAt.current)
+        await fetch('/api/save-webcam', { method: 'POST', body: fd }).catch(() => {})
+        resolve()
+      }
+      mr.stop()
+    })
+
+    await Promise.all([mousePromise, webcamPromise])
+    setSavedSession(sessionName)
   }
 
   return (
@@ -75,7 +127,7 @@ export default function RecordPage() {
       />
       <div
         ref={containerRef}
-        className="overflow-hidden shadow-lg"
+        className="relative overflow-hidden shadow-lg"
         style={{ width: '75vw', aspectRatio: `${VIRTUAL_WIDTH} / ${VIRTUAL_HEIGHT}` }}
       >
         <iframe
@@ -93,6 +145,29 @@ export default function RecordPage() {
           title="redo.com"
           sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-top-navigation"
         />
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 12,
+            left: 12,
+            width: 120,
+            height: 120,
+            borderRadius: '50%',
+            overflow: 'hidden',
+            pointerEvents: 'none',
+            zIndex: 10,
+            border: '4px solid orange',
+            boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
+          }}
+        >
+          <video
+            ref={webcamVideoRef}
+            autoPlay
+            muted
+            playsInline
+            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+          />
+        </div>
       </div>
     </div>
   )

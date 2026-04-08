@@ -10,7 +10,7 @@ import { createJob, updateJobProgress, completeJob, failJob } from "@/lib/job-st
 
 export const runtime = "nodejs";
 
-const RECORDINGS_DIR = path.join(process.cwd(), "public", "recordings");
+const PUBLIC_DIR = path.join(process.cwd(), "public");
 
 type RenderSessionBody = {
   session?: unknown;
@@ -30,7 +30,7 @@ export async function POST(request: Request) {
   }
 
   const safeName = body.session.replace(/[^a-z0-9_\-]/gi, "_");
-  const filePath = path.join(RECORDINGS_DIR, `${safeName}.json`);
+  const filePath = path.join(PUBLIC_DIR, safeName, "recordings", `${safeName}_mouse.json`);
 
   let raw: string;
   try {
@@ -60,6 +60,7 @@ export async function POST(request: Request) {
   // Fire and forget — progress is tracked via job-store
   recordUrlToMp4({
     url: TARGET_URL,
+    sessionName: safeName,
     width: data.virtualWidth,
     height: data.virtualHeight,
     fps: DEFAULT_FPS,

@@ -10,6 +10,7 @@ import { createDefaultActions, type CursorPosition, type RecordingAction } from 
 
 export type RecordingOptions = {
   url: string;
+  sessionName: string;
   width: number;
   height: number;
   fps: number;
@@ -24,7 +25,7 @@ export type RecordingResult = {
   totalDurationMs: number;
 };
 
-const RECORDINGS_DIR = path.join(process.cwd(), "public", "recordings");
+
 const CURSOR_ID = "__videobot_cursor__";
 const CURSOR_FILE_PATH = path.join(process.cwd(), "public", "cursor.svg");
 const CURSOR_SIZE_PX = 32;
@@ -187,17 +188,17 @@ async function encodeVideo(
   });
 }
 
-async function cleanupOldRecordings(maxAgeMs: number): Promise<void> {
+async function cleanupOldRecordings(dir: string, maxAgeMs: number): Promise<void> {
   const now = Date.now();
 
   try {
-    const entries = await readdir(RECORDINGS_DIR, { withFileTypes: true });
+    const entries = await readdir(dir, { withFileTypes: true });
 
     await Promise.all(
       entries
         .filter((entry) => entry.isFile() && entry.name.endsWith(".mp4"))
         .map(async (entry) => {
-          const filePath = path.join(RECORDINGS_DIR, entry.name);
+          const filePath = path.join(dir, entry.name);
           const fileStats = await stat(filePath);
 
           if (now - fileStats.mtimeMs > maxAgeMs) {
@@ -211,14 +212,15 @@ async function cleanupOldRecordings(maxAgeMs: number): Promise<void> {
 }
 
 export async function recordUrlToMp4(options: RecordingOptions): Promise<RecordingResult> {
-  await mkdir(RECORDINGS_DIR, { recursive: true });
+  const renderingsDir = path.join(process.cwd(), "public", options.sessionName, "renderings");
+  await mkdir(renderingsDir, { recursive: true });
 
   const tempDir = await mkdtemp(path.join(tmpdir(), "videobot-"));
   const framesDir = path.join(tempDir, "frames");
   await mkdir(framesDir, { recursive: true });
 
-  const fileName = `recording-${Date.now()}-${randomUUID().slice(0, 8)}.mp4`;
-  const outputPath = path.join(RECORDINGS_DIR, fileName);
+  const fileName = `${options.sessionName}-${Date.now()}-${randomUUID().slice(0, 8)}.mp4`;
+  const outputPath = path.join(renderingsDir, fileName);
 
   const browser = await puppeteer.launch({
     headless: true,
@@ -240,10 +242,10 @@ export async function recordUrlToMp4(options: RecordingOptions): Promise<Recordi
       durationMs: totalDurationMs,
     });
 
-    void cleanupOldRecordings(24 * 60 * 60 * 1000);
+    void cleanupOldRecordings(renderingsDir, 24 * 60 * 60 * 1000);
 
     return {
-      videoUrl: `/recordings/${fileName}`,
+      videoUrl: `/${options.sessionName}/renderings/${fileName}`,
       outputPath,
       totalDurationMs,
     };

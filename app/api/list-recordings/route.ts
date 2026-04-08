@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { readdir, readFile } from "node:fs/promises";
+import type { Dirent } from "node:fs";
 import path from "node:path";
 
 export const runtime = "nodejs";
 
-const RECORDINGS_DIR = path.join(process.cwd(), "public", "recordings");
+const PUBLIC_DIR = path.join(process.cwd(), "public");
 
 type RecordingEntry = {
   name: string;
@@ -12,21 +13,23 @@ type RecordingEntry = {
 };
 
 export async function GET() {
-  let entries: Awaited<ReturnType<typeof readdir>>;
+  let entries: Dirent[];
 
   try {
-    entries = await readdir(RECORDINGS_DIR, { withFileTypes: true });
+    entries = await readdir(PUBLIC_DIR, { withFileTypes: true });
   } catch {
     return NextResponse.json({ recordings: [] });
   }
 
-  const jsonFiles = entries.filter((e) => e.isFile() && e.name.endsWith(".json"));
+  const subdirs = entries.filter((e) => e.isDirectory());
 
   const recordings = (
     await Promise.all(
-      jsonFiles.map(async (entry): Promise<RecordingEntry | null> => {
+      subdirs.map(async (entry): Promise<RecordingEntry | null> => {
+        const name = entry.name;
+        const filePath = path.join(PUBLIC_DIR, name, "recordings", `${name}_mouse.json`);
         try {
-          const raw = await readFile(path.join(RECORDINGS_DIR, entry.name), "utf-8");
+          const raw = await readFile(filePath, "utf-8");
           const parsed = JSON.parse(raw) as { session?: string; recordedAt?: string };
           if (typeof parsed.session !== "string" || typeof parsed.recordedAt !== "string") {
             return null;

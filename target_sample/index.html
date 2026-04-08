@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Test Target</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #f5f5f5; color: #111; height: 100vh; display: flex; flex-direction: column; }
+
+    header {
+      background: #1a1a2e; color: #fff;
+      padding: 0 24px; height: 48px;
+      display: flex; align-items: center; justify-content: space-between;
+      flex-shrink: 0;
+    }
+    header .logo { font-weight: 700; font-size: 16px; }
+    header .steps { font-size: 13px; color: #aaa; }
+
+    .stage {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      padding: 32px 24px;
+    }
+
+    .card {
+      background: #fff; border: 1px solid #e0e0e0; border-radius: 10px;
+      padding: 32px; width: 100%; max-width: 440px;
+      display: flex; flex-direction: column; gap: 20px;
+    }
+    .card h2 { font-size: 20px; }
+    .card p  { font-size: 14px; color: #555; line-height: 1.6; }
+
+    .field { display: flex; flex-direction: column; gap: 6px; }
+    .field label { font-size: 13px; color: #555; font-weight: 500; }
+    .field input {
+      padding: 9px 12px; border: 1px solid #d1d5db; border-radius: 6px;
+      font-size: 14px; outline: none; width: 100%;
+    }
+    .field input:focus { border-color: #4f46e5; }
+
+    .option-list { display: flex; flex-direction: column; gap: 8px; }
+    .option {
+      padding: 12px 16px; border: 1px solid #e5e7eb; border-radius: 6px;
+      font-size: 14px; cursor: pointer; background: #fafafa;
+      transition: background 0.1s, border-color 0.1s;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .option:hover  { background: #ede9fe; border-color: #a5b4fc; }
+    .option.selected { background: #eef2ff; border-color: #4f46e5; font-weight: 500; }
+    .option .dot {
+      width: 14px; height: 14px; border-radius: 50%;
+      border: 2px solid #d1d5db; flex-shrink: 0;
+    }
+    .option.selected .dot { border-color: #4f46e5; background: #4f46e5; }
+
+    .summary-row { display: flex; justify-content: space-between; font-size: 14px; padding: 6px 0; border-bottom: 1px solid #f0f0f0; }
+    .summary-row:last-child { border-bottom: none; }
+    .summary-row .label { color: #777; }
+
+    footer {
+      flex-shrink: 0; padding: 16px 24px;
+      display: flex; justify-content: space-between; align-items: center;
+      border-top: 1px solid #e5e7eb; background: #fff;
+    }
+    button {
+      padding: 9px 22px; border-radius: 6px; border: none;
+      font-size: 14px; cursor: pointer; font-weight: 500;
+    }
+    .btn-primary { background: #4f46e5; color: #fff; }
+    .btn-primary:hover { background: #4338ca; }
+    .btn-ghost { background: transparent; color: #555; }
+    .btn-ghost:hover { background: #f0f0f0; }
+    .btn-ghost:disabled { color: #ccc; cursor: default; }
+    .btn-ghost:disabled:hover { background: transparent; }
+
+    .screen { display: none; }
+    .screen.active { display: contents; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <span class="logo">UNDO RETURNS</span>
+    <span class="steps" id="step-label">Step 1 of 3</span>
+  </header>
+
+  <div class="stage">
+
+    <!-- Step 1 -->
+    <div class="screen active" id="screen-1">
+      <div class="card">
+        <h2>Start a return</h2>
+        <p>Enter your order number to look up your purchase.</p>
+        <div class="field">
+          <label for="order-input">Order number</label>
+          <input type="text" id="order-input" placeholder="e.g. ORD-10492" />
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 2 -->
+    <div class="screen" id="screen-2">
+      <div class="card">
+        <h2>Select a reason</h2>
+        <p>Why are you returning this item?</p>
+        <div class="option-list" id="reason-list">
+          <div class="option" data-value="wrong-size">
+            <div class="dot"></div> Wrong size or fit
+          </div>
+          <div class="option" data-value="damaged">
+            <div class="dot"></div> Item arrived damaged
+          </div>
+          <div class="option" data-value="not-as-described">
+            <div class="dot"></div> Not as described
+          </div>
+          <div class="option" data-value="changed-mind">
+            <div class="dot"></div> Changed my mind
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 3 -->
+    <div class="screen" id="screen-3">
+      <div class="card">
+        <h2>Confirm return</h2>
+        <p>Review your return request before submitting.</p>
+        <div id="summary"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <footer>
+    <button class="btn-ghost" id="btn-prev" disabled>Back</button>
+    <button class="btn-primary" id="btn-next">Continue</button>
+  </footer>
+
+  <script>
+    var currentStep = 1;
+    var totalSteps = 3;
+    var selectedReason = null;
+
+    var screens = document.querySelectorAll('.screen');
+    var btnPrev = document.getElementById('btn-prev');
+    var btnNext = document.getElementById('btn-next');
+    var stepLabel = document.getElementById('step-label');
+
+    document.getElementById('reason-list').addEventListener('click', function(e) {
+      var option = e.target.closest('.option');
+      if (!option) return;
+      document.querySelectorAll('.option').forEach(function(o) { o.classList.remove('selected'); });
+      option.classList.add('selected');
+      selectedReason = option.dataset.value;
+    });
+
+    function showStep(step) {
+      screens.forEach(function(s) { s.classList.remove('active'); });
+      document.getElementById('screen-' + step).classList.add('active');
+      stepLabel.textContent = 'Step ' + step + ' of ' + totalSteps;
+      btnPrev.disabled = step === 1;
+      btnNext.textContent = step === totalSteps ? 'Submit' : 'Continue';
+
+      if (step === 3) {
+        var order = document.getElementById('order-input').value.trim() || '(not entered)';
+        var reasonMap = {
+          'wrong-size': 'Wrong size or fit',
+          'damaged': 'Item arrived damaged',
+          'not-as-described': 'Not as described',
+          'changed-mind': 'Changed my mind',
+        };
+        document.getElementById('summary').innerHTML =
+          '<div class="summary-row"><span class="label">Order</span><span>' + order + '</span></div>' +
+          '<div class="summary-row"><span class="label">Reason</span><span>' + (reasonMap[selectedReason] || '(not selected)') + '</span></div>' +
+          '<div class="summary-row"><span class="label">Refund method</span><span>Original payment</span></div>';
+      }
+    }
+
+    btnNext.addEventListener('click', function() {
+      if (currentStep < totalSteps) { currentStep++; showStep(currentStep); }
+    });
+
+    btnPrev.addEventListener('click', function() {
+      if (currentStep > 1) { currentStep--; showStep(currentStep); }
+    });
+  </script>
+
+  <script src="./mouse-relay.js"></script>
+</body>
+</html>

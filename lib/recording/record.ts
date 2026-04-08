@@ -235,7 +235,7 @@ export async function recordUrlToMp4(options: RecordingOptions): Promise<Recordi
     void cleanupOldRecordings(24 * 60 * 60 * 1000);
 
     return {
-      videoUrl: `/recordings/${fileName}`,
+      videoUrl: `/renderings/${fileName}`,
       outputPath,
       totalDurationMs,
     };

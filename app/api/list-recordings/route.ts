@@ -5,7 +5,7 @@ import path from "node:path";
 
 export const runtime = "nodejs";
 
-const PUBLIC_DIR = path.join(process.cwd(), "public");
+const SESSIONS_DIR = path.join(process.cwd(), "public", "sessions");
 
 type RecordingEntry = {
   name: string;
@@ -16,7 +16,7 @@ export async function GET() {
   let entries: Dirent[];
 
   try {
-    entries = await readdir(PUBLIC_DIR, { withFileTypes: true });
+    entries = await readdir(SESSIONS_DIR, { withFileTypes: true });
   } catch {
     return NextResponse.json({ recordings: [] });
   }
@@ -27,7 +27,7 @@ export async function GET() {
     await Promise.all(
       subdirs.map(async (entry): Promise<RecordingEntry | null> => {
         const name = entry.name;
-        const filePath = path.join(PUBLIC_DIR, name, "recordings", `${name}_mouse.json`);
+        const filePath = path.join(SESSIONS_DIR, name, "recordings", `${name}_mouse.json`);
         try {
           const raw = await readFile(filePath, "utf-8");
           const parsed = JSON.parse(raw) as { session?: string; recordedAt?: string };

@@ -10,7 +10,7 @@ import { createJob, updateJobProgress, completeJob, failJob } from "@/lib/job-st
 
 export const runtime = "nodejs";
 
-const PUBLIC_DIR = path.join(process.cwd(), "public");
+const SESSIONS_DIR = path.join(process.cwd(), "public", "sessions");
 
 type RenderSessionBody = {
   session?: unknown;
@@ -30,7 +30,7 @@ export async function POST(request: Request) {
   }
 
   const safeName = body.session.replace(/[^a-z0-9_\-]/gi, "_");
-  const filePath = path.join(PUBLIC_DIR, safeName, "recordings", `${safeName}_mouse.json`);
+  const filePath = path.join(SESSIONS_DIR, safeName, "recordings", `${safeName}_mouse.json`);
 
   let raw: string;
   try {

@@ -212,7 +212,7 @@ async function cleanupOldRecordings(dir: string, maxAgeMs: number): Promise<void
 }
 
 export async function recordUrlToMp4(options: RecordingOptions): Promise<RecordingResult> {
-  const renderingsDir = path.join(process.cwd(), "public", options.sessionName, "renderings");
+  const renderingsDir = path.join(process.cwd(), "public", "sessions", options.sessionName, "renderings");
   await mkdir(renderingsDir, { recursive: true });
 
   const tempDir = await mkdtemp(path.join(tmpdir(), "videobot-"));
@@ -245,7 +245,7 @@ export async function recordUrlToMp4(options: RecordingOptions): Promise<Recordi
     void cleanupOldRecordings(renderingsDir, 24 * 60 * 60 * 1000);
 
     return {
-      videoUrl: `/${options.sessionName}/renderings/${fileName}`,
+      videoUrl: `/sessions/${options.sessionName}/renderings/${fileName}`,
       outputPath,
       totalDurationMs,
     };

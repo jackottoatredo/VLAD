@@ -14,6 +14,8 @@ type PageState =
   | { status: "done"; videoUrl: string }
   | { status: "error"; message: string };
 
+const JOB_POLL_INTERVAL_MS = 500;
+
 export default function RenderPage() {
   const [recordings, setRecordings] = useState<RecordingEntry[]>([]);
   const [selectedSession, setSelectedSession] = useState("");
@@ -70,7 +72,7 @@ export default function RenderPage() {
       } catch {
         // transient fetch error — keep polling
       }
-    }, 500);
+    }, JOB_POLL_INTERVAL_MS);
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };

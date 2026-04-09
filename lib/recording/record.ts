@@ -6,7 +6,7 @@ import path from "node:path";
 import ffmpeg from "fluent-ffmpeg";
 import ffmpegPath from "ffmpeg-static";
 import puppeteer, { type Page } from "puppeteer";
-import { createDefaultActions, type CursorPosition, type RecordingAction } from "@/lib/recording/actions";
+import { type CursorPosition, type RecordingAction } from "@/lib/recording/actions";
 
 export type RecordingOptions = {
   url: string;
@@ -27,6 +27,7 @@ export type RecordingResult = {
 
 
 const CURSOR_ID = "__videobot_cursor__";
+const RECORDING_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const CURSOR_FILE_PATH = path.join(process.cwd(), "public", "cursor.svg");
 const CURSOR_SIZE_PX = 32;
 const FFMPEG_FILENAME = process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg";
@@ -117,7 +118,7 @@ async function renderFrames(
   framesDir: string,
   options: RecordingOptions
 ): Promise<number> {
-  const actions = options.actions ?? createDefaultActions(options.durationMs);
+  const actions = options.actions ?? [];
 
   if (actions.length === 0) {
     throw new Error("No recording actions were provided.");
@@ -242,7 +243,7 @@ export async function recordUrlToMp4(options: RecordingOptions): Promise<Recordi
       durationMs: totalDurationMs,
     });
 
-    void cleanupOldRecordings(renderingsDir, 24 * 60 * 60 * 1000);
+    void cleanupOldRecordings(renderingsDir, RECORDING_MAX_AGE_MS);
 
     return {
       videoUrl: `/sessions/${options.sessionName}/renderings/${fileName}`,

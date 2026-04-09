@@ -13,7 +13,8 @@ export const WEBCAM_OFFSET_MS = 30;
 // by the iframe's scale factor) and the FFmpeg compositor (virtual pixel coordinates).
 export const WEBCAM_OVERLAY_DIAMETER  = 250;  // circle diameter in virtual pixels
 export const WEBCAM_OVERLAY_PADDING   = 30;   // gap from bottom-left corner of the canvas
-export const WEBCAM_BORDER_THICKNESS  = 4;    // orange border ring width
+export const WEBCAM_BORDER_THICKNESS  = 6;    // orange border ring width
 export const WEBCAM_SHADOW_RADIUS     = 12;   // drop-shadow blur radius (controls spread)
 export const WEBCAM_BORDER_COLOR      = "rgb(233, 77, 30)"; // CSS color string
 export const WEBCAM_BORDER_COLOR_HEX  = "E94D1E";          // FFmpeg hex (no 0x prefix)
+export const WEBCAM_RECORDER_TIMESLICE_MS = 100; // MediaRecorder chunk interval

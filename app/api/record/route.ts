@@ -10,7 +10,6 @@ type RecordRequestBody = {
   height?: unknown;
   fps?: unknown;
   durationMs?: unknown;
-  waitUntil?: unknown;
 };
 
 function toBoundedNumber(

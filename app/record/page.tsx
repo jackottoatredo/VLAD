@@ -5,6 +5,7 @@ import {
   TARGET_URL, VIRTUAL_WIDTH, VIRTUAL_HEIGHT,
   WEBCAM_OVERLAY_DIAMETER, WEBCAM_OVERLAY_PADDING,
   WEBCAM_BORDER_THICKNESS, WEBCAM_SHADOW_RADIUS, WEBCAM_BORDER_COLOR,
+  WEBCAM_RECORDER_TIMESLICE_MS,
 } from '@/lib/config'
 
 type RelayEvent = {
@@ -47,7 +48,6 @@ export default function RecordPage() {
       if (!e.data || e.data.source !== 'mouse-relay') return
       if (e.source !== iframeRef.current?.contentWindow) return
       const event: RelayEvent = e.data.payload
-      console.log(event)
       if (isRecording) eventsRef.current.push(event)
     }
     window.addEventListener('message', handler)
@@ -87,7 +87,7 @@ export default function RecordPage() {
         if (e.data.size > 0) webcamChunksRef.current.push(e.data)
       }
       mediaRecorderRef.current = mr
-      mr.start(100)
+      mr.start(WEBCAM_RECORDER_TIMESLICE_MS)
     }
   }
 

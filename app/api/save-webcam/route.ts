@@ -34,7 +34,7 @@ export async function POST(request: Request) {
 
   const safeName = session.replace(/[^a-z0-9_\-]/gi, "_");
   const safePresenter = presenter.replace(/[^a-z0-9_\-]/gi, "_");
-  const recordingsDir = path.join(PUBLIC_DIR, safePresenter, safeName, "recordings");
+  const recordingsDir = path.join(PUBLIC_DIR, "users", safePresenter, safeName, "recordings");
 
   await mkdir(recordingsDir, { recursive: true });
 
@@ -47,5 +47,5 @@ export async function POST(request: Request) {
     "utf-8"
   );
 
-  return NextResponse.json({ ok: true, path: `/${safePresenter}/${safeName}/recordings/${safeName}_webcam.webm` });
+  return NextResponse.json({ ok: true, path: `/users/${safePresenter}/${safeName}/recordings/${safeName}_webcam.webm` });
 }

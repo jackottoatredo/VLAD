@@ -5,7 +5,7 @@ import path from "node:path";
 
 export const runtime = "nodejs";
 
-const PUBLIC_DIR = path.join(process.cwd(), "public");
+const USERS_DIR = path.join(process.cwd(), "public", "users");
 const PRESENTER_PATTERN = /^[a-zA-Z]+_[a-zA-Z]+$/;
 
 type RecordingEntry = {
@@ -18,7 +18,7 @@ export async function GET() {
   let topEntries: Dirent[];
 
   try {
-    topEntries = await readdir(PUBLIC_DIR, { withFileTypes: true });
+    topEntries = await readdir(USERS_DIR, { withFileTypes: true });
   } catch {
     return NextResponse.json({ recordings: [] });
   }
@@ -32,7 +32,7 @@ export async function GET() {
       let sessionEntries: Dirent[];
       try {
         sessionEntries = await readdir(
-          path.join(PUBLIC_DIR, presenterEntry.name),
+          path.join(USERS_DIR, presenterEntry.name),
           { withFileTypes: true }
         );
       } catch {
@@ -44,7 +44,7 @@ export async function GET() {
           .filter((e) => e.isDirectory())
           .map(async (sessionEntry): Promise<RecordingEntry | null> => {
             const filePath = path.join(
-              PUBLIC_DIR,
+              USERS_DIR,
               presenterEntry.name,
               sessionEntry.name,
               "recordings",

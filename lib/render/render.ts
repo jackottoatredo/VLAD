@@ -213,7 +213,7 @@ async function cleanupOldRenders(dir: string, maxAgeMs: number): Promise<void> {
 }
 
 export async function renderUrlToMp4(options: RenderOptions): Promise<RenderResult> {
-  const renderingsDir = path.join(process.cwd(), "public", options.presenter, options.sessionName, "renderings");
+  const renderingsDir = path.join(process.cwd(), "public", "users", options.presenter, options.sessionName, "renderings");
   await mkdir(renderingsDir, { recursive: true });
 
   const tempDir = await mkdtemp(path.join(tmpdir(), "videobot-"));
@@ -246,7 +246,7 @@ export async function renderUrlToMp4(options: RenderOptions): Promise<RenderResu
     void cleanupOldRenders(renderingsDir, RENDER_MAX_AGE_MS);
 
     return {
-      videoUrl: `/${options.presenter}/${options.sessionName}/renderings/${fileName}`,
+      videoUrl: `/users/${options.presenter}/${options.sessionName}/renderings/${fileName}`,
       outputPath,
       totalDurationMs,
     };

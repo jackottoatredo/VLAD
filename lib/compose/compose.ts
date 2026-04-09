@@ -38,6 +38,7 @@ export function webcamVideoPath(presenter: string, sessionName: string): string 
   return path.join(
     process.cwd(),
     "public",
+    "users",
     presenter,
     sessionName,
     "recordings",
@@ -153,7 +154,7 @@ export async function compositeSessionVideo(options: ComposeOptions): Promise<Co
   const renderingsDir = path.dirname(screenVideoPath);
   const fileName = `${sessionName}-final-${Date.now()}-${randomUUID().slice(0, 8)}.mp4`;
   const outputPath = path.join(renderingsDir, fileName);
-  const videoUrl = `/${presenter}/${sessionName}/renderings/${fileName}`;
+  const videoUrl = `/users/${presenter}/${sessionName}/renderings/${fileName}`;
 
   const args = [
     "-i", screenVideoPath,                             // [0:v] screen recording, no audio

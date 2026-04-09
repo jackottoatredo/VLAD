@@ -26,11 +26,11 @@ export async function POST(request: Request) {
 
   const safeName = record.session.replace(/[^a-z0-9_\-]/gi, "_");
   const safePresenter = record.presenter.replace(/[^a-z0-9_\-]/gi, "_");
-  const recordingsDir = path.join(PUBLIC_DIR, safePresenter, safeName, "recordings");
+  const recordingsDir = path.join(PUBLIC_DIR, "users", safePresenter, safeName, "recordings");
   const filePath = path.join(recordingsDir, `${safeName}_mouse.json`);
 
   await mkdir(recordingsDir, { recursive: true });
   await writeFile(filePath, JSON.stringify(record, null, 2), "utf-8");
 
-  return NextResponse.json({ ok: true, path: `/${safePresenter}/${safeName}/recordings/${safeName}_mouse.json` });
+  return NextResponse.json({ ok: true, path: `/users/${safePresenter}/${safeName}/recordings/${safeName}_mouse.json` });
 }

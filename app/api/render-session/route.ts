@@ -35,7 +35,7 @@ export async function POST(request: Request) {
 
   const safeName = body.session.replace(/[^a-z0-9_\-]/gi, "_");
   const safePresenter = body.presenter.replace(/[^a-z0-9_\-]/gi, "_");
-  const filePath = path.join(PUBLIC_DIR, safePresenter, safeName, "recordings", `${safeName}_mouse.json`);
+  const filePath = path.join(PUBLIC_DIR, "users", safePresenter, safeName, "recordings", `${safeName}_mouse.json`);
 
   let raw: string;
   try {

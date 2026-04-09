@@ -65,21 +65,17 @@ export default function RecordingControlPanel({ isRecording, onStart, onStop }: 
         )}
       </div>
 
-      <div className="flex w-full items-center gap-2">
-        <button
-          onClick={isRecording ? onStop : () => onStart(name.trim(), presenter.trim())}
-          disabled={!isRecording && (!name.trim() || !PRESENTER_PATTERN.test(presenter))}
-          className="w-full rounded-md px-4 py-1.5 text-sm font-medium shadow-sm disabled:opacity-40 disabled:cursor-not-allowed bg-zinc-900 text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
-        >
-          {isRecording ? 'Stop' : 'Start Recording'}
-        </button>
-        {isRecording && (
-          <span className="flex items-center gap-1.5 text-sm text-red-500">
-            <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-red-500" />
-            Recording
-          </span>
-        )}
-      </div>
+      <button
+        onClick={isRecording ? onStop : () => onStart(name.trim(), presenter.trim())}
+        disabled={!isRecording && (!name.trim() || !PRESENTER_PATTERN.test(presenter))}
+        className={`w-full rounded-md px-4 py-1.5 text-sm font-medium shadow-sm disabled:opacity-40 disabled:cursor-not-allowed text-white ${
+          isRecording
+            ? 'bg-red-600 hover:bg-red-700'
+            : 'bg-zinc-900 hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300'
+        }`}
+      >
+        {isRecording ? 'Stop Recording' : 'Start Recording'}
+      </button>
     </div>
   )
 }

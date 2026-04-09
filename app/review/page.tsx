@@ -18,7 +18,7 @@ type PageState =
 
 const JOB_POLL_INTERVAL_MS = 500;
 
-export default function RenderPage() {
+export default function ReviewPage() {
   const [recordings, setRecordings] = useState<RecordingEntry[]>([]);
   const [selectedPresenter, setSelectedPresenter] = useState<string>("");
   const [selectedSession, setSelectedSession] = useState<string>("");
@@ -131,7 +131,7 @@ export default function RenderPage() {
       <main className="w-full max-w-4xl space-y-6 rounded-2xl border border-black/10 bg-white p-6 shadow-sm dark:border-white/15 dark:bg-zinc-950 sm:p-8">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-black dark:text-zinc-50">
-            Render Session
+            Review & Export
           </h1>
           <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
             Select a recorded session and export it as an MP4.
@@ -256,7 +256,7 @@ export default function RenderPage() {
           </div>
         )}
       </main>
-      <PageNav back={{ label: 'Recording', href: '/record' }} />
+      <PageNav back={{ label: 'Merchant Customization', href: '/merchant' }} />
     </div>
   );
 }

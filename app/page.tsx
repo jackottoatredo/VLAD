@@ -16,16 +16,25 @@ export default function Home() {
         <div className="space-y-4 text-sm text-zinc-600 dark:text-zinc-400">
           <p>
             VLAD lets you record real mouse interactions on a target site and replay them
-            as a smooth, programmatically generated demo video.
+            as a smooth, programmatically generated demo video — reusing the same webcam
+            recording across multiple unique product URLs.
           </p>
           <ol className="list-decimal list-inside space-y-2">
             <li>
-              <Link href="/record" className="font-medium text-zinc-800 underline-offset-2 hover:underline dark:text-zinc-200">Record</Link>
-              {" — "}load the target site in the iframe, name your session, and capture mouse events.
+              <Link href="/record" className="font-medium text-zinc-800 underline-offset-2 hover:underline dark:text-zinc-200">Product Recording</Link>
+              {" — "}load the target site in the iframe and capture your mouse interactions with webcam overlay.
             </li>
             <li>
-              <Link href="/render" className="font-medium text-zinc-800 underline-offset-2 hover:underline dark:text-zinc-200">Render</Link>
-              {" — "}replay a recorded session through Puppeteer and export it as an MP4.
+              <Link href="/preview" className="font-medium text-zinc-800 underline-offset-2 hover:underline dark:text-zinc-200">Product Preview</Link>
+              {" — "}review four rendered versions of your recording, each driven by a unique URL.
+            </li>
+            <li>
+              <Link href="/merchant" className="font-medium text-zinc-800 underline-offset-2 hover:underline dark:text-zinc-200">Merchant Customization</Link>
+              {" — "}record a short intro that will be prepended to the final product video.
+            </li>
+            <li>
+              <Link href="/review" className="font-medium text-zinc-800 underline-offset-2 hover:underline dark:text-zinc-200">Review & Export</Link>
+              {" — "}combine the merchant intro with the product recording and download the final MP4.
             </li>
           </ol>
         </div>

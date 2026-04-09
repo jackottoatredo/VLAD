@@ -6,8 +6,10 @@ import { useState } from "react";
 
 const links = [
   { href: "/", label: "Home" },
-  { href: "/record", label: "Record" },
-  { href: "/render", label: "Render" },
+  { href: "/record", label: "Product Recording" },
+  { href: "/preview", label: "Product Preview" },
+  { href: "/merchant", label: "Merchant Customization" },
+  { href: "/review", label: "Review" },
 ];
 
 export default function HamburgerMenu() {

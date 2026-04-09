@@ -14,12 +14,13 @@ type RelayEvent = {
   timestamp: number
 }
 
-export default function RecordPage() {
+export default function MerchantPage() {
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const eventsRef = useRef<RelayEvent[]>([])
   const [scale, setScale] = useState(1)
   const [isRecording, setIsRecording] = useState(false)
+  const [recordingComplete, setRecordingComplete] = useState(false)
   const sessionNameRef = useRef('')
   const presenterRef = useRef('')
 
@@ -129,26 +130,32 @@ export default function RecordPage() {
     })
 
     await Promise.all([mousePromise, webcamPromise])
+    setRecordingComplete(true)
   }
 
   return (
     <div className="flex min-h-screen flex-col items-center bg-zinc-50 font-sans dark:bg-black">
-      <div className="flex flex-1 w-full items-center justify-center py-6">
-        <div className="flex w-[75vw] flex-col gap-4">
-          <RecordingTools
-            isRecording={isRecording}
-            onStart={handleStart}
-            onStop={handleStop}
-          />
-          <RecordingFrame iframeRef={iframeRef} containerRef={containerRef} scale={scale}>
-            <WebcamOverlay videoRef={webcamVideoRef} scale={scale} mirror />
-          </RecordingFrame>
+      {recordingComplete ? (
+        <div className="flex flex-1 w-full items-center justify-center">
+          <p className="text-lg font-medium text-zinc-600 dark:text-zinc-400">
+            Merchant intro recorded — continue to Review
+          </p>
         </div>
-      </div>
-      <div className="flex w-full justify-center pb-20">
-        
-      </div>
-      <PageNav back={{ label: 'Home', href: '/' }} forward={{ label: 'Preview', href: '/preview' }} />
+      ) : (
+        <div className="flex flex-1 w-full items-center justify-center py-6">
+          <div className="flex w-[75vw] flex-col gap-4">
+            <RecordingTools
+              isRecording={isRecording}
+              onStart={handleStart}
+              onStop={handleStop}
+            />
+            <RecordingFrame iframeRef={iframeRef} containerRef={containerRef} scale={scale}>
+              <WebcamOverlay videoRef={webcamVideoRef} scale={scale} mirror />
+            </RecordingFrame>
+          </div>
+        </div>
+      )}
+      <PageNav back={{ label: 'Product Preview', href: '/preview' }} forward={{ label: 'Review', href: '/review' }} />
     </div>
   )
 }

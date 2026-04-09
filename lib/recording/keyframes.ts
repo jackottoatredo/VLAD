@@ -20,7 +20,7 @@ export function recordingToKeyframes(events: ReadonlyArray<RawEvent>): Keyframe[
   const sorted = [...events].sort((a, b) => a.timestamp - b.timestamp);
   const t0 = sorted[0].timestamp;
 
-  return sorted.map((e) => {
+  return sorted.filter((e) => e.eventType !== "recording-start").map((e) => {
     const kf: Keyframe = { t: e.timestamp - t0, x: e.x, y: e.y };
     if (e.eventType === "click") {
       kf.event = "click";

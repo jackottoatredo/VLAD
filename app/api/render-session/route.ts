@@ -5,8 +5,8 @@ import path from "node:path";
 import { TARGET_URL, DEFAULT_FPS } from "@/lib/config";
 import { recordingToKeyframes } from "@/lib/recording/keyframes";
 import { createReplayAction } from "@/lib/recording/actions";
-import { recordUrlToMp4 } from "@/lib/recording/record";
-import { createJob, updateJobProgress, completeJob, failJob } from "@/lib/job-store";
+import { produceSessionVideo } from "@/lib/recording/produce";
+import { createJob, updateJobProgress, startCompositing, updateCompositingProgress, completeJob, failJob } from "@/lib/job-store";
 
 export const runtime = "nodejs";
 
@@ -58,7 +58,7 @@ export async function POST(request: Request) {
   createJob(jobId);
 
   // Fire and forget — progress is tracked via job-store
-  recordUrlToMp4({
+  produceSessionVideo({
     url: TARGET_URL,
     sessionName: safeName,
     width: data.virtualWidth,
@@ -66,11 +66,13 @@ export async function POST(request: Request) {
     fps: DEFAULT_FPS,
     durationMs,
     actions: [replayAction],
-    onProgress: (rendered, total) => updateJobProgress(jobId, rendered, total),
+    onRenderProgress: (rendered, total) => updateJobProgress(jobId, rendered, total),
+    onRenderComplete: () => startCompositing(jobId),
+    onComposeProgress: (step, total) => updateCompositingProgress(jobId, step, total),
   })
     .then((result) => completeJob(jobId, result.videoUrl))
     .catch((error: unknown) => {
-      console.error("Render session failed", error);
+      console.error("Produce session failed", error);
       failJob(jobId, error instanceof Error ? error.message : "Render failed.");
     });
 

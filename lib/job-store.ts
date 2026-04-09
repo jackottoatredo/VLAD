@@ -1,5 +1,6 @@
 type JobState =
   | { status: "rendering"; rendered: number; total: number }
+  | { status: "compositing"; composited: number; total: number }
   | { status: "done"; videoUrl: string }
   | { status: "error"; message: string };
 
@@ -11,6 +12,14 @@ export function createJob(id: string): void {
 
 export function updateJobProgress(id: string, rendered: number, total: number): void {
   jobs.set(id, { status: "rendering", rendered, total });
+}
+
+export function startCompositing(id: string): void {
+  jobs.set(id, { status: "compositing", composited: 0, total: 0 });
+}
+
+export function updateCompositingProgress(id: string, composited: number, total: number): void {
+  jobs.set(id, { status: "compositing", composited, total });
 }
 
 export function completeJob(id: string, videoUrl: string): void {

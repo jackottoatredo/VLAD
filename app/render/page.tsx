@@ -10,6 +10,7 @@ type RecordingEntry = {
 type PageState =
   | { status: "loading-list" | "ready" }
   | { status: "rendering"; jobId: string; rendered: number; total: number }
+  | { status: "compositing"; jobId: string; composited: number; total: number }
   | { status: "done"; videoUrl: string }
   | { status: "error"; message: string };
 
@@ -30,9 +31,10 @@ export default function RenderPage() {
       .catch(() => setState({ status: "error", message: "Failed to load session list." }));
   }, []);
 
-  // Poll progress while rendering
+  // Poll progress while rendering or compositing
   useEffect(() => {
-    if (state.status !== "rendering") {
+    const isActive = state.status === "rendering" || state.status === "compositing";
+    if (!isActive) {
       if (pollRef.current) clearInterval(pollRef.current);
       return;
     }
@@ -44,6 +46,7 @@ export default function RenderPage() {
           status: string;
           rendered?: number;
           total?: number;
+          composited?: number;
           videoUrl?: string;
           message?: string;
         };
@@ -57,6 +60,12 @@ export default function RenderPage() {
               ? { ...prev, rendered: job.rendered ?? 0, total: job.total ?? 0 }
               : prev
           );
+        } else if (job.status === "compositing") {
+          setState((prev) =>
+            prev.status === "rendering" || prev.status === "compositing"
+              ? { status: "compositing", jobId, composited: job.composited ?? 0, total: job.total ?? 0 }
+              : prev
+          );
         }
       } catch {
         // transient fetch error — keep polling
@@ -65,7 +74,7 @@ export default function RenderPage() {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [state.status === "rendering" ? state.jobId : null]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [state.status === "rendering" || state.status === "compositing" ? (state as { jobId: string }).jobId : null]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleRender() {
     if (!selectedSession) return;
@@ -87,12 +96,19 @@ export default function RenderPage() {
   }
 
   const isLoadingList = state.status === "loading-list";
-  const isRendering = state.status === "rendering";
-  const canRender = !isLoadingList && !isRendering && selectedSession !== "";
+  const isWorking = state.status === "rendering" || state.status === "compositing";
+  const canRender = !isLoadingList && !isWorking && selectedSession !== "";
 
-  const progress =
+  const renderProgress =
     state.status === "rendering" && state.total > 0
       ? Math.round((state.rendered / state.total) * 100)
+      : state.status === "compositing" || state.status === "done"
+      ? 100
+      : 0;
+
+  const composeProgress =
+    state.status === "compositing" && state.total > 0
+      ? Math.round((state.composited / state.total) * 100)
       : state.status === "done"
       ? 100
       : 0;
@@ -116,7 +132,7 @@ export default function RenderPage() {
               setSelectedSession(e.target.value);
               setState({ status: "ready" });
             }}
-            disabled={isLoadingList || isRendering}
+            disabled={isLoadingList || isWorking}
             className="h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-900 outline-none transition focus:border-zinc-500 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
           >
             {isLoadingList && <option value="">Loading sessions…</option>}
@@ -135,7 +151,7 @@ export default function RenderPage() {
             disabled={!canRender}
             className="h-10 shrink-0 rounded-lg bg-zinc-900 px-6 text-sm font-medium text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
           >
-            {isRendering ? "Rendering…" : "Render"}
+            {state.status === "rendering" ? "Rendering…" : state.status === "compositing" ? "Compositing…" : "Render"}
           </button>
         </div>
 
@@ -143,24 +159,47 @@ export default function RenderPage() {
           <p className="text-sm text-red-600 dark:text-red-400">{state.message}</p>
         )}
 
-        {(isRendering || state.status === "done") && (
-          <div className="space-y-1.5">
-            <div className="flex justify-between text-xs text-zinc-500 dark:text-zinc-400">
-              <span>
-                {isRendering
-                  ? state.total > 0
-                    ? `Frame ${state.rendered} of ${state.total}`
-                    : "Starting…"
-                  : "Complete"}
-              </span>
-              <span>{progress}%</span>
+        {(isWorking || state.status === "done") && (
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-xs text-zinc-500 dark:text-zinc-400">
+                <span>
+                  {state.status === "rendering"
+                    ? state.total > 0
+                      ? `Rendering — frame ${state.rendered} of ${state.total}`
+                      : "Rendering — starting…"
+                    : "Rendering — complete"}
+                </span>
+                <span>{renderProgress}%</span>
+              </div>
+              <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
+                <div
+                  className="h-full rounded-full bg-zinc-900 transition-all duration-500 dark:bg-zinc-100"
+                  style={{ width: `${renderProgress}%` }}
+                />
+              </div>
             </div>
-            <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
-              <div
-                className="h-full rounded-full bg-zinc-900 transition-all duration-500 dark:bg-zinc-100"
-                style={{ width: `${progress}%` }}
-              />
-            </div>
+
+            {(state.status === "compositing" || state.status === "done") && (
+              <div className="space-y-1.5">
+                <div className="flex justify-between text-xs text-zinc-500 dark:text-zinc-400">
+                  <span>
+                    {state.status === "compositing"
+                      ? state.total > 0
+                        ? `Compositing — step ${state.composited} of ${state.total}`
+                        : "Compositing — starting…"
+                      : "Compositing — complete"}
+                  </span>
+                  <span>{composeProgress}%</span>
+                </div>
+                <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
+                  <div
+                    className="h-full rounded-full bg-zinc-900 transition-all duration-500 dark:bg-zinc-100"
+                    style={{ width: `${composeProgress}%` }}
+                  />
+                </div>
+              </div>
+            )}
           </div>
         )}
 

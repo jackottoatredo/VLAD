@@ -24,7 +24,7 @@ export default function RecordPage() {
   const streamRef = useRef<MediaStream | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const webcamChunksRef = useRef<Blob[]>([])
-  const webcamStartedAt = useRef<string>('')
+  const recordingStartedAt = useRef<string>('')
   const webcamVideoRef = useRef<HTMLVideoElement>(null)
 
   useEffect(() => {
@@ -65,13 +65,14 @@ export default function RecordPage() {
 
   function handleStart(sessionName: string) {
     sessionNameRef.current = sessionName
-    eventsRef.current = []
+    const startTime = Date.now()
+    recordingStartedAt.current = new Date(startTime).toISOString()
+    eventsRef.current = [{ eventType: 'recording-start', x: 0, y: 0, buttons: 0, timestamp: startTime }]
     setSavedSession(null)
     setIsRecording(true)
 
     if (streamRef.current) {
       webcamChunksRef.current = []
-      webcamStartedAt.current = new Date().toISOString()
       const mr = new MediaRecorder(streamRef.current, { mimeType: 'video/webm' })
       mr.ondataavailable = (e) => {
         if (e.data.size > 0) webcamChunksRef.current.push(e.data)
@@ -91,7 +92,7 @@ export default function RecordPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         session: sessionName,
-        recordedAt: new Date().toISOString(),
+        recordedAt: recordingStartedAt.current,
         virtualWidth: VIRTUAL_WIDTH,
         virtualHeight: VIRTUAL_HEIGHT,
         events: eventsRef.current,
@@ -106,7 +107,7 @@ export default function RecordPage() {
         const fd = new FormData()
         fd.append('session', sessionName)
         fd.append('video', blob, `${sessionName}_webcam.webm`)
-        fd.append('startedAt', webcamStartedAt.current)
+        fd.append('startedAt', recordingStartedAt.current)
         await fetch('/api/save-webcam', { method: 'POST', body: fd }).catch(() => {})
         resolve()
       }

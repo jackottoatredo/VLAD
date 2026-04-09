@@ -10,6 +10,7 @@ import { type CursorPosition, type RecordingAction } from "@/lib/recording/actio
 
 export type RecordingOptions = {
   url: string;
+  presenter: string;
   sessionName: string;
   width: number;
   height: number;
@@ -213,7 +214,7 @@ async function cleanupOldRecordings(dir: string, maxAgeMs: number): Promise<void
 }
 
 export async function recordUrlToMp4(options: RecordingOptions): Promise<RecordingResult> {
-  const renderingsDir = path.join(process.cwd(), "public", "sessions", options.sessionName, "renderings");
+  const renderingsDir = path.join(process.cwd(), "public", options.presenter, options.sessionName, "renderings");
   await mkdir(renderingsDir, { recursive: true });
 
   const tempDir = await mkdtemp(path.join(tmpdir(), "videobot-"));
@@ -246,7 +247,7 @@ export async function recordUrlToMp4(options: RecordingOptions): Promise<Recordi
     void cleanupOldRecordings(renderingsDir, RECORDING_MAX_AGE_MS);
 
     return {
-      videoUrl: `/sessions/${options.sessionName}/renderings/${fileName}`,
+      videoUrl: `/${options.presenter}/${options.sessionName}/renderings/${fileName}`,
       outputPath,
       totalDurationMs,
     };

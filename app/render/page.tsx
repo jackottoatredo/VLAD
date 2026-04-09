@@ -5,6 +5,7 @@ import PageNav from "@/app/components/PageNav";
 
 type RecordingEntry = {
   name: string;
+  presenter: string;
   recordedAt: string;
 };
 
@@ -19,7 +20,8 @@ const JOB_POLL_INTERVAL_MS = 500;
 
 export default function RenderPage() {
   const [recordings, setRecordings] = useState<RecordingEntry[]>([]);
-  const [selectedSession, setSelectedSession] = useState("");
+  const [selectedPresenter, setSelectedPresenter] = useState<string>("");
+  const [selectedSession, setSelectedSession] = useState<string>("");
   const [state, setState] = useState<PageState>({ status: "loading-list" });
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -28,7 +30,10 @@ export default function RenderPage() {
       .then((r) => r.json())
       .then((data: { recordings: RecordingEntry[] }) => {
         setRecordings(data.recordings);
-        if (data.recordings.length > 0) setSelectedSession(data.recordings[0].name);
+        if (data.recordings.length > 0) {
+          setSelectedPresenter(data.recordings[0].presenter);
+          setSelectedSession(data.recordings[0].name);
+        }
         setState({ status: "ready" });
       })
       .catch(() => setState({ status: "error", message: "Failed to load session list." }));
@@ -80,12 +85,12 @@ export default function RenderPage() {
   }, [state.status === "rendering" || state.status === "compositing" ? (state as { jobId: string }).jobId : null]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleRender() {
-    if (!selectedSession) return;
+    if (!selectedPresenter || !selectedSession) return;
     try {
       const response = await fetch("/api/render-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session: selectedSession }),
+        body: JSON.stringify({ session: selectedSession, presenter: selectedPresenter }),
       });
       const payload = (await response.json()) as { jobId?: string; error?: string };
       if (!response.ok || !payload.jobId) {
@@ -100,7 +105,12 @@ export default function RenderPage() {
 
   const isLoadingList = state.status === "loading-list";
   const isWorking = state.status === "rendering" || state.status === "compositing";
-  const canRender = !isLoadingList && !isWorking && selectedSession !== "";
+  const canRender = !isLoadingList && !isWorking && !!selectedPresenter && !!selectedSession;
+
+  const presenters = [...new Set(recordings.map((r) => r.presenter))].sort();
+  const sessionsForPresenter = recordings
+    .filter((r) => r.presenter === selectedPresenter)
+    .sort((a, b) => b.recordedAt.localeCompare(a.recordedAt));
 
   const renderProgress =
     state.status === "rendering" && state.total > 0
@@ -130,19 +140,37 @@ export default function RenderPage() {
 
         <div className="flex flex-col gap-3 sm:flex-row">
           <select
-            value={selectedSession}
+            value={selectedPresenter}
             onChange={(e) => {
-              setSelectedSession(e.target.value);
+              const presenter = e.target.value;
+              setSelectedPresenter(presenter);
+              const first = recordings.find((r) => r.presenter === presenter);
+              setSelectedSession(first?.name ?? "");
               setState({ status: "ready" });
             }}
             disabled={isLoadingList || isWorking}
             className="h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-900 outline-none transition focus:border-zinc-500 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
           >
-            {isLoadingList && <option value="">Loading sessions…</option>}
-            {!isLoadingList && recordings.length === 0 && (
-              <option value="">No sessions recorded yet</option>
+            {isLoadingList && <option value="">Loading…</option>}
+            {!isLoadingList && presenters.length === 0 && (
+              <option value="">No presenters yet</option>
             )}
-            {recordings.map((r) => (
+            {presenters.map((p) => (
+              <option key={p} value={p}>{p}</option>
+            ))}
+          </select>
+
+          <select
+            value={selectedSession}
+            onChange={(e) => {
+              setSelectedSession(e.target.value);
+              setState({ status: "ready" });
+            }}
+            disabled={isLoadingList || isWorking || sessionsForPresenter.length === 0}
+            className="h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-900 outline-none transition focus:border-zinc-500 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+          >
+            {sessionsForPresenter.length === 0 && <option value="">No sessions</option>}
+            {sessionsForPresenter.map((r) => (
               <option key={r.name} value={r.name}>
                 {r.name} — {new Date(r.recordedAt).toLocaleString()}
               </option>

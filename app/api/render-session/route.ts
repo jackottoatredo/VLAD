@@ -10,10 +10,11 @@ import { createJob, updateJobProgress, startCompositing, updateCompositingProgre
 
 export const runtime = "nodejs";
 
-const SESSIONS_DIR = path.join(process.cwd(), "public", "sessions");
+const PUBLIC_DIR = path.join(process.cwd(), "public");
 
 type RenderSessionBody = {
   session?: unknown;
+  presenter?: unknown;
 };
 
 export async function POST(request: Request) {
@@ -28,9 +29,13 @@ export async function POST(request: Request) {
   if (typeof body.session !== "string" || !body.session.trim()) {
     return NextResponse.json({ error: "Missing session name." }, { status: 400 });
   }
+  if (typeof body.presenter !== "string" || !body.presenter.trim()) {
+    return NextResponse.json({ error: "Missing presenter." }, { status: 400 });
+  }
 
   const safeName = body.session.replace(/[^a-z0-9_\-]/gi, "_");
-  const filePath = path.join(SESSIONS_DIR, safeName, "recordings", `${safeName}_mouse.json`);
+  const safePresenter = body.presenter.replace(/[^a-z0-9_\-]/gi, "_");
+  const filePath = path.join(PUBLIC_DIR, safePresenter, safeName, "recordings", `${safeName}_mouse.json`);
 
   let raw: string;
   try {
@@ -60,6 +65,7 @@ export async function POST(request: Request) {
   // Fire and forget — progress is tracked via job-store
   produceSessionVideo({
     url: TARGET_URL,
+    presenter: safePresenter,
     sessionName: safeName,
     width: data.virtualWidth,
     height: data.virtualHeight,

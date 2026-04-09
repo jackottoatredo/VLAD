@@ -3,6 +3,7 @@ import { compositeSessionVideo } from "@/lib/recording/compose";
 import { type RecordingAction } from "@/lib/recording/actions";
 
 export type ProduceOptions = {
+  presenter: string;
   sessionName: string;
   url: string;
   width: number;
@@ -22,6 +23,7 @@ export type ProduceResult = {
 export async function produceSessionVideo(options: ProduceOptions): Promise<ProduceResult> {
   const renderResult = await recordUrlToMp4({
     url: options.url,
+    presenter: options.presenter,
     sessionName: options.sessionName,
     width: options.width,
     height: options.height,
@@ -34,6 +36,7 @@ export async function produceSessionVideo(options: ProduceOptions): Promise<Prod
   options.onRenderComplete?.();
 
   const composeResult = await compositeSessionVideo({
+    presenter: options.presenter,
     sessionName: options.sessionName,
     screenVideoPath: renderResult.outputPath,
     screenVideoUrl: renderResult.videoUrl,

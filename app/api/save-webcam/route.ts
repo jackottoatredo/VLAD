@@ -4,7 +4,7 @@ import path from "node:path";
 
 export const runtime = "nodejs";
 
-const SESSIONS_DIR = path.join(process.cwd(), "public", "sessions");
+const PUBLIC_DIR = path.join(process.cwd(), "public");
 
 export async function POST(request: Request) {
   let formData: FormData;
@@ -15,10 +15,14 @@ export async function POST(request: Request) {
   }
 
   const session = formData.get("session");
+  const presenter = formData.get("presenter");
   const video = formData.get("video");
 
   if (typeof session !== "string" || !session.trim()) {
     return NextResponse.json({ error: "Missing session name." }, { status: 400 });
+  }
+  if (typeof presenter !== "string" || !presenter.trim()) {
+    return NextResponse.json({ error: "Missing presenter." }, { status: 400 });
   }
   if (!(video instanceof Blob)) {
     return NextResponse.json({ error: "Missing video data." }, { status: 400 });
@@ -29,18 +33,19 @@ export async function POST(request: Request) {
   const height = Number(formData.get("height") ?? 0);
 
   const safeName = session.replace(/[^a-z0-9_\-]/gi, "_");
-  const sessionRecordingsDir = path.join(SESSIONS_DIR, safeName, "recordings");
+  const safePresenter = presenter.replace(/[^a-z0-9_\-]/gi, "_");
+  const recordingsDir = path.join(PUBLIC_DIR, safePresenter, safeName, "recordings");
 
-  await mkdir(sessionRecordingsDir, { recursive: true });
+  await mkdir(recordingsDir, { recursive: true });
 
   const buffer = Buffer.from(await video.arrayBuffer());
-  await writeFile(path.join(sessionRecordingsDir, `${safeName}_webcam.webm`), buffer);
+  await writeFile(path.join(recordingsDir, `${safeName}_webcam.webm`), buffer);
 
   await writeFile(
-    path.join(sessionRecordingsDir, `${safeName}_webcam.json`),
+    path.join(recordingsDir, `${safeName}_webcam.json`),
     JSON.stringify({ width, height, startedAt }, null, 2),
     "utf-8"
   );
 
-  return NextResponse.json({ ok: true, path: `/sessions/${safeName}/recordings/${safeName}_webcam.webm` });
+  return NextResponse.json({ ok: true, path: `/${safePresenter}/${safeName}/recordings/${safeName}_webcam.webm` });
 }

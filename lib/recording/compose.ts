@@ -21,6 +21,7 @@ const BORDER_G = 77;
 const BORDER_B = 30;
 
 export type ComposeOptions = {
+  presenter: string;
   sessionName: string;
   screenVideoPath: string;   // absolute fs path to the Puppeteer MP4 — ffmpeg input 0
   screenVideoUrl: string;    // public URL returned as-is when no webcam exists
@@ -33,11 +34,11 @@ export type ComposeResult = {
 };
 
 // Derives the absolute path to the webcam recording for this session.
-export function webcamVideoPath(sessionName: string): string {
+export function webcamVideoPath(presenter: string, sessionName: string): string {
   return path.join(
     process.cwd(),
     "public",
-    "sessions",
+    presenter,
     sessionName,
     "recordings",
     `${sessionName}_webcam.webm`
@@ -65,8 +66,11 @@ function parseTimemark(mark: string): number {
  *   B         = WEBCAM_BORDER_THICKNESS  (4)    — orange ring width
  *   SR        = WEBCAM_SHADOW_RADIUS     (12)   — drop-shadow blur radius
  *   PAD       = WEBCAM_OVERLAY_PADDING   (12)   — gap from video corner
- *   plateSize = D + 2B                   (128)  — orange circle diameter
- *   canvasSize= plateSize + 2SR          (152)  — transparent badge canvas
+ *   plateSize    = D + 2B                            (128)  — orange plate diameter
+ *   shadowSigma  = SR/3                            (4)    — gaussian blur sigma
+ *   shadowOffset = shadowSigma                     (4)    — shadow displacement down-right
+ *   canvasSize   = plateSize + 2*(SR+shadowOffset) (160)  — transparent badge canvas (fully contains shadow)
+ *   platePos     = (canvasSize-plateSize)/2        (16)   — plate top-left within canvas
  *
  * Layer order (bottom → top):
  *   1. Transparent canvas (152×152)
@@ -80,25 +84,30 @@ function buildFilterComplex(): string {
   const SR  = WEBCAM_SHADOW_RADIUS;
   const PAD = WEBCAM_OVERLAY_PADDING;
 
-  const plateSize  = D + 2 * B;          // 128
-  const canvasSize = plateSize + 2 * SR; // 152
-  const platePos   = SR;                  // 12 — plate top-left within canvas
-  const webcamPos  = SR + B;              // 16 — webcam top-left within canvas
-  const shadowSigma  = Math.round(SR / 3); // 4
-  const shadowOffset = shadowSigma;        // 4 — shadow displacement (down-right)
+  const plateSize    = D + 2 * B;                           //  128 — orange plate diameter
+  const shadowSigma  = Math.round(SR / 3);                  //    4 — gaussian blur sigma
+  const shadowOffset = shadowSigma;                         //    4 — shadow displacement down-right
+  const canvasSize   = plateSize + 2 * (SR + shadowOffset); //  160 — canvas; fully contains shadow bleed
+  const platePos     = (canvasSize - plateSize) / 2;        //   16 — plate top-left within canvas
+  const webcamPos    = platePos + B;                        //   20 — webcam top-left within canvas
 
-  // Canvas top-left position on the main video so the plate's outer edge sits PAD px
-  // from the bottom-left corner.
-  const overlayX = PAD - SR;                          // 0
-  const overlayYExpr = `H-${PAD + platePos + plateSize}`; // H-152
+  // Canvas top-left on the main video: plate outer edge sits PAD px from bottom-left corner.
+  // overlayX is negative — the canvas bleeds 4px off the left edge, which FFmpeg clips harmlessly.
+  const overlayX     = PAD - platePos;                        //  -4
+  const overlayYExpr = `H-${PAD + platePos + plateSize}`;     // H-156
 
-  const halfD = D / 2;
-  const halfP = plateSize / 2;
+  const halfD         = D / 2;
+  const halfP         = plateSize / 2;
+  // Shadow source image is larger than the plate so gblur has SR px of transparent
+  // runway on all sides — the gaussian fades to ~1% before hitting the image edge.
+  const shadowImgSize = plateSize + 2 * SR;   // 152
+  const shadowHalfImg = shadowImgSize / 2;     //  76 — circle center within shadow image
 
-  // Per-pixel alpha expressions for geq.
-  const circCam   = `if(lte(hypot(X-${halfD},Y-${halfD}),${halfD}),255,0)`;
-  const circPlate = `if(lte(hypot(X-${halfP},Y-${halfP}),${halfP}),255,0)`;
-  const circShad  = `if(lte(hypot(X-${halfP},Y-${halfP}),${halfP}),180,0)`;
+  // Per-pixel alpha expressions for geq — 1-pixel antialiased circle boundary.
+  const circCam   = `clip(${halfD}+0.5-hypot(X-${halfD},Y-${halfD}),0,1)*255`;
+  const circPlate = `clip(${halfP}+0.5-hypot(X-${halfP},Y-${halfP}),0,1)*255`;
+  // circShad uses shadowHalfImg as center (circle same radius halfP, larger image).
+  const circShad  = `clip(${halfP}+0.5-hypot(X-${shadowHalfImg},Y-${shadowHalfImg}),0,1)*180`;
 
   const fps = DEFAULT_FPS;
 
@@ -112,11 +121,12 @@ function buildFilterComplex(): string {
     // 3. Orange border plate (plateSize × plateSize, circular).
     `color=c=black:s=${plateSize}x${plateSize}:r=${fps},format=rgba,geq=r=${BORDER_R}:g=${BORDER_G}:b=${BORDER_B}:a='${circPlate}'[pc]`,
 
-    // 4. Shadow: same-size circle, semi-transparent black, gaussian blurred.
-    `color=c=black:s=${plateSize}x${plateSize}:r=${fps},format=rgba,geq=r=0:g=0:b=0:a='${circShad}',gblur=sigma=${shadowSigma}[sc]`,
+    // 4. Shadow: padded source image so blur fades to zero before reaching the image edge.
+    `color=c=black:s=${shadowImgSize}x${shadowImgSize}:r=${fps},format=rgba,geq=r=0:g=0:b=0:a='${circShad}',gblur=sigma=${shadowSigma}[sc]`,
 
-    // 5. Shadow onto canvas (offset for drop-shadow effect).
-    `[bg][sc]overlay=x=${platePos + shadowOffset}:y=${platePos + shadowOffset}:format=auto[b1]`,
+    // 5. Shadow onto canvas — top-left offset backs the image up by SR so the shadow circle
+    //    center lands at (platePos+shadowOffset+halfP) within the canvas.
+    `[bg][sc]overlay=x=${platePos + shadowOffset - SR}:y=${platePos + shadowOffset - SR}:format=auto[b1]`,
 
     // 6. Orange plate onto canvas.
     `[b1][pc]overlay=x=${platePos}:y=${platePos}:format=auto[b2]`,
@@ -130,8 +140,8 @@ function buildFilterComplex(): string {
 }
 
 export async function compositeSessionVideo(options: ComposeOptions): Promise<ComposeResult> {
-  const { sessionName, screenVideoPath, screenVideoUrl, durationMs, onProgress } = options;
-  const webcamPath = webcamVideoPath(sessionName);
+  const { presenter, sessionName, screenVideoPath, screenVideoUrl, durationMs, onProgress } = options;
+  const webcamPath = webcamVideoPath(presenter, sessionName);
 
   // If no webcam recording exists for this session, skip compositing entirely.
   if (!existsSync(webcamPath)) {
@@ -143,7 +153,7 @@ export async function compositeSessionVideo(options: ComposeOptions): Promise<Co
   const renderingsDir = path.dirname(screenVideoPath);
   const fileName = `${sessionName}-final-${Date.now()}-${randomUUID().slice(0, 8)}.mp4`;
   const outputPath = path.join(renderingsDir, fileName);
-  const videoUrl = `/sessions/${sessionName}/renderings/${fileName}`;
+  const videoUrl = `/${presenter}/${sessionName}/renderings/${fileName}`;
 
   const args = [
     "-i", screenVideoPath,                             // [0:v] screen recording, no audio

@@ -5,43 +5,74 @@ import path from "node:path";
 
 export const runtime = "nodejs";
 
-const SESSIONS_DIR = path.join(process.cwd(), "public", "sessions");
+const PUBLIC_DIR = path.join(process.cwd(), "public");
+const PRESENTER_PATTERN = /^[a-zA-Z]+_[a-zA-Z]+$/;
 
 type RecordingEntry = {
   name: string;
+  presenter: string;
   recordedAt: string;
 };
 
 export async function GET() {
-  let entries: Dirent[];
+  let topEntries: Dirent[];
 
   try {
-    entries = await readdir(SESSIONS_DIR, { withFileTypes: true });
+    topEntries = await readdir(PUBLIC_DIR, { withFileTypes: true });
   } catch {
     return NextResponse.json({ recordings: [] });
   }
 
-  const subdirs = entries.filter((e) => e.isDirectory());
+  const presenterDirs = topEntries.filter(
+    (e) => e.isDirectory() && PRESENTER_PATTERN.test(e.name)
+  );
 
-  const recordings = (
-    await Promise.all(
-      subdirs.map(async (entry): Promise<RecordingEntry | null> => {
-        const name = entry.name;
-        const filePath = path.join(SESSIONS_DIR, name, "recordings", `${name}_mouse.json`);
-        try {
-          const raw = await readFile(filePath, "utf-8");
-          const parsed = JSON.parse(raw) as { session?: string; recordedAt?: string };
-          if (typeof parsed.session !== "string" || typeof parsed.recordedAt !== "string") {
-            return null;
-          }
-          return { name: parsed.session, recordedAt: parsed.recordedAt };
-        } catch {
-          return null;
-        }
-      })
-    )
-  )
-    .filter((r): r is RecordingEntry => r !== null)
+  const perPresenter = await Promise.all(
+    presenterDirs.map(async (presenterEntry) => {
+      let sessionEntries: Dirent[];
+      try {
+        sessionEntries = await readdir(
+          path.join(PUBLIC_DIR, presenterEntry.name),
+          { withFileTypes: true }
+        );
+      } catch {
+        return [] as RecordingEntry[];
+      }
+
+      const sessions = await Promise.all(
+        sessionEntries
+          .filter((e) => e.isDirectory())
+          .map(async (sessionEntry): Promise<RecordingEntry | null> => {
+            const filePath = path.join(
+              PUBLIC_DIR,
+              presenterEntry.name,
+              sessionEntry.name,
+              "recordings",
+              `${sessionEntry.name}_mouse.json`
+            );
+            try {
+              const raw = await readFile(filePath, "utf-8");
+              const parsed = JSON.parse(raw) as { session?: string; recordedAt?: string };
+              if (typeof parsed.session !== "string" || typeof parsed.recordedAt !== "string") {
+                return null;
+              }
+              return {
+                name: parsed.session,
+                presenter: presenterEntry.name,
+                recordedAt: parsed.recordedAt,
+              };
+            } catch {
+              return null;
+            }
+          })
+      );
+
+      return sessions.filter((r): r is RecordingEntry => r !== null);
+    })
+  );
+
+  const recordings = perPresenter
+    .flat()
     .sort((a, b) => b.recordedAt.localeCompare(a.recordedAt));
 
   return NextResponse.json({ recordings });

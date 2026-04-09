@@ -1,0 +1,2093 @@
+{
+  "session": "test",
+  "presenter": "otto_jack",
+  "recordedAt": "2026-04-09T18:23:05.910Z",
+  "virtualWidth": 1280,
+  "virtualHeight": 720,
+  "events": [
+    {
+      "eventType": "recording-start",
+      "x": 0,
+      "y": 0,
+      "buttons": 0,
+      "timestamp": 1775758985910
+    },
+    {
+      "eventType": "pointermove",
+      "x": 612.6277465820312,
+      "y": 714.8025512695312,
+      "buttons": 0,
+      "timestamp": 13956.799999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 623.2227783203125,
+      "y": 692.680419921875,
+      "buttons": 0,
+      "timestamp": 13971.199999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 628.2095947265625,
+      "y": 676.003173828125,
+      "buttons": 0,
+      "timestamp": 13987.799999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 632.7225341796875,
+      "y": 648.0042724609375,
+      "buttons": 0,
+      "timestamp": 14004.5
+    },
+    {
+      "eventType": "pointermove",
+      "x": 636.345458984375,
+      "y": 618.9732055664062,
+      "buttons": 0,
+      "timestamp": 14021.799999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 640.0369262695312,
+      "y": 565.1395874023438,
+      "buttons": 0,
+      "timestamp": 14040.099999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 640.0369262695312,
+      "y": 527.8778686523438,
+      "buttons": 0,
+      "timestamp": 14055
+    },
+    {
+      "eventType": "pointermove",
+      "x": 639.0679931640625,
+      "y": 485.0921936035156,
+      "buttons": 0,
+      "timestamp": 14071.199999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 636.3349609375,
+      "y": 455.03424072265625,
+      "buttons": 0,
+      "timestamp": 14087.799999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 624.8289184570312,
+      "y": 418.5361022949219,
+      "buttons": 0,
+      "timestamp": 14108
+    },
+    {
+      "eventType": "pointermove",
+      "x": 608.7993774414062,
+      "y": 397.0195007324219,
+      "buttons": 0,
+      "timestamp": 14123.199999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 586.566650390625,
+      "y": 383.6493225097656,
+      "buttons": 0,
+      "timestamp": 14137.599999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 554.4497680664062,
+      "y": 375.42919921875,
+      "buttons": 0,
+      "timestamp": 14153.699999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 515.1290283203125,
+      "y": 373.58612060546875,
+      "buttons": 0,
+      "timestamp": 14170.099999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 465.2290954589844,
+      "y": 381.1848449707031,
+      "buttons": 0,
+      "timestamp": 14182.799999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 384.1864318847656,
+      "y": 404.61297607421875,
+      "buttons": 0,
+      "timestamp": 14205
+    },
+    {
+      "eventType": "pointermove",
+      "x": 324.1390380859375,
+      "y": 425.3502197265625,
+      "buttons": 0,
+      "timestamp": 14220.89999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 252.75936889648438,
+      "y": 457.140625,
+      "buttons": 0,
+      "timestamp": 14241.299999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 225.8767852783203,
+      "y": 481.2006530761719,
+      "buttons": 0,
+      "timestamp": 14256.599999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 216.8404541015625,
+      "y": 509.3207092285156,
+      "buttons": 0,
+      "timestamp": 14271
+    },
+    {
+      "eventType": "pointermove",
+      "x": 222.25909423828125,
+      "y": 536.2822875976562,
+      "buttons": 0,
+      "timestamp": 14287.799999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 239.72091674804688,
+      "y": 564.6919555664062,
+      "buttons": 0,
+      "timestamp": 14304.699999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 284.69195556640625,
+      "y": 604.8815307617188,
+      "buttons": 0,
+      "timestamp": 14324.89999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 326.8720703125,
+      "y": 625.5924682617188,
+      "buttons": 0,
+      "timestamp": 14339.199999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 390.35809326171875,
+      "y": 636.3349609375,
+      "buttons": 0,
+      "timestamp": 14355
+    },
+    {
+      "eventType": "pointermove",
+      "x": 447.04583740234375,
+      "y": 632.5856323242188,
+      "buttons": 0,
+      "timestamp": 14370.5
+    },
+    {
+      "eventType": "pointermove",
+      "x": 486.62457275390625,
+      "y": 617.5250244140625,
+      "buttons": 0,
+      "timestamp": 14387.799999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 548.0779418945312,
+      "y": 567.9305419921875,
+      "buttons": 0,
+      "timestamp": 14408
+    },
+    {
+      "eventType": "pointermove",
+      "x": 574.7130126953125,
+      "y": 533.8231201171875,
+      "buttons": 0,
+      "timestamp": 14423
+    },
+    {
+      "eventType": "pointermove",
+      "x": 601.1005859375,
+      "y": 482.7330322265625,
+      "buttons": 0,
+      "timestamp": 14438
+    },
+    {
+      "eventType": "pointermove",
+      "x": 613.4650268554688,
+      "y": 420.9162902832031,
+      "buttons": 0,
+      "timestamp": 14458
+    },
+    {
+      "eventType": "pointermove",
+      "x": 611.6851196289062,
+      "y": 392.9173583984375,
+      "buttons": 0,
+      "timestamp": 14473.299999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 602.1221923828125,
+      "y": 371.9431457519531,
+      "buttons": 0,
+      "timestamp": 14488
+    },
+    {
+      "eventType": "pointermove",
+      "x": 587.6145629882812,
+      "y": 359.2048645019531,
+      "buttons": 0,
+      "timestamp": 14504.099999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 561.4165649414062,
+      "y": 348.37811279296875,
+      "buttons": 0,
+      "timestamp": 14520.599999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 529.2996826171875,
+      "y": 346.6403503417969,
+      "buttons": 0,
+      "timestamp": 14533.099999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 474.4339294433594,
+      "y": 355.8873291015625,
+      "buttons": 0,
+      "timestamp": 14556.39999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 446.1980285644531,
+      "y": 367.69354248046875,
+      "buttons": 0,
+      "timestamp": 14571.599999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 420.9110412597656,
+      "y": 382.14324951171875,
+      "buttons": 0,
+      "timestamp": 14588.099999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 389.3365173339844,
+      "y": 411.0058288574219,
+      "buttons": 0,
+      "timestamp": 14607.89999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 379.768310546875,
+      "y": 430.90576171875,
+      "buttons": 0,
+      "timestamp": 14623.099999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 376.1401062011719,
+      "y": 452.7172546386719,
+      "buttons": 0,
+      "timestamp": 14638.39999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 378.64141845703125,
+      "y": 473.50714111328125,
+      "buttons": 0,
+      "timestamp": 14654.299999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 392.0168762207031,
+      "y": 496.7720031738281,
+      "buttons": 0,
+      "timestamp": 14671.5
+    },
+    {
+      "eventType": "pointermove",
+      "x": 411.7167053222656,
+      "y": 515.6925048828125,
+      "buttons": 0,
+      "timestamp": 14688
+    },
+    {
+      "eventType": "pointermove",
+      "x": 457.65667724609375,
+      "y": 534.0179443359375,
+      "buttons": 0,
+      "timestamp": 14707.799999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 490.7899169921875,
+      "y": 535.8294067382812,
+      "buttons": 0,
+      "timestamp": 14723.299999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 522.8963012695312,
+      "y": 530.3107299804688,
+      "buttons": 0,
+      "timestamp": 14738.5
+    },
+    {
+      "eventType": "pointermove",
+      "x": 534.318115234375,
+      "y": 525.9136962890625,
+      "buttons": 0,
+      "timestamp": 14745.699999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 563.7862548828125,
+      "y": 508.4571228027344,
+      "buttons": 0,
+      "timestamp": 14771.5
+    },
+    {
+      "eventType": "pointermove",
+      "x": 612.0326538085938,
+      "y": 440.8215026855469,
+      "buttons": 0,
+      "timestamp": 14790.699999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 613.8441772460938,
+      "y": 413.85467529296875,
+      "buttons": 0,
+      "timestamp": 14804.89999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 606.8826293945312,
+      "y": 391.8483581542969,
+      "buttons": 0,
+      "timestamp": 14819.89999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 590.4002685546875,
+      "y": 377.99896240234375,
+      "buttons": 0,
+      "timestamp": 14835.699999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 550.9742431640625,
+      "y": 369.36285400390625,
+      "buttons": 0,
+      "timestamp": 14856.299999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 526.0610961914062,
+      "y": 371.17431640625,
+      "buttons": 0,
+      "timestamp": 14871.5
+    },
+    {
+      "eventType": "pointermove",
+      "x": 504.0916442871094,
+      "y": 379.97369384765625,
+      "buttons": 0,
+      "timestamp": 14887.199999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 488.9152526855469,
+      "y": 390.9320983886719,
+      "buttons": 0,
+      "timestamp": 14904.799999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 468.59930419921875,
+      "y": 411.23223876953125,
+      "buttons": 0,
+      "timestamp": 14924.699999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 460.57928466796875,
+      "y": 422.40655517578125,
+      "buttons": 0,
+      "timestamp": 14939.799999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 455.67669677734375,
+      "y": 434.1285095214844,
+      "buttons": 0,
+      "timestamp": 14954.299999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 455.67669677734375,
+      "y": 440.54241943359375,
+      "buttons": 0,
+      "timestamp": 14971.299999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 458.1727600097656,
+      "y": 445.9347229003906,
+      "buttons": 0,
+      "timestamp": 14988
+    },
+    {
+      "eventType": "pointermove",
+      "x": 464.9447326660156,
+      "y": 451.42181396484375,
+      "buttons": 0,
+      "timestamp": 15007.799999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 473.3807678222656,
+      "y": 454.9342041015625,
+      "buttons": 0,
+      "timestamp": 15023.299999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 483.8810119628906,
+      "y": 456.4297180175781,
+      "buttons": 0,
+      "timestamp": 15038.199999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 497.5987548828125,
+      "y": 454.57611083984375,
+      "buttons": 0,
+      "timestamp": 15058
+    },
+    {
+      "eventType": "pointermove",
+      "x": 509.36810302734375,
+      "y": 448.2886047363281,
+      "buttons": 0,
+      "timestamp": 15073.89999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 513.5756225585938,
+      "y": 444.0705871582031,
+      "buttons": 0,
+      "timestamp": 15089.89999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 516.1348266601562,
+      "y": 437.6461486816406,
+      "buttons": 0,
+      "timestamp": 15104.89999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 516.1348266601562,
+      "y": 432.238037109375,
+      "buttons": 0,
+      "timestamp": 15121.39999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 515.5819091796875,
+      "y": 429.4207763671875,
+      "buttons": 0,
+      "timestamp": 15137.599999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 513.9284057617188,
+      "y": 425.4239196777344,
+      "buttons": 0,
+      "timestamp": 15156.799999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 513.2859497070312,
+      "y": 421.59033203125,
+      "buttons": 0,
+      "timestamp": 15171
+    },
+    {
+      "eventType": "pointermove",
+      "x": 512.9752807617188,
+      "y": 420.3475646972656,
+      "buttons": 0,
+      "timestamp": 15187.099999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 512.1116943359375,
+      "y": 416.3507385253906,
+      "buttons": 0,
+      "timestamp": 15207.89999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 512.1116943359375,
+      "y": 415.4186706542969,
+      "buttons": 0,
+      "timestamp": 15223
+    },
+    {
+      "eventType": "pointermove",
+      "x": 511.80096435546875,
+      "y": 414.7972717285156,
+      "buttons": 0,
+      "timestamp": 15239.89999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 511.80096435546875,
+      "y": 414.1759033203125,
+      "buttons": 0,
+      "timestamp": 15254.699999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 511.80096435546875,
+      "y": 413.5545349121094,
+      "buttons": 0,
+      "timestamp": 15287.599999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 511.80096435546875,
+      "y": 412.9331359863281,
+      "buttons": 0,
+      "timestamp": 15323.299999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 511.80096435546875,
+      "y": 412.0010681152344,
+      "buttons": 0,
+      "timestamp": 15354.39999999851
+    },
+    {
+      "eventType": "click",
+      "x": 511,
+      "y": 412,
+      "buttons": 0,
+      "timestamp": 15576.5
+    },
+    {
+      "eventType": "keydown",
+      "x": 0,
+      "y": 0,
+      "buttons": 0,
+      "timestamp": 16004.799999998882,
+      "key": "a"
+    },
+    {
+      "eventType": "keydown",
+      "x": 0,
+      "y": 0,
+      "buttons": 0,
+      "timestamp": 16110.099999999627,
+      "key": "s"
+    },
+    {
+      "eventType": "pointermove",
+      "x": 511.80096435546875,
+      "y": 411.6903991699219,
+      "buttons": 0,
+      "timestamp": 16105.5
+    },
+    {
+      "eventType": "pointermove",
+      "x": 511.80096435546875,
+      "y": 411.37969970703125,
+      "buttons": 0,
+      "timestamp": 16161
+    },
+    {
+      "eventType": "keydown",
+      "x": 0,
+      "y": 0,
+      "buttons": 0,
+      "timestamp": 16205.099999999627,
+      "key": "d"
+    },
+    {
+      "eventType": "pointermove",
+      "x": 511.80096435546875,
+      "y": 411.0690002441406,
+      "buttons": 0,
+      "timestamp": 16198.099999999627
+    },
+    {
+      "eventType": "keydown",
+      "x": 0,
+      "y": 0,
+      "buttons": 0,
+      "timestamp": 16247.199999999255,
+      "key": "f"
+    },
+    {
+      "eventType": "pointermove",
+      "x": 512.1063842773438,
+      "y": 410.7583312988281,
+      "buttons": 0,
+      "timestamp": 16405.5
+    },
+    {
+      "eventType": "keydown",
+      "x": 0,
+      "y": 0,
+      "buttons": 0,
+      "timestamp": 16425.5,
+      "key": "a"
+    },
+    {
+      "eventType": "pointermove",
+      "x": 512.4118041992188,
+      "y": 410.7583312988281,
+      "buttons": 0,
+      "timestamp": 16439.39999999851
+    },
+    {
+      "eventType": "keydown",
+      "x": 0,
+      "y": 0,
+      "buttons": 0,
+      "timestamp": 16472.39999999851,
+      "key": "s"
+    },
+    {
+      "eventType": "pointermove",
+      "x": 512.4118041992188,
+      "y": 410.4476318359375,
+      "buttons": 0,
+      "timestamp": 16463.599999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 512.7172241210938,
+      "y": 410.4476318359375,
+      "buttons": 0,
+      "timestamp": 16538.699999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 512.7172241210938,
+      "y": 410.1369323730469,
+      "buttons": 0,
+      "timestamp": 16564.799999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 513.328125,
+      "y": 410.1369323730469,
+      "buttons": 0,
+      "timestamp": 16591.89999999851
+    },
+    {
+      "eventType": "keydown",
+      "x": 0,
+      "y": 0,
+      "buttons": 0,
+      "timestamp": 16638.89999999851,
+      "key": "d"
+    },
+    {
+      "eventType": "pointermove",
+      "x": 514.244384765625,
+      "y": 410.1369323730469,
+      "buttons": 0,
+      "timestamp": 16654.199999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 514.5498046875,
+      "y": 410.1369323730469,
+      "buttons": 0,
+      "timestamp": 16673.299999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 514.855224609375,
+      "y": 410.1369323730469,
+      "buttons": 0,
+      "timestamp": 16704.699999999255
+    },
+    {
+      "eventType": "keydown",
+      "x": 0,
+      "y": 0,
+      "buttons": 0,
+      "timestamp": 16709,
+      "key": "f"
+    },
+    {
+      "eventType": "pointermove",
+      "x": 515.16064453125,
+      "y": 410.1369323730469,
+      "buttons": 0,
+      "timestamp": 16708.39999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 515.466064453125,
+      "y": 410.1369323730469,
+      "buttons": 0,
+      "timestamp": 16739.5
+    },
+    {
+      "eventType": "pointermove",
+      "x": 515.771484375,
+      "y": 410.1369323730469,
+      "buttons": 0,
+      "timestamp": 16771.199999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 516.38232421875,
+      "y": 410.1369323730469,
+      "buttons": 0,
+      "timestamp": 16787.699999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 516.9931640625,
+      "y": 410.1369323730469,
+      "buttons": 0,
+      "timestamp": 16808
+    },
+    {
+      "eventType": "pointermove",
+      "x": 517.6093139648438,
+      "y": 410.1369323730469,
+      "buttons": 0,
+      "timestamp": 16823.099999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 517.9147338867188,
+      "y": 410.1369323730469,
+      "buttons": 0,
+      "timestamp": 16829.89999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 519.0890502929688,
+      "y": 410.1369323730469,
+      "buttons": 0,
+      "timestamp": 16854.599999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 520.8794555664062,
+      "y": 410.1369323730469,
+      "buttons": 0,
+      "timestamp": 16871.299999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 523.22802734375,
+      "y": 410.1369323730469,
+      "buttons": 0,
+      "timestamp": 16890.099999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 525.57666015625,
+      "y": 410.1369323730469,
+      "buttons": 0,
+      "timestamp": 16904.699999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 526.1927490234375,
+      "y": 410.1369323730469,
+      "buttons": 0,
+      "timestamp": 16920.89999999851
+    },
+    {
+      "eventType": "keydown",
+      "x": 0,
+      "y": 0,
+      "buttons": 0,
+      "timestamp": 16938.39999999851,
+      "key": "a"
+    },
+    {
+      "eventType": "pointermove",
+      "x": 527.4249877929688,
+      "y": 410.1369323730469,
+      "buttons": 0,
+      "timestamp": 16938.099999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 529.83154296875,
+      "y": 410.1369323730469,
+      "buttons": 0,
+      "timestamp": 16957.799999998882
+    },
+    {
+      "eventType": "keydown",
+      "x": 0,
+      "y": 0,
+      "buttons": 0,
+      "timestamp": 16970.599999999627,
+      "key": "s"
+    },
+    {
+      "eventType": "pointermove",
+      "x": 533.6546020507812,
+      "y": 410.1369323730469,
+      "buttons": 0,
+      "timestamp": 16973.5
+    },
+    {
+      "eventType": "pointermove",
+      "x": 535.4450073242188,
+      "y": 410.1369323730469,
+      "buttons": 0,
+      "timestamp": 16987.599999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 543.0279541015625,
+      "y": 410.1369323730469,
+      "buttons": 0,
+      "timestamp": 17008.199999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 547.4091796875,
+      "y": 410.1369323730469,
+      "buttons": 0,
+      "timestamp": 17023.199999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 552.8067626953125,
+      "y": 410.1369323730469,
+      "buttons": 0,
+      "timestamp": 17038.099999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 554.9973754882812,
+      "y": 410.1369323730469,
+      "buttons": 0,
+      "timestamp": 17046.199999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 561.4113159179688,
+      "y": 410.1369323730469,
+      "buttons": 0,
+      "timestamp": 17070.89999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 568.8362426757812,
+      "y": 410.1369323730469,
+      "buttons": 0,
+      "timestamp": 17087.89999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 583.44921875,
+      "y": 410.1369323730469,
+      "buttons": 0,
+      "timestamp": 17106
+    },
+    {
+      "eventType": "pointermove",
+      "x": 603.2069702148438,
+      "y": 410.1369323730469,
+      "buttons": 0,
+      "timestamp": 17123
+    },
+    {
+      "eventType": "keydown",
+      "x": 0,
+      "y": 0,
+      "buttons": 0,
+      "timestamp": 17129.599999999627,
+      "key": "d"
+    },
+    {
+      "eventType": "pointermove",
+      "x": 614.734130859375,
+      "y": 410.88470458984375,
+      "buttons": 0,
+      "timestamp": 17139.099999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 626.26123046875,
+      "y": 411.6693115234375,
+      "buttons": 0,
+      "timestamp": 17154.599999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 656.40869140625,
+      "y": 412.48028564453125,
+      "buttons": 0,
+      "timestamp": 17174.699999999255
+    },
+    {
+      "eventType": "keydown",
+      "x": 0,
+      "y": 0,
+      "buttons": 0,
+      "timestamp": 17190.199999999255,
+      "key": "f"
+    },
+    {
+      "eventType": "pointermove",
+      "x": 669.989501953125,
+      "y": 413.2912292480469,
+      "buttons": 0,
+      "timestamp": 17189.89999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 684.59716796875,
+      "y": 414.91314697265625,
+      "buttons": 0,
+      "timestamp": 17205
+    },
+    {
+      "eventType": "pointermove",
+      "x": 691.9010620117188,
+      "y": 415.7240905761719,
+      "buttons": 0,
+      "timestamp": 17212
+    },
+    {
+      "eventType": "pointermove",
+      "x": 707.5408325195312,
+      "y": 417.3670654296875,
+      "buttons": 0,
+      "timestamp": 17237.599999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 743.865234375,
+      "y": 427.08795166015625,
+      "buttons": 0,
+      "timestamp": 17257.89999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 774.9447631835938,
+      "y": 436.2296142578125,
+      "buttons": 0,
+      "timestamp": 17273
+    },
+    {
+      "eventType": "pointermove",
+      "x": 799.8473510742188,
+      "y": 444.170654296875,
+      "buttons": 0,
+      "timestamp": 17287.699999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 827.92529296875,
+      "y": 454.08111572265625,
+      "buttons": 0,
+      "timestamp": 17303.89999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 857.0300903320312,
+      "y": 465.94525146484375,
+      "buttons": 0,
+      "timestamp": 17315.599999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 915.4871215820312,
+      "y": 495.16064453125,
+      "buttons": 0,
+      "timestamp": 17337.799999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 951.1375122070312,
+      "y": 514.855224609375,
+      "buttons": 0,
+      "timestamp": 17353.699999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 984.74462890625,
+      "y": 534.4602661132812,
+      "buttons": 0,
+      "timestamp": 17370.699999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1014.539306640625,
+      "y": 556.8088989257812,
+      "buttons": 0,
+      "timestamp": 17387.699999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1044.818359375,
+      "y": 582.6856689453125,
+      "buttons": 0,
+      "timestamp": 17408.099999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1058.2939453125,
+      "y": 595.2975463867188,
+      "buttons": 0,
+      "timestamp": 17423.39999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1067.0247802734375,
+      "y": 604.6708984375,
+      "buttons": 0,
+      "timestamp": 17437.89999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1077.5777587890625,
+      "y": 616.0347900390625,
+      "buttons": 0,
+      "timestamp": 17454.599999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1085.33447265625,
+      "y": 625.2659912109375,
+      "buttons": 0,
+      "timestamp": 17470.799999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1100.3897705078125,
+      "y": 640.3212280273438,
+      "buttons": 0,
+      "timestamp": 17490
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1110.747802734375,
+      "y": 649.8157348632812,
+      "buttons": 0,
+      "timestamp": 17505
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1120.9742431640625,
+      "y": 657.6935424804688,
+      "buttons": 0,
+      "timestamp": 17521.799999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1126.103271484375,
+      "y": 661.5376586914062,
+      "buttons": 0,
+      "timestamp": 17538.89999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1138.7362060546875,
+      "y": 671.0269165039062,
+      "buttons": 0,
+      "timestamp": 17557.799999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1149.4471435546875,
+      "y": 677.9515991210938,
+      "buttons": 0,
+      "timestamp": 17573.599999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1154.576171875,
+      "y": 681.7957153320312,
+      "buttons": 0,
+      "timestamp": 17590
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1164.6446533203125,
+      "y": 688.7203979492188,
+      "buttons": 0,
+      "timestamp": 17604.199999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1170.2001953125,
+      "y": 691.6956787109375,
+      "buttons": 0,
+      "timestamp": 17623.099999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1175.87158203125,
+      "y": 695.0816650390625,
+      "buttons": 0,
+      "timestamp": 17638.199999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1177.6619873046875,
+      "y": 695.7767944335938,
+      "buttons": 0,
+      "timestamp": 17652.89999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1180.0106201171875,
+      "y": 696.5560913085938,
+      "buttons": 0,
+      "timestamp": 17671.599999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1181.801025390625,
+      "y": 697.251220703125,
+      "buttons": 0,
+      "timestamp": 17683
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1185.7821044921875,
+      "y": 698.4939575195312,
+      "buttons": 0,
+      "timestamp": 17707.699999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1186.9564208984375,
+      "y": 698.7993774414062,
+      "buttons": 0,
+      "timestamp": 17720.89999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1187.2618408203125,
+      "y": 698.7993774414062,
+      "buttons": 0,
+      "timestamp": 17729.89999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1187.8726806640625,
+      "y": 698.7993774414062,
+      "buttons": 0,
+      "timestamp": 17790.299999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1189.6630859375,
+      "y": 698.09375,
+      "buttons": 0,
+      "timestamp": 17805.39999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1190.5845947265625,
+      "y": 697.472412109375,
+      "buttons": 0,
+      "timestamp": 17820.799999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1191.506103515625,
+      "y": 696.5403442382812,
+      "buttons": 0,
+      "timestamp": 17837.599999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1192.4276123046875,
+      "y": 695.9189453125,
+      "buttons": 0,
+      "timestamp": 17854.39999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1193.6546630859375,
+      "y": 694.9868774414062,
+      "buttons": 0,
+      "timestamp": 17873.299999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1194.2655029296875,
+      "y": 694.365478515625,
+      "buttons": 0,
+      "timestamp": 17888.099999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1194.2655029296875,
+      "y": 694.0548095703125,
+      "buttons": 0,
+      "timestamp": 17895.299999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1194.5709228515625,
+      "y": 693.4334106445312,
+      "buttons": 0,
+      "timestamp": 17920.699999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1194.8763427734375,
+      "y": 692.5013427734375,
+      "buttons": 0,
+      "timestamp": 17938.699999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1195.4871826171875,
+      "y": 691.8800048828125,
+      "buttons": 0,
+      "timestamp": 17954.5
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1195.4871826171875,
+      "y": 691.5692749023438,
+      "buttons": 0,
+      "timestamp": 17976.799999998882
+    },
+    {
+      "eventType": "click",
+      "x": 1195,
+      "y": 691,
+      "buttons": 0,
+      "timestamp": 18098.5
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1195.176513671875,
+      "y": 691.5692749023438,
+      "buttons": 0,
+      "timestamp": 18354.89999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1193.0015869140625,
+      "y": 690.9479370117188,
+      "buttons": 0,
+      "timestamp": 18389.699999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1191.20068359375,
+      "y": 690.2422485351562,
+      "buttons": 0,
+      "timestamp": 18405.099999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1190.2686767578125,
+      "y": 689.9315795898438,
+      "buttons": 0,
+      "timestamp": 18420.699999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1187.9095458984375,
+      "y": 689.1416625976562,
+      "buttons": 0,
+      "timestamp": 18437.699999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1182.8963623046875,
+      "y": 687.177490234375,
+      "buttons": 0,
+      "timestamp": 18458
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1179.062744140625,
+      "y": 685.5819091796875,
+      "buttons": 0,
+      "timestamp": 18473.299999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1175.3133544921875,
+      "y": 682.8646850585938,
+      "buttons": 0,
+      "timestamp": 18488
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1169.6314697265625,
+      "y": 678.3201904296875,
+      "buttons": 0,
+      "timestamp": 18504.099999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1159.768310546875,
+      "y": 671.2586059570312,
+      "buttons": 0,
+      "timestamp": 18520.799999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1135.929443359375,
+      "y": 654.1864624023438,
+      "buttons": 0,
+      "timestamp": 18540.099999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1115.69775390625,
+      "y": 641.8325805664062,
+      "buttons": 0,
+      "timestamp": 18553
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1094.6708984375,
+      "y": 631.2691040039062,
+      "buttons": 0,
+      "timestamp": 18571.099999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1045.5819091796875,
+      "y": 610.8742065429688,
+      "buttons": 0,
+      "timestamp": 18591.099999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 1024.6708984375,
+      "y": 603.0279541015625,
+      "buttons": 0,
+      "timestamp": 18606.89999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 994.391845703125,
+      "y": 592.0169067382812,
+      "buttons": 0,
+      "timestamp": 18623.299999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 970.405517578125,
+      "y": 583.0911254882812,
+      "buttons": 0,
+      "timestamp": 18638.599999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 937.2617797851562,
+      "y": 572.043212890625,
+      "buttons": 0,
+      "timestamp": 18654
+    },
+    {
+      "eventType": "pointermove",
+      "x": 895.7767944335938,
+      "y": 558.5203247070312,
+      "buttons": 0,
+      "timestamp": 18674.799999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 869.83154296875,
+      "y": 551.3796997070312,
+      "buttons": 0,
+      "timestamp": 18689.799999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 834.62353515625,
+      "y": 543.0384521484375,
+      "buttons": 0,
+      "timestamp": 18705
+    },
+    {
+      "eventType": "pointermove",
+      "x": 809.71044921875,
+      "y": 537.6830444335938,
+      "buttons": 0,
+      "timestamp": 18721.099999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 777.593505859375,
+      "y": 529.4207763671875,
+      "buttons": 0,
+      "timestamp": 18737
+    },
+    {
+      "eventType": "pointermove",
+      "x": 742.2802124023438,
+      "y": 520.6319580078125,
+      "buttons": 0,
+      "timestamp": 18756.799999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 717.3670654296875,
+      "y": 512.6171875,
+      "buttons": 0,
+      "timestamp": 18773.099999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 704.8025512695312,
+      "y": 509.40496826171875,
+      "buttons": 0,
+      "timestamp": 18787.89999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 698.5203247070312,
+      "y": 507.04583740234375,
+      "buttons": 0,
+      "timestamp": 18804.39999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 686.835205078125,
+      "y": 504.3707580566406,
+      "buttons": 0,
+      "timestamp": 18824.89999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 682.4434204101562,
+      "y": 503.7283020019531,
+      "buttons": 0,
+      "timestamp": 18839.89999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 678.0516357421875,
+      "y": 503.7283020019531,
+      "buttons": 0,
+      "timestamp": 18854.39999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 673.6598510742188,
+      "y": 503.08587646484375,
+      "buttons": 0,
+      "timestamp": 18871.39999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 666.0453491210938,
+      "y": 503.08587646484375,
+      "buttons": 0,
+      "timestamp": 18891.299999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 657.5671997070312,
+      "y": 503.08587646484375,
+      "buttons": 0,
+      "timestamp": 18906.5
+    },
+    {
+      "eventType": "pointermove",
+      "x": 653.1754150390625,
+      "y": 503.08587646484375,
+      "buttons": 0,
+      "timestamp": 18922.89999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 646.8931274414062,
+      "y": 503.08587646484375,
+      "buttons": 0,
+      "timestamp": 18929.699999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 641.32177734375,
+      "y": 503.08587646484375,
+      "buttons": 0,
+      "timestamp": 18954.199999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 635.2975463867188,
+      "y": 502.3802185058594,
+      "buttons": 0,
+      "timestamp": 18974
+    },
+    {
+      "eventType": "pointermove",
+      "x": 634.0548095703125,
+      "y": 502.3802185058594,
+      "buttons": 0,
+      "timestamp": 18990.099999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 633.1227416992188,
+      "y": 502.0695495605469,
+      "buttons": 0,
+      "timestamp": 19005
+    },
+    {
+      "eventType": "pointermove",
+      "x": 632.190673828125,
+      "y": 501.4481506347656,
+      "buttons": 0,
+      "timestamp": 19020.5
+    },
+    {
+      "eventType": "pointermove",
+      "x": 630.3897094726562,
+      "y": 500.3475646972656,
+      "buttons": 0,
+      "timestamp": 19037.599999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 627.9674072265625,
+      "y": 498.6256103515625,
+      "buttons": 0,
+      "timestamp": 19057.599999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 626.724609375,
+      "y": 497.38287353515625,
+      "buttons": 0,
+      "timestamp": 19073.39999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 623.8968505859375,
+      "y": 494.9447326660156,
+      "buttons": 0,
+      "timestamp": 19087.89999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 621.627197265625,
+      "y": 492.67510986328125,
+      "buttons": 0,
+      "timestamp": 19104.599999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 617.7093505859375,
+      "y": 488.75726318359375,
+      "buttons": 0,
+      "timestamp": 19124.799999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 615.7398681640625,
+      "y": 486.7878112792969,
+      "buttons": 0,
+      "timestamp": 19140.099999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 614.4971313476562,
+      "y": 485.8557434082031,
+      "buttons": 0,
+      "timestamp": 19153
+    },
+    {
+      "eventType": "pointermove",
+      "x": 613.5650634765625,
+      "y": 484.9236755371094,
+      "buttons": 0,
+      "timestamp": 19170.699999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 612.9436645507812,
+      "y": 484.30230712890625,
+      "buttons": 0,
+      "timestamp": 19191.199999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 612.9436645507812,
+      "y": 483.9916076660156,
+      "buttons": 0,
+      "timestamp": 19295.89999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 612.9436645507812,
+      "y": 483.680908203125,
+      "buttons": 0,
+      "timestamp": 19324.89999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 612.9436645507812,
+      "y": 483.3702087402344,
+      "buttons": 0,
+      "timestamp": 19355.5
+    },
+    {
+      "eventType": "pointermove",
+      "x": 612.9436645507812,
+      "y": 482.74884033203125,
+      "buttons": 0,
+      "timestamp": 19388.5
+    },
+    {
+      "eventType": "pointermove",
+      "x": 612.9436645507812,
+      "y": 482.4381408691406,
+      "buttons": 0,
+      "timestamp": 19404.799999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 612.9436645507812,
+      "y": 481.8167724609375,
+      "buttons": 0,
+      "timestamp": 19421.199999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 612.9436645507812,
+      "y": 481.1954040527344,
+      "buttons": 0,
+      "timestamp": 19455.299999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 612.6329956054688,
+      "y": 481.1954040527344,
+      "buttons": 0,
+      "timestamp": 19471.599999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 612.6329956054688,
+      "y": 480.88470458984375,
+      "buttons": 0,
+      "timestamp": 19487.39999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 612.6329956054688,
+      "y": 480.5740051269531,
+      "buttons": 0,
+      "timestamp": 19554.5
+    },
+    {
+      "eventType": "click",
+      "x": 612,
+      "y": 480,
+      "buttons": 0,
+      "timestamp": 21975
+    },
+    {
+      "eventType": "pointermove",
+      "x": 612.6329956054688,
+      "y": 480.8794250488281,
+      "buttons": 0,
+      "timestamp": 22171.5
+    },
+    {
+      "eventType": "pointermove",
+      "x": 612.0115966796875,
+      "y": 480.8794250488281,
+      "buttons": 0,
+      "timestamp": 22187.799999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 608.6361694335938,
+      "y": 481.9747619628906,
+      "buttons": 0,
+      "timestamp": 22204.5
+    },
+    {
+      "eventType": "pointermove",
+      "x": 603.559814453125,
+      "y": 485.29754638671875,
+      "buttons": 0,
+      "timestamp": 22223.299999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 605.0552978515625,
+      "y": 492.89630126953125,
+      "buttons": 0,
+      "timestamp": 22487.199999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 609.7893676757812,
+      "y": 501.1690673828125,
+      "buttons": 0,
+      "timestamp": 22508
+    },
+    {
+      "eventType": "pointermove",
+      "x": 611.9800415039062,
+      "y": 502.5697937011719,
+      "buttons": 0,
+      "timestamp": 22523
+    },
+    {
+      "eventType": "pointermove",
+      "x": 616.3612670898438,
+      "y": 504.2127685546875,
+      "buttons": 0,
+      "timestamp": 22538.599999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 621.7588500976562,
+      "y": 504.2127685546875,
+      "buttons": 0,
+      "timestamp": 22554.699999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 626.2454223632812,
+      "y": 499.7156677246094,
+      "buttons": 0,
+      "timestamp": 22572
+    },
+    {
+      "eventType": "pointermove",
+      "x": 631.553466796875,
+      "y": 489.71038818359375,
+      "buttons": 0,
+      "timestamp": 22589.799999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 635.3976440429688,
+      "y": 483.92840576171875,
+      "buttons": 0,
+      "timestamp": 22605
+    },
+    {
+      "eventType": "pointermove",
+      "x": 638.5993041992188,
+      "y": 477.50396728515625,
+      "buttons": 0,
+      "timestamp": 22621
+    },
+    {
+      "eventType": "pointermove",
+      "x": 639.7841186523438,
+      "y": 472.0958557128906,
+      "buttons": 0,
+      "timestamp": 22637.39999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 641.9168090820312,
+      "y": 463.6282653808594,
+      "buttons": 0,
+      "timestamp": 22654.199999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 648.9047241210938,
+      "y": 445.808349609375,
+      "buttons": 0,
+      "timestamp": 22672.89999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 654.3970947265625,
+      "y": 433.24383544921875,
+      "buttons": 0,
+      "timestamp": 22687.5
+    },
+    {
+      "eventType": "pointermove",
+      "x": 660.07373046875,
+      "y": 418.6256103515625,
+      "buttons": 0,
+      "timestamp": 22704.89999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 665.1290283203125,
+      "y": 400.9162902832031,
+      "buttons": 0,
+      "timestamp": 22720.699999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 671.9800415039062,
+      "y": 371.7799072265625,
+      "buttons": 0,
+      "timestamp": 22737.89999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 673.6598510742188,
+      "y": 354.0705871582031,
+      "buttons": 0,
+      "timestamp": 22754.699999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 673.6598510742188,
+      "y": 340.4792175292969,
+      "buttons": 0,
+      "timestamp": 22770.299999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 673.6598510742188,
+      "y": 329.9684143066406,
+      "buttons": 0,
+      "timestamp": 22787.89999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 672.4013061523438,
+      "y": 321.3533630371094,
+      "buttons": 0,
+      "timestamp": 22807.89999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 672.0906372070312,
+      "y": 320.73199462890625,
+      "buttons": 0,
+      "timestamp": 22814.89999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 672.0906372070312,
+      "y": 321.03741455078125,
+      "buttons": 0,
+      "timestamp": 22854.799999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 673.25439453125,
+      "y": 323.8441467285156,
+      "buttons": 0,
+      "timestamp": 22871.39999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 681.3428344726562,
+      "y": 337.7619934082031,
+      "buttons": 0,
+      "timestamp": 22890.099999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 691.5692749023438,
+      "y": 353.92840576171875,
+      "buttons": 0,
+      "timestamp": 22905.099999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 707.48291015625,
+      "y": 372.4960632324219,
+      "buttons": 0,
+      "timestamp": 22920.599999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 725.050048828125,
+      "y": 388.3149108886719,
+      "buttons": 0,
+      "timestamp": 22937.5
+    },
+    {
+      "eventType": "pointermove",
+      "x": 750.8900146484375,
+      "y": 406.4139404296875,
+      "buttons": 0,
+      "timestamp": 22957.799999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 765.0606079101562,
+      "y": 415.5819091796875,
+      "buttons": 0,
+      "timestamp": 22971.89999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 776.0505981445312,
+      "y": 422.63824462890625,
+      "buttons": 0,
+      "timestamp": 22987.599999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 787.6935424804688,
+      "y": 428.7730712890625,
+      "buttons": 0,
+      "timestamp": 23008.199999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 793.4650268554688,
+      "y": 432.6171875,
+      "buttons": 0,
+      "timestamp": 23023.299999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 800.1527709960938,
+      "y": 436.7088317871094,
+      "buttons": 0,
+      "timestamp": 23038.199999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 810.1422119140625,
+      "y": 443.6282653808594,
+      "buttons": 0,
+      "timestamp": 23054.299999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 821.3165283203125,
+      "y": 451.6377258300781,
+      "buttons": 0,
+      "timestamp": 23070.799999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 840.1422119140625,
+      "y": 466.4244689941406,
+      "buttons": 0,
+      "timestamp": 23091.199999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 851.4481811523438,
+      "y": 476.9826354980469,
+      "buttons": 0,
+      "timestamp": 23106.39999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 862.1275024414062,
+      "y": 489.2733154296875,
+      "buttons": 0,
+      "timestamp": 23121.199999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 872.411865234375,
+      "y": 507.3302001953125,
+      "buttons": 0,
+      "timestamp": 23138.199999999255
+    },
+    {
+      "eventType": "pointermove",
+      "x": 883.5966796875,
+      "y": 536.6351318359375,
+      "buttons": 0,
+      "timestamp": 23158.099999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 889.0679931640625,
+      "y": 568.741455078125,
+      "buttons": 0,
+      "timestamp": 23173.299999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 892.6488037109375,
+      "y": 594.6762084960938,
+      "buttons": 0,
+      "timestamp": 23188.099999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 895.3712768554688,
+      "y": 623.6967163085938,
+      "buttons": 0,
+      "timestamp": 23204.599999999627
+    },
+    {
+      "eventType": "pointermove",
+      "x": 898.9573974609375,
+      "y": 648.5993041992188,
+      "buttons": 0,
+      "timestamp": 23221
+    },
+    {
+      "eventType": "pointermove",
+      "x": 903.1227416992188,
+      "y": 665.271240234375,
+      "buttons": 0,
+      "timestamp": 23237.89999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 907.0985107421875,
+      "y": 678.85205078125,
+      "buttons": 0,
+      "timestamp": 23247.799999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 912.5908813476562,
+      "y": 697.6830444335938,
+      "buttons": 0,
+      "timestamp": 23273.299999998882
+    },
+    {
+      "eventType": "pointermove",
+      "x": 914.9710693359375,
+      "y": 711.2638549804688,
+      "buttons": 0,
+      "timestamp": 23287.89999999851
+    },
+    {
+      "eventType": "pointermove",
+      "x": 914.9710693359375,
+      "y": 719.7315063476562,
+      "buttons": 0,
+      "timestamp": 23304.5
+    }
+  ]
+}

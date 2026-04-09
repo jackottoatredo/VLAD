@@ -1,13 +1,10 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
-import RecordingControls from '@/app/components/RecordingControls'
+import RecordingFrame from '@/app/record/RecordingFrame'
+import WebcamOverlay from '@/app/record/WebcamOverlay'
+import RecordingTools from '@/app/record/RecordingTools'
 import PageNav from '@/app/components/PageNav'
-import {
-  TARGET_URL, VIRTUAL_WIDTH, VIRTUAL_HEIGHT,
-  WEBCAM_OVERLAY_DIAMETER, WEBCAM_OVERLAY_PADDING,
-  WEBCAM_BORDER_THICKNESS, WEBCAM_SHADOW_RADIUS, WEBCAM_BORDER_COLOR,
-  WEBCAM_RECORDER_TIMESLICE_MS,
-} from '@/lib/config'
+import { VIRTUAL_WIDTH, VIRTUAL_HEIGHT, WEBCAM_RECORDER_TIMESLICE_MS } from '@/lib/config'
 
 type RelayEvent = {
   eventType: string
@@ -24,13 +21,14 @@ export default function RecordPage() {
   const [scale, setScale] = useState(1)
   const [isRecording, setIsRecording] = useState(false)
   const sessionNameRef = useRef('')
+  const presenterRef = useRef('')
 
   // Webcam
   const streamRef = useRef<MediaStream | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const webcamChunksRef = useRef<Blob[]>([])
   const recordingStartedAt = useRef<string>('')
-  const webcamVideoRef = useRef<HTMLVideoElement>(null)
+  const webcamVideoRef = useRef<HTMLVideoElement | null>(null)
   const webcamDimsRef = useRef<{ width: number; height: number } | null>(null)
 
   useEffect(() => {
@@ -72,8 +70,9 @@ export default function RecordPage() {
     }
   }, [])
 
-  function handleStart(sessionName: string) {
+  function handleStart(sessionName: string, presenter: string) {
     sessionNameRef.current = sessionName
+    presenterRef.current = presenter
     const startTime = Date.now()
     recordingStartedAt.current = new Date(startTime).toISOString()
     eventsRef.current = [{ eventType: 'recording-start', x: 0, y: 0, buttons: 0, timestamp: startTime }]
@@ -94,12 +93,14 @@ export default function RecordPage() {
     setIsRecording(false)
 
     const sessionName = sessionNameRef.current
+    const presenter = presenterRef.current
 
     const mousePromise = fetch('/api/save-session', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         session: sessionName,
+        presenter,
         recordedAt: recordingStartedAt.current,
         virtualWidth: VIRTUAL_WIDTH,
         virtualHeight: VIRTUAL_HEIGHT,
@@ -114,6 +115,7 @@ export default function RecordPage() {
         const blob = new Blob(webcamChunksRef.current, { type: 'video/webm' })
         const fd = new FormData()
         fd.append('session', sessionName)
+        fd.append('presenter', presenter)
         fd.append('video', blob, `${sessionName}_webcam.webm`)
         fd.append('startedAt', recordingStartedAt.current)
         if (webcamDimsRef.current) {
@@ -130,55 +132,21 @@ export default function RecordPage() {
   }
 
   return (
-    <div className="flex min-h-screen w-full flex-col items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <RecordingControls
-        isRecording={isRecording}
-        onStart={handleStart}
-        onStop={handleStop}
-      />
-      <div
-        ref={containerRef}
-        className="relative overflow-hidden shadow-lg"
-        style={{ width: '75vw', aspectRatio: `${VIRTUAL_WIDTH} / ${VIRTUAL_HEIGHT}` }}
-      >
-        <iframe
-          key="iframe"
-          ref={iframeRef}
-          src={TARGET_URL}
-          className="border-0"
-          style={{
-            display: 'block',
-            width: `${VIRTUAL_WIDTH}px`,
-            height: `${VIRTUAL_HEIGHT}px`,
-            transform: `scale(${scale})`,
-            transformOrigin: '0 0',
-          }}
-          title="redo.com"
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-top-navigation"
-        />
-        <div
-          style={{
-            position: 'absolute',
-            bottom: WEBCAM_OVERLAY_PADDING * scale,
-            left: WEBCAM_OVERLAY_PADDING * scale,
-            width: WEBCAM_OVERLAY_DIAMETER * scale,
-            height: WEBCAM_OVERLAY_DIAMETER * scale,
-            borderRadius: '50%',
-            overflow: 'hidden',
-            pointerEvents: 'none',
-            zIndex: 10,
-            border: `${WEBCAM_BORDER_THICKNESS * scale}px solid ${WEBCAM_BORDER_COLOR}`,
-            boxShadow: `0 ${Math.round(WEBCAM_SHADOW_RADIUS * scale / 3)}px ${WEBCAM_SHADOW_RADIUS * scale}px rgba(0,0,0,0.5)`,
-          }}
-        >
-          <video
-            ref={webcamVideoRef}
-            autoPlay
-            muted
-            playsInline
-            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+    <div className="flex min-h-screen flex-col items-center bg-zinc-50 font-sans dark:bg-black">
+      <div className="flex flex-1 w-full items-center justify-center py-6">
+        <div className="flex w-[75vw] flex-col gap-4">
+          <RecordingTools
+            isRecording={isRecording}
+            onStart={handleStart}
+            onStop={handleStop}
           />
+          <RecordingFrame iframeRef={iframeRef} containerRef={containerRef} scale={scale}>
+            <WebcamOverlay videoRef={webcamVideoRef} scale={scale} mirror />
+          </RecordingFrame>
         </div>
+      </div>
+      <div className="flex w-full justify-center pb-20">
+        
       </div>
       <PageNav back={{ label: 'Home', href: '/' }} forward={{ label: 'Rendering', href: '/render' }} />
     </div>

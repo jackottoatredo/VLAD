@@ -4,7 +4,7 @@ import RecordingFrame from '@/app/record/RecordingFrame'
 import WebcamOverlay from '@/app/record/WebcamOverlay'
 import RecordingTools from '@/app/record/RecordingTools'
 import PageNav from '@/app/components/PageNav'
-import { VIRTUAL_WIDTH, VIRTUAL_HEIGHT, WEBCAM_RECORDER_TIMESLICE_MS } from '@/lib/config'
+import { VIRTUAL_WIDTH, VIRTUAL_HEIGHT, WEBCAM_RECORDER_TIMESLICE_MS } from '@/app/config'
 
 type RelayEvent = {
   eventType: string

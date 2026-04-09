@@ -14,7 +14,7 @@ type RawEvent = {
   key?: string;
 };
 
-export function recordingToKeyframes(events: ReadonlyArray<RawEvent>): Keyframe[] {
+export function eventsToKeyframes(events: ReadonlyArray<RawEvent>): Keyframe[] {
   if (events.length === 0) return [];
 
   const sorted = [...events].sort((a, b) => a.timestamp - b.timestamp);

@@ -1,6 +1,6 @@
-import { recordUrlToMp4 } from "@/lib/recording/record";
-import { compositeSessionVideo } from "@/lib/recording/compose";
-import { type RecordingAction } from "@/lib/recording/actions";
+import { renderUrlToMp4 } from "@/lib/render/render";
+import { compositeSessionVideo } from "@/lib/compose/compose";
+import { type RenderAction } from "@/lib/render/actions";
 
 export type ProduceOptions = {
   presenter: string;
@@ -10,7 +10,7 @@ export type ProduceOptions = {
   height: number;
   fps: number;
   durationMs: number;
-  actions: RecordingAction[];
+  actions: RenderAction[];
   onRenderProgress?: (rendered: number, total: number) => void;
   onRenderComplete?: () => void;
   onComposeProgress?: (step: number, total: number) => void;
@@ -21,7 +21,7 @@ export type ProduceResult = {
 };
 
 export async function produceSessionVideo(options: ProduceOptions): Promise<ProduceResult> {
-  const renderResult = await recordUrlToMp4({
+  const renderResult = await renderUrlToMp4({
     url: options.url,
     presenter: options.presenter,
     sessionName: options.sessionName,

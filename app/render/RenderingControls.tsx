@@ -7,7 +7,7 @@ type Props = {
   onStop: () => void
 }
 
-export default function RecordingControls({ isRecording, onStart, onStop }: Props) {
+export default function RenderingControls({ isRecording, onStart, onStop }: Props) {
   const [name, setName] = useState('')
 
   return (

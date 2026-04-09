@@ -5,7 +5,7 @@ import {
   WEBCAM_BORDER_THICKNESS,
   WEBCAM_SHADOW_RADIUS,
   WEBCAM_BORDER_COLOR,
-} from '@/lib/config'
+} from '@/app/config'
 
 type Props = {
   videoRef: React.RefObject<HTMLVideoElement | null>

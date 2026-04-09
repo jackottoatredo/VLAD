@@ -1,5 +1,5 @@
 'use client'
-import { TARGET_URL, VIRTUAL_WIDTH, VIRTUAL_HEIGHT } from '@/lib/config'
+import { TARGET_URL, VIRTUAL_WIDTH, VIRTUAL_HEIGHT } from '@/app/config'
 
 type Props = {
   iframeRef: React.RefObject<HTMLIFrameElement | null>

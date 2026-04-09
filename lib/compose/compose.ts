@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
-import { resolvedFfmpegPath } from "@/lib/recording/record";
+import { resolvedFfmpegPath } from "@/lib/render/render";
 import {
   WEBCAM_OFFSET_MS,
   WEBCAM_OVERLAY_DIAMETER,
@@ -10,9 +10,9 @@ import {
   WEBCAM_BORDER_THICKNESS,
   WEBCAM_SHADOW_RADIUS,
   DEFAULT_FPS,
-} from "@/lib/config";
+} from "@/app/config";
 
-// Reuse the same resolved binary path as record.ts (handles /ROOT/ prefix on bundled installs).
+// Reuse the same resolved binary path as render.ts (handles /ROOT/ prefix on bundled installs).
 const FFMPEG_BIN = resolvedFfmpegPath ?? "ffmpeg";
 
 // Orange border color components (rgb 233 77 30).
@@ -60,7 +60,7 @@ function parseTimemark(mark: string): number {
 /**
  * Builds the FFmpeg filter_complex string for the circular webcam badge overlay.
  *
- * Geometry (all values in virtual pixels, matching lib/config.ts constants):
+ * Geometry (all values in virtual pixels, matching app/config.ts constants):
  *
  *   D         = WEBCAM_OVERLAY_DIAMETER  (120)  — webcam circle diameter
  *   B         = WEBCAM_BORDER_THICKNESS  (4)    — orange ring width

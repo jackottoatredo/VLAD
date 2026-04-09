@@ -1,12 +1,12 @@
 import { type Page, type KeyInput } from "puppeteer";
-import { interpolatePosition, discreteEventsInWindow, type Keyframe } from "@/lib/recording/keyframes";
+import { interpolatePosition, discreteEventsInWindow, type Keyframe } from "@/lib/render/keyframes";
 
 export type CursorPosition = {
   x: number;
   y: number;
 };
 
-export type RecordingActionRunContext = {
+export type RenderActionRunContext = {
   page: Page;
   width: number;
   height: number;
@@ -16,12 +16,12 @@ export type RecordingActionRunContext = {
   moveAndCapture: (x: number, y: number) => Promise<void>;
 };
 
-export type RecordingAction = {
+export type RenderAction = {
   name: string;
   durationMs: number;
   // Each action receives the previous action's end cursor in context.startCursor
   // and must return its own final cursor position for chaining continuity.
-  run: (context: RecordingActionRunContext) => Promise<CursorPosition>;
+  run: (context: RenderActionRunContext) => Promise<CursorPosition>;
 };
 
 function clampCoordinate(value: number, max: number): number {
@@ -31,7 +31,7 @@ function clampCoordinate(value: number, max: number): number {
 export function createReplayAction(
   keyframes: ReadonlyArray<Keyframe>,
   durationMs: number
-): RecordingAction {
+): RenderAction {
   return {
     name: "session-replay",
     durationMs,

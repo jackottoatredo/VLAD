@@ -2,11 +2,11 @@ import { NextResponse } from "next/server";
 import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import { TARGET_URL, DEFAULT_FPS } from "@/lib/config";
-import { recordingToKeyframes } from "@/lib/recording/keyframes";
-import { createReplayAction } from "@/lib/recording/actions";
-import { produceSessionVideo } from "@/lib/recording/produce";
-import { createJob, updateJobProgress, startCompositing, updateCompositingProgress, completeJob, failJob } from "@/lib/job-store";
+import { TARGET_URL, DEFAULT_FPS } from "@/app/config";
+import { eventsToKeyframes } from "@/lib/render/keyframes";
+import { createReplayAction } from "@/lib/render/actions";
+import { produceSessionVideo } from "@/lib/render/produce";
+import { createJob, updateJobProgress, startCompositing, updateCompositingProgress, completeJob, failJob } from "@/lib/render/job-store";
 
 export const runtime = "nodejs";
 
@@ -55,7 +55,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Session file is missing required fields." }, { status: 400 });
   }
 
-  const keyframes = recordingToKeyframes(data.events as Parameters<typeof recordingToKeyframes>[0]);
+  const keyframes = eventsToKeyframes(data.events as Parameters<typeof eventsToKeyframes>[0]);
   const durationMs = keyframes.length > 0 ? keyframes[keyframes.length - 1].t : 1000;
   const replayAction = createReplayAction(keyframes, durationMs);
 

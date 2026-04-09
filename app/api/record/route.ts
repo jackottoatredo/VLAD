@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { recordUrlToMp4 } from "@/lib/recording/record";
+import { renderUrlToMp4 } from "@/lib/render/render";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -69,7 +69,7 @@ export async function POST(request: Request) {
   const durationMs = 1000;
 
   try {
-    const result = await recordUrlToMp4({
+    const result = await renderUrlToMp4({
       url,
       width,
       height,

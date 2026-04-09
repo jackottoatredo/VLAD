@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import PageNav from "@/app/components/PageNav";
 
 type RecordingEntry = {
   name: string;
@@ -227,6 +228,7 @@ export default function RenderPage() {
           </div>
         )}
       </main>
+      <PageNav back={{ label: 'Recording', href: '/record' }} />
     </div>
   );
 }

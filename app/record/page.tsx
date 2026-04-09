@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
 import RecordingControls from '@/app/components/RecordingControls'
+import PageNav from '@/app/components/PageNav'
 import {
   TARGET_URL, VIRTUAL_WIDTH, VIRTUAL_HEIGHT,
   WEBCAM_OVERLAY_DIAMETER, WEBCAM_OVERLAY_PADDING,
@@ -22,7 +23,6 @@ export default function RecordPage() {
   const eventsRef = useRef<RelayEvent[]>([])
   const [scale, setScale] = useState(1)
   const [isRecording, setIsRecording] = useState(false)
-  const [savedSession, setSavedSession] = useState<string | null>(null)
   const sessionNameRef = useRef('')
 
   // Webcam
@@ -77,7 +77,6 @@ export default function RecordPage() {
     const startTime = Date.now()
     recordingStartedAt.current = new Date(startTime).toISOString()
     eventsRef.current = [{ eventType: 'recording-start', x: 0, y: 0, buttons: 0, timestamp: startTime }]
-    setSavedSession(null)
     setIsRecording(true)
 
     if (streamRef.current) {
@@ -128,14 +127,12 @@ export default function RecordPage() {
     })
 
     await Promise.all([mousePromise, webcamPromise])
-    setSavedSession(sessionName)
   }
 
   return (
     <div className="flex min-h-screen w-full flex-col items-center justify-center bg-zinc-50 font-sans dark:bg-black">
       <RecordingControls
         isRecording={isRecording}
-        savedSession={savedSession}
         onStart={handleStart}
         onStop={handleStop}
       />
@@ -183,6 +180,7 @@ export default function RecordPage() {
           />
         </div>
       </div>
+      <PageNav back={{ label: 'Home', href: '/' }} forward={{ label: 'Rendering', href: '/render' }} />
     </div>
   )
 }

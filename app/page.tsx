@@ -1,4 +1,5 @@
 import Link from "next/link";
+import PageNav from "@/app/components/PageNav";
 
 export default function Home() {
   return (
@@ -29,6 +30,7 @@ export default function Home() {
           </ol>
         </div>
       </main>
+      <PageNav forward={{ label: 'Recording', href: '/record' }} />
     </div>
   )
 }

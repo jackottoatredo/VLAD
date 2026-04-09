@@ -1,7 +1,11 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
 import RecordingControls from '@/app/components/RecordingControls'
-import { TARGET_URL, VIRTUAL_WIDTH, VIRTUAL_HEIGHT } from '@/lib/config'
+import {
+  TARGET_URL, VIRTUAL_WIDTH, VIRTUAL_HEIGHT,
+  WEBCAM_OVERLAY_DIAMETER, WEBCAM_OVERLAY_PADDING,
+  WEBCAM_BORDER_THICKNESS, WEBCAM_SHADOW_RADIUS, WEBCAM_BORDER_COLOR,
+} from '@/lib/config'
 
 type RelayEvent = {
   eventType: string
@@ -26,6 +30,7 @@ export default function RecordPage() {
   const webcamChunksRef = useRef<Blob[]>([])
   const recordingStartedAt = useRef<string>('')
   const webcamVideoRef = useRef<HTMLVideoElement>(null)
+  const webcamDimsRef = useRef<{ width: number; height: number } | null>(null)
 
   useEffect(() => {
     const el = containerRef.current
@@ -55,6 +60,10 @@ export default function RecordPage() {
       .then((stream) => {
         streamRef.current = stream
         if (webcamVideoRef.current) webcamVideoRef.current.srcObject = stream
+        const settings = stream.getVideoTracks()[0]?.getSettings()
+        if (settings?.width && settings?.height) {
+          webcamDimsRef.current = { width: settings.width, height: settings.height }
+        }
       })
       .catch(() => {})
 
@@ -108,6 +117,10 @@ export default function RecordPage() {
         fd.append('session', sessionName)
         fd.append('video', blob, `${sessionName}_webcam.webm`)
         fd.append('startedAt', recordingStartedAt.current)
+        if (webcamDimsRef.current) {
+          fd.append('width', String(webcamDimsRef.current.width))
+          fd.append('height', String(webcamDimsRef.current.height))
+        }
         await fetch('/api/save-webcam', { method: 'POST', body: fd }).catch(() => {})
         resolve()
       }
@@ -149,16 +162,16 @@ export default function RecordPage() {
         <div
           style={{
             position: 'absolute',
-            bottom: 12,
-            left: 12,
-            width: 120,
-            height: 120,
+            bottom: WEBCAM_OVERLAY_PADDING * scale,
+            left: WEBCAM_OVERLAY_PADDING * scale,
+            width: WEBCAM_OVERLAY_DIAMETER * scale,
+            height: WEBCAM_OVERLAY_DIAMETER * scale,
             borderRadius: '50%',
             overflow: 'hidden',
             pointerEvents: 'none',
             zIndex: 10,
-            border: '4px solid orange',
-            boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
+            border: `${WEBCAM_BORDER_THICKNESS * scale}px solid ${WEBCAM_BORDER_COLOR}`,
+            boxShadow: `0 ${Math.round(WEBCAM_SHADOW_RADIUS * scale / 3)}px ${WEBCAM_SHADOW_RADIUS * scale}px rgba(0,0,0,0.5)`,
           }}
         >
           <video

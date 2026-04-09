@@ -73,7 +73,7 @@ function resolveCursorSrc(): string {
   }
 }
 
-const resolvedFfmpegPath = resolveFfmpegBinaryPath();
+export const resolvedFfmpegPath = resolveFfmpegBinaryPath();
 const resolvedCursorSrc = resolveCursorSrc();
 
 if (resolvedFfmpegPath) {

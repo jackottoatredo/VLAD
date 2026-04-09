@@ -37,6 +37,7 @@ export async function produceSessionVideo(options: ProduceOptions): Promise<Prod
     sessionName: options.sessionName,
     screenVideoPath: renderResult.outputPath,
     screenVideoUrl: renderResult.videoUrl,
+    durationMs: renderResult.totalDurationMs,
     onProgress: options.onComposeProgress ?? (() => {}),
   });
 

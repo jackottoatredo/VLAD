@@ -24,13 +24,23 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Missing video data." }, { status: 400 });
   }
 
+  const startedAt = formData.get("startedAt");
+  const width = Number(formData.get("width") ?? 0);
+  const height = Number(formData.get("height") ?? 0);
+
   const safeName = session.replace(/[^a-z0-9_\-]/gi, "_");
   const sessionRecordingsDir = path.join(SESSIONS_DIR, safeName, "recordings");
-  const filePath = path.join(sessionRecordingsDir, `${safeName}_webcam.webm`);
 
   await mkdir(sessionRecordingsDir, { recursive: true });
+
   const buffer = Buffer.from(await video.arrayBuffer());
-  await writeFile(filePath, buffer);
+  await writeFile(path.join(sessionRecordingsDir, `${safeName}_webcam.webm`), buffer);
+
+  await writeFile(
+    path.join(sessionRecordingsDir, `${safeName}_webcam.json`),
+    JSON.stringify({ width, height, startedAt }, null, 2),
+    "utf-8"
+  );
 
   return NextResponse.json({ ok: true, path: `/sessions/${safeName}/recordings/${safeName}_webcam.webm` });
 }

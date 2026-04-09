@@ -8,9 +8,9 @@ export default function Home() {
           <h1 className="text-3xl font-semibold tracking-tight text-black dark:text-zinc-50">
             Welcome to VLAD
           </h1>
-          <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+          <h3 className="mt-1 text-zinc-500 dark:text-zinc-400">
             Video and Language Automations for Demos
-          </p>
+          </h3>
         </div>
         <div className="space-y-4 text-sm text-zinc-600 dark:text-zinc-400">
           <p>

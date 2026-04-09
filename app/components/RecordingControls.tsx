@@ -16,7 +16,7 @@ export default function RecordingControls({ isRecording, onStart, onStop }: Prop
         type="text"
         value={name}
         onChange={(e) => setName(e.target.value)}
-        placeholder="Session name"
+        placeholder="session_name"
         disabled={isRecording}
         className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 placeholder-zinc-400 shadow-sm outline-none focus:border-zinc-500 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
       />

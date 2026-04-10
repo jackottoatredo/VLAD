@@ -22,6 +22,7 @@ export default function RecordPage() {
   const [scale, setScale] = useState(1)
   const [isRecording, setIsRecording] = useState(false)
   const [product, setProduct] = useState('')
+  const [recordingKey, setRecordingKey] = useState(0)
   const sessionNameRef = useRef('')
   const presenterRef = useRef('')
   const productRef = useRef('')
@@ -80,6 +81,7 @@ export default function RecordPage() {
     const startTime = Date.now()
     recordingStartedAt.current = new Date(startTime).toISOString()
     eventsRef.current = [{ eventType: 'recording-start', x: 0, y: 0, buttons: 0, timestamp: startTime }]
+    setRecordingKey((k) => k + 1)
     setIsRecording(true)
 
     if (streamRef.current) {
@@ -154,7 +156,7 @@ export default function RecordPage() {
         }
       >
         <div className="flex flex-1 items-center justify-center overflow-hidden rounded-xl border border-zinc-300 p-[10px] dark:border-zinc-700">
-          <RecordingFrame iframeRef={iframeRef} containerRef={containerRef} scale={scale} product={product}>
+          <RecordingFrame iframeRef={iframeRef} containerRef={containerRef} scale={scale} product={product} recordingKey={recordingKey}>
             <WebcamOverlay videoRef={webcamVideoRef} scale={scale} mirror />
           </RecordingFrame>
         </div>

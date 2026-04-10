@@ -5,8 +5,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import ffmpeg from "fluent-ffmpeg";
 import ffmpegPath from "ffmpeg-static";
-import puppeteer, { type Page } from "puppeteer";
+import { chromium, type Page } from "playwright";
 import { type CursorPosition, type RenderAction } from "@/lib/render/actions";
+import { installVirtualTimeClock, type VirtualTimeClock } from "@/lib/render/virtual-time";
 
 export type RenderOptions = {
   url: string;
@@ -31,7 +32,6 @@ const RENDER_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const CURSOR_FILE_PATH = path.join(process.cwd(), "public", "cursor.svg");
 const CURSOR_SIZE_PX = 32;
 const FFMPEG_FILENAME = process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg";
-const DOM_SETTLE_DELAY_MS = 600;
 
 function normalizeBundledRootPath(binaryPath: string): string {
   const rootPrefixPattern = /^([\\/])ROOT([\\/])/;
@@ -116,7 +116,8 @@ async function setCursorPosition(
 async function renderFrames(
   page: Page,
   framesDir: string,
-  options: RenderOptions
+  options: RenderOptions,
+  clock: VirtualTimeClock
 ): Promise<number> {
   const actions = options.actions ?? [];
 
@@ -128,6 +129,8 @@ async function renderFrames(
     (sum, action) => sum + Math.max(1, Math.round((action.durationMs / 1000) * options.fps)),
     0
   );
+
+  const frameDurationMs = 1000 / options.fps;
 
   let renderedFrames = 0;
   let cursorBetweenActions: CursorPosition | undefined;
@@ -143,6 +146,8 @@ async function renderFrames(
       frameCount,
       startCursor: cursorBetweenActions,
       moveAndCapture: async (x, y) => {
+        await clock.advance(frameDurationMs);
+
         await page.mouse.move(x, y, { steps: 1 });
         await setCursorPosition(page, x, y);
 
@@ -223,21 +228,23 @@ export async function renderUrlToMp4(options: RenderOptions): Promise<RenderResu
   const fileName = `${options.sessionName}-${Date.now()}-${randomUUID().slice(0, 8)}.mp4`;
   const outputPath = path.join(renderingsDir, fileName);
 
-  const browser = await puppeteer.launch({
-    headless: true,
+  const browser = await chromium.launch({
     args: ["--no-sandbox", "--disable-setuid-sandbox"],
   });
 
   try {
     const page = await browser.newPage();
-    await page.setViewport({ width: options.width, height: options.height });
+    await page.setViewportSize({ width: options.width, height: options.height });
+    const clock = await installVirtualTimeClock(page);
+    // Wait only for HTML parse (domcontentloaded), not full asset load —
+    // rendering starts before images/CSS/JS finish so the video captures
+    // the page-load sequence (layout shifts, images streaming in, etc.).
     await page.goto(options.url, {
       waitUntil: "domcontentloaded",
       timeout: 30_000,
     });
-    await new Promise((resolve) => setTimeout(resolve, DOM_SETTLE_DELAY_MS));
 
-    const totalDurationMs = await renderFrames(page, framesDir, options);
+    const totalDurationMs = await renderFrames(page, framesDir, options, clock);
     await encodeVideo(framesDir, outputPath, {
       ...options,
       durationMs: totalDurationMs,

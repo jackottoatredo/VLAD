@@ -1,4 +1,4 @@
-import { type Page } from "puppeteer";
+import { type Page } from "playwright";
 
 export type DomPoint = {
   x: number;
@@ -34,11 +34,11 @@ export async function getElementCoordinateBySelector(
   timeoutMs: number = DEFAULT_SELECTOR_TIMEOUT_MS
 ): Promise<DomPoint> {
   const normalized = normalizeRelativePoint(relativePoint);
+  const locator = page.locator(selector);
 
-  await page.waitForSelector(selector, { timeout: timeoutMs });
+  await locator.waitFor({ timeout: timeoutMs });
 
-  return page.$eval(
-    selector,
+  return locator.evaluate(
     (element, point) => {
       const rect = (element as HTMLElement).getBoundingClientRect();
 

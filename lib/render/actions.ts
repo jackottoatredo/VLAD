@@ -1,4 +1,4 @@
-import { type Page, type KeyInput } from "puppeteer";
+import { type Page } from "playwright";
 import { interpolatePosition, discreteEventsInWindow, type Keyframe } from "@/lib/render/keyframes";
 
 export type CursorPosition = {
@@ -57,7 +57,6 @@ export function createReplayAction(
       };
 
       for (let frameIndex = 0; frameIndex < context.frameCount; frameIndex++) {
-        const wallStart = Date.now();
         const tFrame = (frameIndex * frameDurationMs) / scale;
         const tPrev = frameIndex === 0 ? -1 : ((frameIndex - 1) * frameDurationMs) / scale;
 
@@ -74,16 +73,13 @@ export function createReplayAction(
             if (kf.key.length === 1) {
               await context.page.keyboard.type(kf.key);
             } else {
-              await context.page.keyboard.press(kf.key as KeyInput);
+              await context.page.keyboard.press(kf.key);
             }
           }
         }
 
         await context.moveAndCapture(x, y);
         lastPosition = { x, y };
-
-        const remaining = frameDurationMs - (Date.now() - wallStart);
-        if (remaining > 0) await new Promise<void>((r) => setTimeout(r, remaining));
       }
 
       return lastPosition;

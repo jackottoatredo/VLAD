@@ -6,10 +6,11 @@ type Props = {
   containerRef: React.RefObject<HTMLDivElement | null>
   scale: number
   product: string
+  recordingKey?: number
   children?: React.ReactNode
 }
 
-export default function RecordingFrame({ iframeRef, containerRef, scale, product, children }: Props) {
+export default function RecordingFrame({ iframeRef, containerRef, scale, product, recordingKey, children }: Props) {
   const src = product ? `${TARGET_URL}?product=${product}` : TARGET_URL
 
   return (
@@ -19,7 +20,7 @@ export default function RecordingFrame({ iframeRef, containerRef, scale, product
       style={{ width: '100%', maxHeight: '100%', aspectRatio: `${VIRTUAL_WIDTH} / ${VIRTUAL_HEIGHT}` }}
     >
       <iframe
-        key={product || 'default'}
+        key={`${product || 'default'}-${recordingKey ?? 0}`}
         ref={iframeRef}
         src={src}
         className="border-0"

@@ -1,5 +1,8 @@
 'use client'
-import { TARGET_URL, VIRTUAL_WIDTH, VIRTUAL_HEIGHT } from '@/app/config'
+import { TARGET_URL, VIDEO_WIDTH, VIDEO_HEIGHT, RENDER_ZOOM } from '@/app/config'
+
+const IFRAME_WIDTH = Math.round(VIDEO_WIDTH / RENDER_ZOOM)
+const IFRAME_HEIGHT = Math.round(VIDEO_HEIGHT / RENDER_ZOOM)
 
 type Props = {
   iframeRef: React.RefObject<HTMLIFrameElement | null>
@@ -17,7 +20,7 @@ export default function RecordingFrame({ iframeRef, containerRef, scale, product
     <div
       ref={containerRef}
       className="relative overflow-hidden shadow-lg"
-      style={{ width: '100%', maxHeight: '100%', aspectRatio: `${VIRTUAL_WIDTH} / ${VIRTUAL_HEIGHT}` }}
+      style={{ width: '100%', maxHeight: '100%', aspectRatio: `${IFRAME_WIDTH} / ${IFRAME_HEIGHT}` }}
     >
       <iframe
         key={`${product || 'default'}-${recordingKey ?? 0}`}
@@ -26,8 +29,8 @@ export default function RecordingFrame({ iframeRef, containerRef, scale, product
         className="border-0"
         style={{
           display: 'block',
-          width: `${VIRTUAL_WIDTH}px`,
-          height: `${VIRTUAL_HEIGHT}px`,
+          width: `${IFRAME_WIDTH}px`,
+          height: `${IFRAME_HEIGHT}px`,
           transform: `scale(${scale})`,
           transformOrigin: '0 0',
         }}

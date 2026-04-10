@@ -5,7 +5,10 @@ import WebcamOverlay from '@/app/record/WebcamOverlay'
 import RecordingControlPanel from '@/app/record/RecordingControlPanel'
 import PageLayout from '@/app/components/PageLayout'
 import PageNav from '@/app/components/PageNav'
-import { VIRTUAL_WIDTH, VIRTUAL_HEIGHT, WEBCAM_RECORDER_TIMESLICE_MS } from '@/app/config'
+import { VIDEO_WIDTH, VIDEO_HEIGHT, RENDER_ZOOM, WEBCAM_RECORDER_TIMESLICE_MS } from '@/app/config'
+
+const IFRAME_WIDTH = Math.round(VIDEO_WIDTH / RENDER_ZOOM)
+const IFRAME_HEIGHT = Math.round(VIDEO_HEIGHT / RENDER_ZOOM)
 
 type RelayEvent = {
   eventType: string
@@ -38,7 +41,7 @@ export default function MerchantPage() {
     const el = containerRef.current
     if (!el) return
     const observer = new ResizeObserver(([entry]) => {
-      setScale(entry.contentRect.width / VIRTUAL_WIDTH)
+      setScale(entry.contentRect.width / IFRAME_WIDTH)
     })
     observer.observe(el)
     return () => observer.disconnect()
@@ -105,8 +108,8 @@ export default function MerchantPage() {
         session: sessionName,
         presenter,
         recordedAt: recordingStartedAt.current,
-        virtualWidth: VIRTUAL_WIDTH,
-        virtualHeight: VIRTUAL_HEIGHT,
+        virtualWidth: IFRAME_WIDTH,
+        virtualHeight: IFRAME_HEIGHT,
         events: eventsRef.current,
       }),
     })

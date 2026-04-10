@@ -1,7 +1,10 @@
 // export const TARGET_URL = "http://localhost:1111/";
 export const TARGET_URL = "http://search.redo.com/record/"
-export const VIRTUAL_WIDTH = 1280;
-export const VIRTUAL_HEIGHT = 720;
+export const VIRTUAL_WIDTH = 1920;
+export const VIRTUAL_HEIGHT = 1080;
+export const VIDEO_WIDTH = 1920;
+export const VIDEO_HEIGHT = 1080;
+export const RENDER_ZOOM = 1.25;
 export const DEFAULT_FPS = 30;
 
 // How many milliseconds to advance the webcam stream at composite time.

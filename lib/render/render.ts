@@ -15,6 +15,9 @@ export type RenderOptions = {
   sessionName: string;
   width: number;
   height: number;
+  videoWidth?: number;
+  videoHeight?: number;
+  zoom?: number;
   fps: number;
   durationMs: number;
   actions?: RenderAction[];
@@ -156,9 +159,9 @@ async function renderFrames(
 
         const framePath = path.join(
           framesDir,
-          `frame_${String(renderedFrames).padStart(4, "0")}.png`
+          `frame_${String(renderedFrames).padStart(4, "0")}.jpeg`
         );
-        await page.screenshot({ path: framePath, type: "png" });
+        await page.screenshot({ path: framePath, type: "jpeg", quality: 80 });
       },
     });
   }
@@ -180,7 +183,7 @@ async function encodeVideo(
   }
 
   await new Promise<void>((resolve, reject) => {
-    ffmpeg(path.join(framesDir, "frame_%04d.png"))
+    ffmpeg(path.join(framesDir, "frame_%04d.jpeg"))
       .inputFPS(options.fps)
       .outputOptions([
         "-c:v libx264",
@@ -229,12 +232,21 @@ export async function renderUrlToMp4(options: RenderOptions): Promise<RenderResu
   const outputPath = path.join(renderingsDir, fileName);
 
   const browser = await chromium.launch({
+    headless: true,
     args: ["--no-sandbox", "--disable-setuid-sandbox"],
   });
 
   try {
-    const page = await browser.newPage();
-    await page.setViewportSize({ width: options.width, height: options.height });
+    const vw = options.videoWidth ?? options.width;
+    const vh = options.videoHeight ?? options.height;
+    const zoom = options.zoom ?? 1;
+
+    const context = await browser.newContext({
+      viewport: { width: Math.round(vw / zoom), height: Math.round(vh / zoom) },
+      deviceScaleFactor: zoom,
+    });
+    const page = await context.newPage();
+
     const clock = await installVirtualTimeClock(page);
     // Wait only for HTML parse (domcontentloaded), not full asset load —
     // rendering starts before images/CSS/JS finish so the video captures

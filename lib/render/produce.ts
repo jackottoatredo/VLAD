@@ -8,6 +8,9 @@ export type ProduceOptions = {
   url: string;
   width: number;
   height: number;
+  videoWidth?: number;
+  videoHeight?: number;
+  zoom?: number;
   fps: number;
   durationMs: number;
   actions: RenderAction[];
@@ -27,6 +30,9 @@ export async function produceSessionVideo(options: ProduceOptions): Promise<Prod
     sessionName: options.sessionName,
     width: options.width,
     height: options.height,
+    videoWidth: options.videoWidth,
+    videoHeight: options.videoHeight,
+    zoom: options.zoom,
     fps: options.fps,
     durationMs: options.durationMs,
     actions: options.actions,

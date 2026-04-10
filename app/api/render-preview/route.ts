@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import { TARGET_URL, DEFAULT_FPS } from "@/app/config";
+import { TARGET_URL, DEFAULT_FPS, VIDEO_WIDTH, VIDEO_HEIGHT, RENDER_ZOOM } from "@/app/config";
 import { eventsToKeyframes } from "@/lib/render/keyframes";
 import { createReplayAction } from "@/lib/render/actions";
 import { produceSessionVideo } from "@/lib/render/produce";
@@ -96,6 +96,9 @@ export async function POST(request: Request) {
     sessionName: safeName,
     width: data.virtualWidth,
     height: data.virtualHeight,
+    videoWidth: VIDEO_WIDTH,
+    videoHeight: VIDEO_HEIGHT,
+    zoom: RENDER_ZOOM,
     fps: DEFAULT_FPS,
     durationMs,
     actions: [replayAction],

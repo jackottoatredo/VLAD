@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import PageLayout from '@/app/components/PageLayout'
 import PageNav from '@/app/components/PageNav'
 
-const BRANDS = ['allbirds.com', 'mammut.com', '&collar.com', 'nike.com'] as const
+const BRANDS = ['allbirds.com', 'mammut.com', 'andcollar.com', 'nike.com'] as const
 type Brand = (typeof BRANDS)[number]
 const JOB_POLL_INTERVAL_MS = 500
 

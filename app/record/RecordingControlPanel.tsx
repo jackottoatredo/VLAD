@@ -5,69 +5,112 @@ type Props = {
   isRecording: boolean
   onStart: (sessionName: string, presenter: string) => void
   onStop: () => void
+  product: string
+  onProductChange: (product: string) => void
 }
 
-const PRESENTER_PATTERN = /^[a-zA-Z]+_[a-zA-Z]+$/
+const PRODUCTS = [
+  { label: 'Returns & Claims', safe: 'returnsclaims' },
+  { label: 'Conversion Optimization', safe: 'conversionoptimization' },
+  { label: 'Order Tracking', safe: 'ordertracking' },
+]
 
-export default function RecordingControlPanel({ isRecording, onStart, onStop }: Props) {
-  const [name, setName] = useState('')
+export default function RecordingControlPanel({ isRecording, onStart, onStop, product, onProductChange }: Props) {
   const [presenter, setPresenter] = useState('')
+  const [users, setUsers] = useState<string[]>([])
   const [sessionExists, setSessionExists] = useState(false)
+  const [showModal, setShowModal] = useState(false)
+  const [firstName, setFirstName] = useState('')
+  const [lastName, setLastName] = useState('')
+  const [addError, setAddError] = useState('')
 
-  const presenterValid = presenter === '' || PRESENTER_PATTERN.test(presenter)
+  const sessionName = presenter && product ? `${presenter}_${product}` : ''
 
   useEffect(() => {
-    const safeName = name.trim().replace(/[^a-z0-9_\-]/gi, '_')
-    if (!safeName) { setSessionExists(false); return }
+    fetch('/api/list-users')
+      .then((r) => r.json())
+      .then((d: { users: string[] }) => setUsers(d.users))
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    if (!sessionName) { setSessionExists(false); return }
     const timer = setTimeout(async () => {
       try {
         const res = await fetch('/api/list-recordings')
         const data = await res.json() as { recordings: { name: string }[] }
-        setSessionExists(data.recordings.some((r) => r.name === safeName))
+        setSessionExists(data.recordings.some((r) => r.name === sessionName))
       } catch {
         setSessionExists(false)
       }
     }, 300)
     return () => clearTimeout(timer)
-  }, [name])
+  }, [sessionName])
+
+  async function handleAddUser() {
+    setAddError('')
+    const res = await fetch('/api/add-user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ firstName: firstName.trim(), lastName: lastName.trim() }),
+    })
+    const data = await res.json() as { ok?: boolean; userId?: string; error?: string }
+    if (!res.ok || !data.ok) {
+      setAddError(data.error ?? 'Failed to add user.')
+      return
+    }
+    const newId = data.userId!
+    setUsers((prev) => [...prev, newId].sort())
+    setPresenter(newId)
+    setFirstName('')
+    setLastName('')
+    setShowModal(false)
+  }
 
   return (
-    <div className="flex h-[12vw] flex-col justify-center gap-2 overflow-hidden rounded-xl border border-zinc-200 px-[1.5vw] dark:border-zinc-700">
-      <div className="flex flex-col gap-1">
-        <input
-          type="text"
+    <>
+      <div className="flex gap-1">
+        <select
           value={presenter}
           onChange={(e) => setPresenter(e.target.value)}
-          placeholder="lastname_firstname"
           disabled={isRecording}
-          className={`w-full rounded-md border bg-white px-3 py-1.5 text-sm text-zinc-900 placeholder-zinc-400 shadow-sm outline-none disabled:opacity-50 dark:bg-zinc-900 dark:text-zinc-100 ${
-            presenterValid
-              ? 'border-zinc-300 focus:border-zinc-500 dark:border-zinc-700'
-              : 'border-red-400 focus:border-red-500 dark:border-red-500'
-          }`}
-        />
-        {!presenterValid && (
-          <p className="text-xs text-red-500">Must follow lastname_firstname</p>
-        )}
+          className="flex-1 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 shadow-sm outline-none focus:border-zinc-500 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+        >
+          <option value="">Select presenter…</option>
+          {users.map((u) => (
+            <option key={u} value={u}>{u}</option>
+          ))}
+        </select>
+        <button
+          onClick={() => setShowModal(true)}
+          disabled={isRecording}
+          className="flex items-center justify-center rounded-md border border-zinc-300 bg-white px-2.5 text-zinc-600 shadow-sm hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
+          title="Add new user"
+        >
+          +
+        </button>
       </div>
 
       <div className="flex flex-col gap-1">
-        <input
-          type="text"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Session name"
+        <select
+          value={product}
+          onChange={(e) => onProductChange(e.target.value)}
           disabled={isRecording}
-          className="w-full rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 placeholder-zinc-400 shadow-sm outline-none focus:border-zinc-500 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-        />
+          className="w-full rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 shadow-sm outline-none focus:border-zinc-500 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+        >
+          <option value="">Select product…</option>
+          {PRODUCTS.map((p) => (
+            <option key={p.safe} value={p.safe}>{p.label}</option>
+          ))}
+        </select>
         {sessionExists && (
           <p className="text-xs text-yellow-500">Will replace existing recording</p>
         )}
       </div>
 
       <button
-        onClick={isRecording ? onStop : () => onStart(name.trim(), presenter.trim())}
-        disabled={!isRecording && (!name.trim() || !PRESENTER_PATTERN.test(presenter))}
+        onClick={isRecording ? onStop : () => onStart(sessionName, presenter)}
+        disabled={!isRecording && !sessionName}
         className={`w-full rounded-md px-4 py-1.5 text-sm font-medium shadow-sm disabled:opacity-40 disabled:cursor-not-allowed text-white ${
           isRecording
             ? 'bg-red-600 hover:bg-red-700'
@@ -76,6 +119,46 @@ export default function RecordingControlPanel({ isRecording, onStart, onStop }: 
       >
         {isRecording ? 'Stop Recording' : 'Start Recording'}
       </button>
-    </div>
+
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="w-80 rounded-xl border border-zinc-200 bg-white p-6 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+            <h2 className="mb-4 text-sm font-semibold text-zinc-800 dark:text-zinc-100">Add New User</h2>
+            <div className="flex flex-col gap-3">
+              <input
+                type="text"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                placeholder="First name"
+                className="w-full rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 placeholder-zinc-400 shadow-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
+              />
+              <input
+                type="text"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                placeholder="Last name"
+                className="w-full rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 placeholder-zinc-400 shadow-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
+              />
+              {addError && <p className="text-xs text-red-500">{addError}</p>}
+              <div className="flex gap-2 pt-1">
+                <button
+                  onClick={() => { setShowModal(false); setFirstName(''); setLastName(''); setAddError('') }}
+                  className="flex-1 rounded-md border border-zinc-300 px-4 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleAddUser}
+                  disabled={!firstName.trim() || !lastName.trim()}
+                  className="flex-1 rounded-md bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+                >
+                  Add
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   )
 }

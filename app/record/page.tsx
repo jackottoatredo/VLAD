@@ -2,7 +2,8 @@
 import { useEffect, useRef, useState } from 'react'
 import RecordingFrame from '@/app/record/RecordingFrame'
 import WebcamOverlay from '@/app/record/WebcamOverlay'
-import RecordingTools from '@/app/record/RecordingTools'
+import RecordingControlPanel from '@/app/record/RecordingControlPanel'
+import PageLayout from '@/app/components/PageLayout'
 import PageNav from '@/app/components/PageNav'
 import { VIRTUAL_WIDTH, VIRTUAL_HEIGHT, WEBCAM_RECORDER_TIMESLICE_MS } from '@/app/config'
 
@@ -20,8 +21,10 @@ export default function RecordPage() {
   const eventsRef = useRef<RelayEvent[]>([])
   const [scale, setScale] = useState(1)
   const [isRecording, setIsRecording] = useState(false)
+  const [product, setProduct] = useState('')
   const sessionNameRef = useRef('')
   const presenterRef = useRef('')
+  const productRef = useRef('')
 
   // Webcam
   const streamRef = useRef<MediaStream | null>(null)
@@ -73,6 +76,7 @@ export default function RecordPage() {
   function handleStart(sessionName: string, presenter: string) {
     sessionNameRef.current = sessionName
     presenterRef.current = presenter
+    productRef.current = product
     const startTime = Date.now()
     recordingStartedAt.current = new Date(startTime).toISOString()
     eventsRef.current = [{ eventType: 'recording-start', x: 0, y: 0, buttons: 0, timestamp: startTime }]
@@ -94,6 +98,7 @@ export default function RecordPage() {
 
     const sessionName = sessionNameRef.current
     const presenter = presenterRef.current
+    const savedProduct = productRef.current
 
     const mousePromise = fetch('/api/save-session', {
       method: 'POST',
@@ -117,6 +122,7 @@ export default function RecordPage() {
         fd.append('session', sessionName)
         fd.append('presenter', presenter)
         fd.append('video', blob, `${sessionName}_webcam.webm`)
+        fd.append('product', savedProduct)
         fd.append('startedAt', recordingStartedAt.current)
         if (webcamDimsRef.current) {
           fd.append('width', String(webcamDimsRef.current.width))
@@ -132,23 +138,28 @@ export default function RecordPage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center bg-zinc-50 font-sans dark:bg-black">
-      <div className="flex flex-1 w-full items-center justify-center py-6">
-        <div className="flex w-[75vw] flex-col gap-4">
-          <RecordingTools
+    <>
+      <PageLayout
+        instructions={
+          <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.</p>
+        }
+        settings={
+          <RecordingControlPanel
             isRecording={isRecording}
             onStart={handleStart}
             onStop={handleStop}
+            product={product}
+            onProductChange={setProduct}
           />
-          <RecordingFrame iframeRef={iframeRef} containerRef={containerRef} scale={scale}>
+        }
+      >
+        <div className="flex flex-1 items-center justify-center overflow-hidden rounded-xl border border-zinc-300 p-[10px] dark:border-zinc-700">
+          <RecordingFrame iframeRef={iframeRef} containerRef={containerRef} scale={scale} product={product}>
             <WebcamOverlay videoRef={webcamVideoRef} scale={scale} mirror />
           </RecordingFrame>
         </div>
-      </div>
-      <div className="flex w-full justify-center pb-20">
-        
-      </div>
+      </PageLayout>
       <PageNav back={{ label: 'Home', href: '/' }} forward={{ label: 'Preview', href: '/preview' }} />
-    </div>
+    </>
   )
 }

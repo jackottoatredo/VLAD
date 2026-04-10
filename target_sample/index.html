@@ -185,6 +185,17 @@
     });
   </script>
 
+  <script>
+    (function() {
+      var params = new URLSearchParams(window.location.search);
+      var product = params.get('product');
+      var brand = params.get('brand');
+      if (product || brand) {
+        var text = [brand || '', product || ''].filter(Boolean).join(' ').toUpperCase();
+        document.querySelector('.logo').textContent = text;
+      }
+    })();
+  </script>
   <script src="./mouse-relay.js"></script>
 </body>
 </html>

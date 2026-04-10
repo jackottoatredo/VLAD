@@ -2,7 +2,8 @@
 import { useEffect, useRef, useState } from 'react'
 import RecordingFrame from '@/app/record/RecordingFrame'
 import WebcamOverlay from '@/app/record/WebcamOverlay'
-import RecordingTools from '@/app/record/RecordingTools'
+import RecordingControlPanel from '@/app/record/RecordingControlPanel'
+import PageLayout from '@/app/components/PageLayout'
 import PageNav from '@/app/components/PageNav'
 import { VIRTUAL_WIDTH, VIRTUAL_HEIGHT, WEBCAM_RECORDER_TIMESLICE_MS } from '@/app/config'
 
@@ -21,6 +22,7 @@ export default function MerchantPage() {
   const [scale, setScale] = useState(1)
   const [isRecording, setIsRecording] = useState(false)
   const [recordingComplete, setRecordingComplete] = useState(false)
+  const [product, setProduct] = useState('')
   const sessionNameRef = useRef('')
   const presenterRef = useRef('')
 
@@ -134,28 +136,34 @@ export default function MerchantPage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center bg-zinc-50 font-sans dark:bg-black">
-      {recordingComplete ? (
-        <div className="flex flex-1 w-full items-center justify-center">
-          <p className="text-lg font-medium text-zinc-600 dark:text-zinc-400">
-            Merchant intro recorded — continue to Review
-          </p>
-        </div>
-      ) : (
-        <div className="flex flex-1 w-full items-center justify-center py-6">
-          <div className="flex w-[75vw] flex-col gap-4">
-            <RecordingTools
-              isRecording={isRecording}
-              onStart={handleStart}
-              onStop={handleStop}
-            />
-            <RecordingFrame iframeRef={iframeRef} containerRef={containerRef} scale={scale}>
+    <>
+      <PageLayout
+        instructions={
+          <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.</p>
+        }
+        settings={
+          <RecordingControlPanel
+            isRecording={isRecording}
+            onStart={handleStart}
+            onStop={handleStop}
+            product={product}
+            onProductChange={setProduct}
+          />
+        }
+      >
+        <div className="flex flex-1 items-center justify-center overflow-hidden rounded-xl border border-zinc-300 p-[10px] dark:border-zinc-700">
+          {recordingComplete ? (
+            <p className="text-lg font-medium text-zinc-600 dark:text-zinc-400">
+              Merchant intro recorded — continue to Review
+            </p>
+          ) : (
+            <RecordingFrame iframeRef={iframeRef} containerRef={containerRef} scale={scale} product={product}>
               <WebcamOverlay videoRef={webcamVideoRef} scale={scale} mirror />
             </RecordingFrame>
-          </div>
+          )}
         </div>
-      )}
+      </PageLayout>
       <PageNav back={{ label: 'Product Preview', href: '/preview' }} forward={{ label: 'Review', href: '/review' }} />
-    </div>
+    </>
   )
 }

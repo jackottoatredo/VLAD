@@ -28,6 +28,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Missing video data." }, { status: 400 });
   }
 
+  const product = formData.get("product");
   const startedAt = formData.get("startedAt");
   const width = Number(formData.get("width") ?? 0);
   const height = Number(formData.get("height") ?? 0);
@@ -42,8 +43,8 @@ export async function POST(request: Request) {
   await writeFile(path.join(recordingsDir, `${safeName}_webcam.webm`), buffer);
 
   await writeFile(
-    path.join(recordingsDir, `${safeName}_webcam.json`),
-    JSON.stringify({ width, height, startedAt }, null, 2),
+    path.join(recordingsDir, "metadata.json"),
+    JSON.stringify({ product, width, height, startedAt }, null, 2),
     "utf-8"
   );
 

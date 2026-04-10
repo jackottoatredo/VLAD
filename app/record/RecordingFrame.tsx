@@ -5,20 +5,23 @@ type Props = {
   iframeRef: React.RefObject<HTMLIFrameElement | null>
   containerRef: React.RefObject<HTMLDivElement | null>
   scale: number
+  product: string
   children?: React.ReactNode
 }
 
-export default function RecordingFrame({ iframeRef, containerRef, scale, children }: Props) {
+export default function RecordingFrame({ iframeRef, containerRef, scale, product, children }: Props) {
+  const src = product ? `${TARGET_URL}?product=${product}` : TARGET_URL
+
   return (
     <div
       ref={containerRef}
       className="relative overflow-hidden shadow-lg"
-      style={{ width: '75vw', aspectRatio: `${VIRTUAL_WIDTH} / ${VIRTUAL_HEIGHT}` }}
+      style={{ width: '100%', maxHeight: '100%', aspectRatio: `${VIRTUAL_WIDTH} / ${VIRTUAL_HEIGHT}` }}
     >
       <iframe
-        key="iframe"
+        key={product || 'default'}
         ref={iframeRef}
-        src={TARGET_URL}
+        src={src}
         className="border-0"
         style={{
           display: 'block',

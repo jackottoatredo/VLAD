@@ -6,12 +6,10 @@ import PageLayout from '@/app/components/PageLayout'
 import PageNav from '@/app/components/PageNav'
 import WebcamControls from '@/app/components/WebcamControls'
 import { VIDEO_WIDTH, VIDEO_HEIGHT, RENDER_ZOOM, WEBCAM_RECORDER_TIMESLICE_MS } from '@/app/config'
-import { type WebcamSettings, DEFAULT_WEBCAM_SETTINGS } from '@/types/webcam'
+import { useAppContext } from '@/app/appContext'
 
 const IFRAME_WIDTH = Math.round(VIDEO_WIDTH / RENDER_ZOOM)
 const IFRAME_HEIGHT = Math.round(VIDEO_HEIGHT / RENDER_ZOOM)
-
-type Merchant = { id: string; name: string; url: string }
 
 type RelayEvent = {
   eventType: string
@@ -22,23 +20,27 @@ type RelayEvent = {
 }
 
 export default function MerchantPage() {
+  const {
+    users, merchants, addUser, addMerchant,
+    merchant: merchantDraft,
+    setMerchantPresenter, setMerchantMerchantId, setMerchantWebcamSettings,
+    markMerchantRecordingDirty,
+  } = useAppContext()
+
+  const { presenter, merchantId: selectedMerchantId, webcamSettings } = merchantDraft
+  const selectedMerchant = merchants.find((m) => m.id === selectedMerchantId)
+  const sessionName = presenter && selectedMerchantId ? `${presenter}_${selectedMerchantId}` : ''
+  const brand = selectedMerchant?.url ?? ''
+
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const eventsRef = useRef<RelayEvent[]>([])
   const [scale, setScale] = useState(1)
   const [isRecording, setIsRecording] = useState(false)
   const [recordingComplete, setRecordingComplete] = useState(false)
-  const [webcamSettings, setWebcamSettings] = useState<WebcamSettings>(DEFAULT_WEBCAM_SETTINGS)
   const sessionNameRef = useRef('')
   const presenterRef = useRef('')
   const merchantUrlRef = useRef('')
-  const brandRef = useRef('')
-
-  // Controls
-  const [presenter, setPresenter] = useState('')
-  const [users, setUsers] = useState<string[]>([])
-  const [merchants, setMerchants] = useState<Merchant[]>([])
-  const [selectedMerchantId, setSelectedMerchantId] = useState('')
 
   // Add user modal
   const [showAddUser, setShowAddUser] = useState(false)
@@ -52,11 +54,6 @@ export default function MerchantPage() {
   const [merchantUrlInput, setMerchantUrlInput] = useState('')
   const [addMerchantError, setAddMerchantError] = useState('')
 
-  const selectedMerchant = merchants.find((m) => m.id === selectedMerchantId)
-  const sessionName = presenter && selectedMerchantId ? `${presenter}_${selectedMerchantId}` : ''
-
-  const brand = selectedMerchant?.url ?? ''
-
   // Webcam
   const streamRef = useRef<MediaStream | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -64,20 +61,6 @@ export default function MerchantPage() {
   const recordingStartedAt = useRef<string>('')
   const webcamVideoRef = useRef<HTMLVideoElement | null>(null)
   const webcamDimsRef = useRef<{ width: number; height: number } | null>(null)
-
-  useEffect(() => {
-    fetch('/api/list-users')
-      .then((r) => r.json())
-      .then((d: { users: string[] }) => setUsers(d.users))
-      .catch(() => {})
-  }, [])
-
-  useEffect(() => {
-    fetch('/api/list-merchants')
-      .then((r) => r.json())
-      .then((d: { merchants: Merchant[] }) => setMerchants(d.merchants))
-      .catch(() => {})
-  }, [])
 
   useEffect(() => {
     const el = containerRef.current
@@ -130,11 +113,11 @@ export default function MerchantPage() {
     sessionNameRef.current = sessionName
     presenterRef.current = presenter
     merchantUrlRef.current = selectedMerchant?.url ?? ''
-    brandRef.current = brand
     const startTime = Date.now()
     recordingStartedAt.current = new Date(startTime).toISOString()
     eventsRef.current = [{ eventType: 'recording-start', x: 0, y: 0, buttons: 0, timestamp: startTime }]
     setIsRecording(true)
+    setRecordingComplete(false)
 
     if (streamRef.current) {
       webcamChunksRef.current = []
@@ -191,6 +174,7 @@ export default function MerchantPage() {
     })
 
     await Promise.all([mousePromise, webcamPromise])
+    markMerchantRecordingDirty()
     setRecordingComplete(true)
   }
 
@@ -206,8 +190,8 @@ export default function MerchantPage() {
       setAddUserError(data.error ?? 'Failed to add user.')
       return
     }
-    setUsers((prev) => [...prev, data.userId!].sort())
-    setPresenter(data.userId!)
+    addUser(data.userId!)
+    setMerchantPresenter(data.userId!)
     setFirstName('')
     setLastName('')
     setShowAddUser(false)
@@ -220,13 +204,13 @@ export default function MerchantPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: merchantName.trim(), url: merchantUrlInput.trim() }),
     })
-    const data = await res.json() as { ok?: boolean; merchant?: Merchant; error?: string }
+    const data = await res.json() as { ok?: boolean; merchant?: { id: string; name: string; url: string }; error?: string }
     if (!res.ok || !data.ok || !data.merchant) {
       setAddMerchantError(data.error ?? 'Failed to add merchant.')
       return
     }
-    setMerchants((prev) => [...prev, data.merchant!].sort((a, b) => a.name.localeCompare(b.name)))
-    setSelectedMerchantId(data.merchant.id)
+    addMerchant(data.merchant)
+    setMerchantMerchantId(data.merchant.id)
     setMerchantName('')
     setMerchantUrlInput('')
     setShowAddMerchant(false)
@@ -246,7 +230,7 @@ export default function MerchantPage() {
             <div className="flex gap-1">
               <select
                 value={presenter}
-                onChange={(e) => setPresenter(e.target.value)}
+                onChange={(e) => setMerchantPresenter(e.target.value)}
                 disabled={isRecording}
                 className="flex-1 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 shadow-sm outline-none focus:border-zinc-500 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
               >
@@ -269,7 +253,7 @@ export default function MerchantPage() {
             <div className="flex gap-1">
               <select
                 value={selectedMerchantId}
-                onChange={(e) => setSelectedMerchantId(e.target.value)}
+                onChange={(e) => setMerchantMerchantId(e.target.value)}
                 disabled={isRecording}
                 className="flex-1 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 shadow-sm outline-none focus:border-zinc-500 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
               >
@@ -290,7 +274,7 @@ export default function MerchantPage() {
 
             <WebcamControls
               settings={webcamSettings}
-              onChange={setWebcamSettings}
+              onChange={setMerchantWebcamSettings}
               disabled={isRecording}
             />
 

@@ -6,6 +6,7 @@ import PageLayout from '@/app/components/PageLayout'
 import PageNav from '@/app/components/PageNav'
 import VideoTrimmer from '@/app/postprocess/VideoTrimmer'
 import { DEFAULT_FPS } from '@/app/config'
+import { useAppContext } from '@/app/appContext'
 
 const JOB_POLL_INTERVAL_MS = 500
 
@@ -20,8 +21,13 @@ type RecordingEntry = { name: string; presenter: string; recordedAt: string }
 
 export default function PostprocessPage() {
   const router = useRouter()
+  const {
+    product: productDraft,
+    markProductRecordingClean,
+    markProductTrimDirty,
+  } = useAppContext()
 
-  // Session selection
+  // Session selection — local list for the dropdowns
   const [recordings, setRecordings] = useState<RecordingEntry[]>([])
   const [selectedPresenter, setSelectedPresenter] = useState('')
   const [selectedSession, setSelectedSession] = useState('')
@@ -35,29 +41,47 @@ export default function PostprocessPage() {
   const jobIdRef = useRef<string | null>(null)
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
+  // Track whether we auto-rendered for the current recording to avoid re-rendering
+  // when the user navigates back and the recording hasn't changed.
+  const lastRenderedSessionRef = useRef<string>('')
+
   const handleTrimChange = useCallback((start: number, end: number) => {
     setTrimStart(start)
     setTrimEnd(end)
   }, [])
 
-  // Load available recordings on mount — auto-select the most recent
+  // Load available recordings on mount — prefer context values
   useEffect(() => {
     fetch('/api/list-recordings')
       .then((r) => r.json())
       .then((data: { recordings: RecordingEntry[] }) => {
         setRecordings(data.recordings)
-        if (data.recordings.length > 0) {
+        // If context has a session selected, use it; otherwise pick the most recent
+        if (productDraft.presenter && productDraft.session) {
+          setSelectedPresenter(productDraft.presenter)
+          setSelectedSession(productDraft.session)
+        } else if (data.recordings.length > 0) {
           setSelectedPresenter(data.recordings[0].presenter)
           setSelectedSession(data.recordings[0].name)
         }
         setIsLoadingList(false)
       })
       .catch(() => { setIsLoadingList(false) })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Start the render job automatically when session selection changes
+  // Start the render job when session changes — but skip if already rendered and not dirty
   useEffect(() => {
     if (!selectedPresenter || !selectedSession) return
+
+    const sessionKey = `${selectedPresenter}/${selectedSession}`
+    const needsRender = productDraft.dirty.recording || lastRenderedSessionRef.current !== sessionKey
+
+    if (!needsRender && jobStatus.status === 'done') {
+      // Already rendered and recording hasn't changed — keep showing current video
+      return
+    }
+
     setJobStatus({ status: 'rendering', rendered: 0, total: 0 })
     setTrimStart(0)
     setTrimEnd(0)
@@ -84,6 +108,7 @@ export default function PostprocessPage() {
     })()
 
     return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPresenter, selectedSession])
 
   // Poll for job progress
@@ -105,6 +130,8 @@ export default function PostprocessPage() {
 
         if (job.status === 'done' && job.videoUrl) {
           jobIdRef.current = null
+          lastRenderedSessionRef.current = `${selectedPresenter}/${selectedSession}`
+          markProductRecordingClean()
           setJobStatus({ status: 'done', videoUrl: job.videoUrl })
         } else if (job.status === 'error') {
           jobIdRef.current = null
@@ -122,7 +149,8 @@ export default function PostprocessPage() {
     return () => {
       if (pollingRef.current) clearInterval(pollingRef.current)
     }
-  }, [])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPresenter, selectedSession])
 
   async function handleSaveAndContinue() {
     if (!selectedPresenter || !selectedSession) return
@@ -138,6 +166,7 @@ export default function PostprocessPage() {
           trimEndSec: trimEnd,
         }),
       })
+      markProductTrimDirty()
       router.push(`/preview?presenter=${encodeURIComponent(selectedPresenter)}&session=${encodeURIComponent(selectedSession)}`)
     } catch {
       setIsSaving(false)

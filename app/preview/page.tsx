@@ -5,6 +5,7 @@ import PageLayout from '@/app/components/PageLayout'
 import PageNav from '@/app/components/PageNav'
 import WebcamControls from '@/app/components/WebcamControls'
 import { type WebcamSettings, DEFAULT_WEBCAM_SETTINGS } from '@/types/webcam'
+import { useAppContext } from '@/app/appContext'
 
 const BRANDS = ['allbirds.com', 'mammut.com', 'andcollar.com', 'adidas.com'] as const
 type Brand = (typeof BRANDS)[number]
@@ -125,6 +126,12 @@ function BrandPanel({
 }
 
 export default function PreviewPage() {
+  const {
+    product: productDraft,
+    markProductTrimClean,
+    markProductSaved,
+  } = useAppContext()
+
   const [recordings, setRecordings] = useState<RecordingEntry[]>([])
   const [selectedPresenter, setSelectedPresenter] = useState('')
   const [selectedSession, setSelectedSession] = useState('')
@@ -150,7 +157,11 @@ export default function PreviewPage() {
       .then((r) => r.json())
       .then((data: { recordings: RecordingEntry[] }) => {
         setRecordings(data.recordings)
-        if (data.recordings.length > 0) {
+        // Prefer context values if set, otherwise pick most recent
+        if (productDraft.presenter && productDraft.session) {
+          setSelectedPresenter(productDraft.presenter)
+          setSelectedSession(productDraft.session)
+        } else if (data.recordings.length > 0) {
           setSelectedPresenter(data.recordings[0].presenter)
           setSelectedSession(data.recordings[0].name)
         }
@@ -160,6 +171,7 @@ export default function PreviewPage() {
         setListError('Failed to load session list.')
         setIsLoadingList(false)
       })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -279,6 +291,7 @@ export default function PreviewPage() {
   async function handleGenerate() {
     setBrandStates(initialBrandStates())
     activeJobsRef.current.clear()
+    markProductTrimClean()
     await Promise.all(BRANDS.map((brand) => generateBrand(brand)))
   }
 
@@ -308,6 +321,7 @@ export default function PreviewPage() {
         setSaveError(data.error ?? 'Failed to save.')
       } else {
         setSaveStatus('saved')
+        markProductSaved()
       }
     } catch {
       setSaveStatus('error')

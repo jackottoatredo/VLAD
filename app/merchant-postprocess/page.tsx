@@ -5,6 +5,7 @@ import PageLayout from '@/app/components/PageLayout'
 import PageNav from '@/app/components/PageNav'
 import VideoTrimmer from '@/app/postprocess/VideoTrimmer'
 import { DEFAULT_FPS } from '@/app/config'
+import { useAppContext } from '@/app/appContext'
 
 const JOB_POLL_INTERVAL_MS = 500
 
@@ -18,6 +19,13 @@ type JobStatus =
 type RecordingEntry = { name: string; presenter: string; recordedAt: string }
 
 export default function MerchantPostprocessPage() {
+  const {
+    merchant: merchantDraft,
+    markMerchantRecordingClean,
+    markMerchantTrimDirty,
+    markMerchantSaved,
+  } = useAppContext()
+
   // Session selection
   const [recordings, setRecordings] = useState<RecordingEntry[]>([])
   const [selectedPresenter, setSelectedPresenter] = useState('')
@@ -40,19 +48,23 @@ export default function MerchantPostprocessPage() {
     setTrimEnd(end)
   }, [])
 
-  // Load available recordings on mount — auto-select the most recent
+  // Load available recordings on mount — prefer context values
   useEffect(() => {
     fetch('/api/list-recordings')
       .then((r) => r.json())
       .then((data: { recordings: RecordingEntry[] }) => {
         setRecordings(data.recordings)
-        if (data.recordings.length > 0) {
+        if (merchantDraft.presenter && merchantDraft.session) {
+          setSelectedPresenter(merchantDraft.presenter)
+          setSelectedSession(merchantDraft.session)
+        } else if (data.recordings.length > 0) {
           setSelectedPresenter(data.recordings[0].presenter)
           setSelectedSession(data.recordings[0].name)
         }
         setIsLoadingList(false)
       })
       .catch(() => { setIsLoadingList(false) })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Start the render job automatically when session selection changes
@@ -120,6 +132,7 @@ export default function MerchantPostprocessPage() {
 
         if (job.status === 'done' && job.videoUrl) {
           jobIdRef.current = null
+          markMerchantRecordingClean()
           setJobStatus({ status: 'done', videoUrl: job.videoUrl })
         } else if (job.status === 'error') {
           jobIdRef.current = null
@@ -156,6 +169,7 @@ export default function MerchantPostprocessPage() {
           trimEndSec: trimEnd,
         }),
       })
+      markMerchantTrimDirty()
 
       // Save recording to library (Supabase + R2)
       const saveRes = await fetch('/api/save-recording', {
@@ -177,6 +191,7 @@ export default function MerchantPostprocessPage() {
       }
 
       setSaveStatus('saved')
+      markMerchantSaved()
       setIsSaving(false)
     } catch {
       setSaveStatus('error')

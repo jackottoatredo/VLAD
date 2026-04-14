@@ -1,16 +1,12 @@
 'use client'
 import { useEffect, useState } from 'react'
-import type { WebcamSettings } from '@/types/webcam'
 import WebcamControls from '@/app/components/WebcamControls'
+import { useAppContext } from '@/app/appContext'
 
 type Props = {
   isRecording: boolean
   onStart: (sessionName: string, presenter: string) => void
   onStop: () => void
-  product: string
-  onProductChange: (product: string) => void
-  webcamSettings: WebcamSettings
-  onWebcamSettingsChange: (settings: WebcamSettings) => void
 }
 
 const PRODUCTS = [
@@ -21,30 +17,27 @@ const PRODUCTS = [
   { label: 'Email & SMS', safe: 'email-sms' },
   { label: 'Order Editing', safe: 'order-editing' },
   { label: 'Shipping & Fulfillment', safe: 'shipping-fulfillment' },
-  { label: 'Order Tracking', safe: 'order-tracking' },  
-  { label: 'AI Sales Support', safe: 'ai-sales-support' },  
+  { label: 'Order Tracking', safe: 'order-tracking' },
+  { label: 'AI Sales Support', safe: 'ai-sales-support' },
   { label: 'Warranties', safe: 'warranties' },
   { label: 'Inventory Management', safe: 'inventory-management' },
   { label: 'Agentic Catalog', safe: 'agentic-catalog' }
 ]
 
-export default function RecordingControlPanel({ isRecording, onStart, onStop, product, onProductChange, webcamSettings, onWebcamSettingsChange }: Props) {
-  const [presenter, setPresenter] = useState('')
-  const [users, setUsers] = useState<string[]>([])
+export default function RecordingControlPanel({ isRecording, onStart, onStop }: Props) {
+  const {
+    users, addUser,
+    product: productDraft,
+    setProductPresenter, setProductProduct, setProductWebcamSettings,
+  } = useAppContext()
+
   const [sessionExists, setSessionExists] = useState(false)
   const [showModal, setShowModal] = useState(false)
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
   const [addError, setAddError] = useState('')
 
-  const sessionName = presenter && product ? `${presenter}_${product}` : ''
-
-  useEffect(() => {
-    fetch('/api/list-users')
-      .then((r) => r.json())
-      .then((d: { users: string[] }) => setUsers(d.users))
-      .catch(() => {})
-  }, [])
+  const { presenter, product, session: sessionName, webcamSettings } = productDraft
 
   useEffect(() => {
     if (!sessionName) { setSessionExists(false); return }
@@ -73,8 +66,8 @@ export default function RecordingControlPanel({ isRecording, onStart, onStop, pr
       return
     }
     const newId = data.userId!
-    setUsers((prev) => [...prev, newId].sort())
-    setPresenter(newId)
+    addUser(newId)
+    setProductPresenter(newId)
     setFirstName('')
     setLastName('')
     setShowModal(false)
@@ -85,7 +78,7 @@ export default function RecordingControlPanel({ isRecording, onStart, onStop, pr
       <div className="flex gap-1">
         <select
           value={presenter}
-          onChange={(e) => setPresenter(e.target.value)}
+          onChange={(e) => setProductPresenter(e.target.value)}
           disabled={isRecording}
           className="flex-1 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 shadow-sm outline-none focus:border-zinc-500 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
         >
@@ -107,7 +100,7 @@ export default function RecordingControlPanel({ isRecording, onStart, onStop, pr
       <div className="flex flex-col gap-1">
         <select
           value={product}
-          onChange={(e) => onProductChange(e.target.value)}
+          onChange={(e) => setProductProduct(e.target.value)}
           disabled={isRecording}
           className="w-full rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 shadow-sm outline-none focus:border-zinc-500 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
         >
@@ -123,7 +116,7 @@ export default function RecordingControlPanel({ isRecording, onStart, onStop, pr
 
       <WebcamControls
         settings={webcamSettings}
-        onChange={onWebcamSettingsChange}
+        onChange={setProductWebcamSettings}
         disabled={isRecording}
       />
 

@@ -6,7 +6,7 @@ import RecordingControlPanel from '@/app/record/RecordingControlPanel'
 import PageLayout from '@/app/components/PageLayout'
 import PageNav from '@/app/components/PageNav'
 import { VIDEO_WIDTH, VIDEO_HEIGHT, RENDER_ZOOM, WEBCAM_RECORDER_TIMESLICE_MS } from '@/app/config'
-import { type WebcamSettings, DEFAULT_WEBCAM_SETTINGS } from '@/types/webcam'
+import { useAppContext } from '@/app/appContext'
 
 const IFRAME_WIDTH = Math.round(VIDEO_WIDTH / RENDER_ZOOM)
 const IFRAME_HEIGHT = Math.round(VIDEO_HEIGHT / RENDER_ZOOM)
@@ -20,14 +20,15 @@ type RelayEvent = {
 }
 
 export default function RecordPage() {
+  const { product: productDraft, markProductRecordingDirty } = useAppContext()
+  const { product, webcamSettings } = productDraft
+
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const eventsRef = useRef<RelayEvent[]>([])
   const [scale, setScale] = useState(1)
   const [isRecording, setIsRecording] = useState(false)
-  const [product, setProduct] = useState('')
   const [recordingKey, setRecordingKey] = useState(0)
-  const [webcamSettings, setWebcamSettings] = useState<WebcamSettings>(DEFAULT_WEBCAM_SETTINGS)
   const sessionNameRef = useRef('')
   const presenterRef = useRef('')
   const productRef = useRef('')
@@ -152,6 +153,7 @@ export default function RecordPage() {
     })
 
     await Promise.all([mousePromise, webcamPromise])
+    markProductRecordingDirty()
   }
 
   return (
@@ -165,10 +167,6 @@ export default function RecordPage() {
             isRecording={isRecording}
             onStart={handleStart}
             onStop={handleStop}
-            product={product}
-            onProductChange={setProduct}
-            webcamSettings={webcamSettings}
-            onWebcamSettingsChange={setWebcamSettings}
           />
         }
       >

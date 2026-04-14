@@ -14,6 +14,8 @@ export type RenderActionRunContext = {
   frameCount: number;
   startCursor?: CursorPosition;
   moveAndCapture: (x: number, y: number) => Promise<void>;
+  /** Advance the virtual clock by one frame without capturing a screenshot. */
+  advanceOnly: () => Promise<void>;
 };
 
 export type RenderAction = {
@@ -28,10 +30,21 @@ function clampCoordinate(value: number, max: number): number {
   return Math.min(Math.max(value, 0), Math.max(max - 1, 0));
 }
 
+/**
+ * Creates a replay action from keyframes.
+ *
+ * When `trimStartMs` is provided, Playwright replays ALL events from the
+ * beginning (so the page reaches the correct state through clicks/keys) but
+ * only captures screenshots for frames after `trimStartMs`.  The output
+ * video duration is `durationMs` (which should already be trimEnd-trimStart).
+ */
 export function createReplayAction(
   keyframes: ReadonlyArray<Keyframe>,
-  durationMs: number
+  durationMs: number,
+  trimStartMs = 0,
 ): RenderAction {
+  const totalReplayMs = trimStartMs + durationMs;
+
   return {
     name: "session-replay",
     durationMs,
@@ -49,14 +62,17 @@ export function createReplayAction(
 
       const positionKeyframes = keyframes.filter((kf) => kf.event !== "keydown");
       const sessionDurationMs = keyframes[keyframes.length - 1].t;
-      const scale = sessionDurationMs > 0 ? durationMs / sessionDurationMs : 1;
+      const scale = sessionDurationMs > 0 ? totalReplayMs / sessionDurationMs : 1;
+
+      const totalFrames = Math.ceil(totalReplayMs / frameDurationMs);
+      const skipFrames = trimStartMs > 0 ? Math.floor(trimStartMs / frameDurationMs) : 0;
 
       let lastPosition: CursorPosition = {
         x: clampCoordinate(Math.round(keyframes[0].x), context.width),
         y: clampCoordinate(Math.round(keyframes[0].y), context.height),
       };
 
-      for (let frameIndex = 0; frameIndex < context.frameCount; frameIndex++) {
+      for (let frameIndex = 0; frameIndex < totalFrames; frameIndex++) {
         const tFrame = (frameIndex * frameDurationMs) / scale;
         const tPrev = frameIndex === 0 ? -1 : ((frameIndex - 1) * frameDurationMs) / scale;
 
@@ -78,7 +94,16 @@ export function createReplayAction(
           }
         }
 
-        await context.moveAndCapture(x, y);
+        if (frameIndex >= skipFrames) {
+          // In the capture window — take a screenshot
+          await context.moveAndCapture(x, y);
+        } else {
+          // In the skip prefix — advance virtual clock and replay interactions
+          // but don't capture a screenshot
+          await context.advanceOnly();
+          await context.page.mouse.move(x, y, { steps: 1 });
+        }
+
         lastPosition = { x, y };
       }
 

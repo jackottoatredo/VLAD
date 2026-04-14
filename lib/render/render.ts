@@ -163,6 +163,9 @@ async function renderFrames(
         );
         await page.screenshot({ path: framePath, type: "jpeg", quality: 80 });
       },
+      advanceOnly: async () => {
+        await clock.advance(frameDurationMs);
+      },
     });
   }
 

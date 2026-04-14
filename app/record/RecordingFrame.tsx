@@ -10,11 +10,14 @@ type Props = {
   scale: number
   product: string
   recordingKey?: number
+  targetUrl?: string
+  queryParam?: string
   children?: React.ReactNode
 }
 
-export default function RecordingFrame({ iframeRef, containerRef, scale, product, recordingKey, children }: Props) {
-  const src = product ? `${TARGET_URL}?product=${product}` : TARGET_URL
+export default function RecordingFrame({ iframeRef, containerRef, scale, product, recordingKey, targetUrl, queryParam = 'product', children }: Props) {
+  const baseUrl = targetUrl ?? TARGET_URL
+  const src = product ? `${baseUrl}?${queryParam}=${product}` : baseUrl
 
   return (
     <div

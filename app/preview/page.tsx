@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from 'react'
 import PageLayout from '@/app/components/PageLayout'
 import PageNav from '@/app/components/PageNav'
+import WebcamControls from '@/app/components/WebcamControls'
+import { type WebcamSettings, DEFAULT_WEBCAM_SETTINGS } from '@/types/webcam'
 
 const BRANDS = ['allbirds.com', 'mammut.com', 'andcollar.com', 'adidas.com'] as const
 type Brand = (typeof BRANDS)[number]
@@ -21,7 +23,17 @@ function initialBrandStates(): Record<Brand, BrandState> {
   return Object.fromEntries(BRANDS.map((b) => [b, { status: 'idle' }])) as Record<Brand, BrandState>
 }
 
-function BrandPanel({ brand, state }: { brand: Brand; state: BrandState }) {
+function BrandPanel({
+  brand,
+  state,
+  onGenerate,
+  videoRef,
+}: {
+  brand: Brand
+  state: BrandState
+  onGenerate: () => void
+  videoRef: React.RefObject<HTMLVideoElement | null>
+}) {
   const renderProgress =
     state.status === 'rendering' && state.total > 0
       ? Math.round((state.rendered / state.total) * 100)
@@ -42,60 +54,59 @@ function BrandPanel({ brand, state }: { brand: Brand; state: BrandState }) {
     <div className="flex h-full flex-col overflow-hidden rounded-xl border border-black/10 bg-zinc-50 dark:border-white/10 dark:bg-zinc-900">
       <p className="shrink-0 px-4 pt-4 pb-0 text-sm font-medium text-zinc-700 dark:text-zinc-300">{brand}</p>
 
-      <div className="flex flex-1 min-h-0 flex-col items-center justify-center gap-3 p-4 pt-3">
-        {(state.status === 'idle' || isWorking) && (
+      <div className="flex flex-1 min-h-0 flex-col items-center justify-center p-4 pt-3">
+        {state.status === 'idle' && (
           <div className="flex w-full aspect-video items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800">
-            <svg
-              className={`h-8 w-8 text-zinc-300 dark:text-zinc-600 ${isWorking ? 'animate-spin' : ''}`}
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
+            <button
+              onClick={onGenerate}
+              className="rounded-md bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
             >
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-            </svg>
+              Generate
+            </button>
           </div>
         )}
 
         {isWorking && (
-          <div className="w-full space-y-2">
-            <div className="space-y-1">
-              <div className="flex justify-between text-xs text-zinc-500 dark:text-zinc-400">
-                <span>
-                  {state.status === 'rendering'
-                    ? state.total > 0
-                      ? `Rendering — frame ${state.rendered} of ${state.total}`
-                      : 'Rendering — starting…'
-                    : 'Rendering — complete'}
-                </span>
-                <span>{renderProgress}%</span>
-              </div>
-              <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700">
-                <div
-                  className="h-full rounded-full bg-zinc-900 transition-all duration-500 dark:bg-zinc-100"
-                  style={{ width: `${renderProgress}%` }}
-                />
-              </div>
-            </div>
-
-            {state.status === 'compositing' && (
+          <div className="relative w-full aspect-video rounded-lg bg-zinc-100 dark:bg-zinc-800">
+            <div className="absolute inset-x-0 top-0 space-y-2 p-3">
               <div className="space-y-1">
                 <div className="flex justify-between text-xs text-zinc-500 dark:text-zinc-400">
                   <span>
-                    {state.total > 0
-                      ? `Compositing — step ${state.composited} of ${state.total}`
-                      : 'Compositing — starting…'}
+                    {state.status === 'rendering'
+                      ? state.total > 0
+                        ? `Rendering — frame ${state.rendered} of ${state.total}`
+                        : 'Rendering — starting…'
+                      : 'Rendering — complete'}
                   </span>
-                  <span>{composeProgress}%</span>
+                  <span>{renderProgress}%</span>
                 </div>
                 <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700">
                   <div
                     className="h-full rounded-full bg-zinc-900 transition-all duration-500 dark:bg-zinc-100"
-                    style={{ width: `${composeProgress}%` }}
+                    style={{ width: `${renderProgress}%` }}
                   />
                 </div>
               </div>
-            )}
+
+              {state.status === 'compositing' && (
+                <div className="space-y-1">
+                  <div className="flex justify-between text-xs text-zinc-500 dark:text-zinc-400">
+                    <span>
+                      {state.total > 0
+                        ? `Compositing — step ${state.composited} of ${state.total}`
+                        : 'Compositing — starting…'}
+                    </span>
+                    <span>{composeProgress}%</span>
+                  </div>
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700">
+                    <div
+                      className="h-full rounded-full bg-zinc-900 transition-all duration-500 dark:bg-zinc-100"
+                      style={{ width: `${composeProgress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -106,7 +117,7 @@ function BrandPanel({ brand, state }: { brand: Brand; state: BrandState }) {
         )}
 
         {state.status === 'done' && (
-          <video src={state.videoUrl} controls className="w-full rounded-lg" />
+          <video ref={videoRef} src={state.videoUrl} controls className="w-full rounded-lg" />
         )}
       </div>
     </div>
@@ -121,6 +132,17 @@ export default function PreviewPage() {
   const [listError, setListError] = useState('')
   const [brandStates, setBrandStates] = useState<Record<Brand, BrandState>>(initialBrandStates)
   const [product, setProduct] = useState('')
+  const [recordedSettings, setRecordedSettings] = useState<WebcamSettings>(DEFAULT_WEBCAM_SETTINGS)
+  const [webcamSettings, setWebcamSettings] = useState<WebcamSettings>(DEFAULT_WEBCAM_SETTINGS)
+  const [useRecordingSettings, setUseRecordingSettings] = useState(true)
+  const [showSaveModal, setShowSaveModal] = useState(false)
+  const [saveName, setSaveName] = useState('')
+  const [isSaving, setIsSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
+
+  const videoRefs = useRef<Record<Brand, React.RefObject<HTMLVideoElement | null>>>(
+    Object.fromEntries(BRANDS.map((b) => [b, { current: null }])) as Record<Brand, React.RefObject<HTMLVideoElement | null>>
+  )
 
   // jobId → brand for the polling interval
   const activeJobsRef = useRef<Map<string, Brand>>(new Map())
@@ -146,7 +168,17 @@ export default function PreviewPage() {
     if (!selectedPresenter || !selectedSession) { setProduct(''); return }
     fetch(`/api/session-metadata?presenter=${selectedPresenter}&session=${selectedSession}`)
       .then((r) => r.json())
-      .then((data: { product?: string }) => setProduct(data.product ?? ''))
+      .then((data: { product?: string; webcamMode?: string; webcamVertical?: string; webcamHorizontal?: string }) => {
+        setProduct(data.product ?? '')
+        const loaded: WebcamSettings = {
+          webcamMode: (data.webcamMode as WebcamSettings['webcamMode']) ?? DEFAULT_WEBCAM_SETTINGS.webcamMode,
+          webcamVertical: (data.webcamVertical as WebcamSettings['webcamVertical']) ?? DEFAULT_WEBCAM_SETTINGS.webcamVertical,
+          webcamHorizontal: (data.webcamHorizontal as WebcamSettings['webcamHorizontal']) ?? DEFAULT_WEBCAM_SETTINGS.webcamHorizontal,
+        }
+        setRecordedSettings(loaded)
+        setWebcamSettings(loaded)
+        setUseRecordingSettings(true)
+      })
       .catch(() => setProduct(''))
   }, [selectedPresenter, selectedSession])
 
@@ -205,46 +237,83 @@ export default function PreviewPage() {
     return () => clearInterval(interval)
   }, [])
 
+  async function generateBrand(brand: Brand) {
+    setBrandStates((prev) => ({ ...prev, [brand]: { status: 'idle' } }))
+    try {
+      const res = await fetch('/api/render-preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session: selectedSession,
+          presenter: selectedPresenter,
+          brand,
+          product,
+          webcamMode: webcamSettings.webcamMode,
+          webcamVertical: webcamSettings.webcamVertical,
+          webcamHorizontal: webcamSettings.webcamHorizontal,
+        }),
+      })
+      const payload = (await res.json()) as { jobId?: string; error?: string }
+
+      if (!res.ok || !payload.jobId) {
+        setBrandStates((prev) => ({
+          ...prev,
+          [brand]: { status: 'error', message: payload.error ?? 'Failed to start render.' },
+        }))
+        return
+      }
+
+      activeJobsRef.current.set(payload.jobId, brand)
+      setBrandStates((prev) => ({
+        ...prev,
+        [brand]: { status: 'rendering', jobId: payload.jobId!, rendered: 0, total: 0 },
+      }))
+    } catch {
+      setBrandStates((prev) => ({
+        ...prev,
+        [brand]: { status: 'error', message: 'Unexpected error.' },
+      }))
+    }
+  }
+
   async function handleGenerate() {
     setBrandStates(initialBrandStates())
     activeJobsRef.current.clear()
+    await Promise.all(BRANDS.map((brand) => generateBrand(brand)))
+  }
 
-    await Promise.all(
-      BRANDS.map(async (brand) => {
-        try {
-          const res = await fetch('/api/render-preview', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              session: selectedSession,
-              presenter: selectedPresenter,
-              brand,
-              product,
-            }),
-          })
-          const payload = (await res.json()) as { jobId?: string; error?: string }
+  function handlePlayAll() {
+    for (const brand of BRANDS) {
+      const video = videoRefs.current[brand].current
+      if (video) {
+        video.currentTime = 0
+        video.play()
+      }
+    }
+  }
 
-          if (!res.ok || !payload.jobId) {
-            setBrandStates((prev) => ({
-              ...prev,
-              [brand]: { status: 'error', message: payload.error ?? 'Failed to start render.' },
-            }))
-            return
-          }
-
-          activeJobsRef.current.set(payload.jobId, brand)
-          setBrandStates((prev) => ({
-            ...prev,
-            [brand]: { status: 'rendering', jobId: payload.jobId!, rendered: 0, total: 0 },
-          }))
-        } catch {
-          setBrandStates((prev) => ({
-            ...prev,
-            [brand]: { status: 'error', message: 'Unexpected error.' },
-          }))
-        }
+  async function handleSave() {
+    if (!saveName.trim() || !selectedPresenter || !selectedSession) return
+    setIsSaving(true)
+    setSaveError('')
+    try {
+      const res = await fetch('/api/save-recording', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ presenter: selectedPresenter, session: selectedSession, name: saveName.trim() }),
       })
-    )
+      const data = (await res.json()) as { ok?: boolean; error?: string }
+      if (!res.ok || !data.ok) {
+        setSaveError(data.error ?? 'Failed to save.')
+      } else {
+        setShowSaveModal(false)
+        setSaveName('')
+      }
+    } catch {
+      setSaveError('Unexpected error.')
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const isAnyActive = BRANDS.some((b) => {
@@ -298,13 +367,53 @@ export default function PreviewPage() {
               ))}
             </select>
 
+            <div className="flex flex-col gap-2">
+              <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+                <input
+                  type="checkbox"
+                  checked={useRecordingSettings}
+                  onChange={(e) => {
+                    setUseRecordingSettings(e.target.checked)
+                    if (e.target.checked) setWebcamSettings(recordedSettings)
+                  }}
+                  disabled={isAnyActive}
+                  className="rounded border-zinc-300 dark:border-zinc-700"
+                />
+                Use recording settings
+              </label>
+              {!useRecordingSettings && (
+                <WebcamControls
+                  settings={webcamSettings}
+                  onChange={setWebcamSettings}
+                  disabled={isAnyActive}
+                />
+              )}
+            </div>
+
             <button
               onClick={handleGenerate}
               disabled={!canGenerate}
               className="w-full rounded-md bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
             >
-              {isAnyActive ? 'Generating…' : 'Generate Previews'}
+              {isAnyActive ? 'Generating…' : 'Generate All Previews'}
             </button>
+
+            {BRANDS.every((b) => brandStates[b].status === 'done') && (
+              <>
+                <button
+                  onClick={handlePlayAll}
+                  className="w-full rounded-md bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+                >
+                  Play All
+                </button>
+                <button
+                  onClick={() => setShowSaveModal(true)}
+                  className="w-full rounded-md bg-green-600 px-4 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-green-500"
+                >
+                  Save Recording
+                </button>
+              </>
+            )}
 
             {listError && <p className="text-xs text-red-600 dark:text-red-400">{listError}</p>}
           </>
@@ -312,14 +421,53 @@ export default function PreviewPage() {
       >
         <div className="grid flex-1 grid-cols-2 grid-rows-2 gap-[10px]">
           {BRANDS.map((brand) => (
-            <BrandPanel key={brand} brand={brand} state={brandStates[brand]} />
+            <BrandPanel
+              key={brand}
+              brand={brand}
+              state={brandStates[brand]}
+              onGenerate={() => generateBrand(brand)}
+              videoRef={videoRefs.current[brand]}
+            />
           ))}
         </div>
       </PageLayout>
       <PageNav
-        back={{ label: 'Product Recording', href: '/record' }}
+        back={{ label: 'Postprocessing', href: '/postprocess' }}
         forward={{ label: 'Merchant Customization', href: '/merchant' }}
       />
+
+      {showSaveModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="w-full max-w-sm rounded-xl border border-zinc-200 bg-white p-6 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+            <h2 className="mb-4 text-lg font-semibold text-zinc-900 dark:text-zinc-100">Save Recording</h2>
+            <input
+              type="text"
+              value={saveName}
+              onChange={(e) => setSaveName(e.target.value)}
+              placeholder="Recording name"
+              className="mb-3 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
+              autoFocus
+              onKeyDown={(e) => { if (e.key === 'Enter') handleSave() }}
+            />
+            {saveError && <p className="mb-2 text-xs text-red-500">{saveError}</p>}
+            <div className="flex gap-2">
+              <button
+                onClick={() => { setShowSaveModal(false); setSaveName(''); setSaveError('') }}
+                className="flex-1 rounded-md border border-zinc-300 px-4 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={!saveName.trim() || isSaving}
+                className="flex-1 rounded-md bg-green-600 px-4 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-green-500 disabled:opacity-50"
+              >
+                {isSaving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }

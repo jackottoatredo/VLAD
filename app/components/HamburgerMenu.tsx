@@ -7,8 +7,10 @@ import { useState } from "react";
 const links = [
   { href: "/", label: "Home" },
   { href: "/record", label: "Product Recording" },
+  { href: "/postprocess", label: "Product Postprocessing" },
   { href: "/preview", label: "Product Preview" },
   { href: "/merchant", label: "Merchant Customization" },
+  { href: "/merchant-postprocess", label: "Merchant Postprocessing" },
   { href: "/review", label: "Review" },
 ];
 

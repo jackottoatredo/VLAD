@@ -1,5 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
+import type { WebcamSettings } from '@/types/webcam'
+import WebcamControls from '@/app/components/WebcamControls'
 
 type Props = {
   isRecording: boolean
@@ -7,15 +9,26 @@ type Props = {
   onStop: () => void
   product: string
   onProductChange: (product: string) => void
+  webcamSettings: WebcamSettings
+  onWebcamSettingsChange: (settings: WebcamSettings) => void
 }
 
 const PRODUCTS = [
-  { label: 'Returns & Claims', safe: 'returnsclaims' },
-  { label: 'Conversion Optimization', safe: 'conversionoptimization' },
-  { label: 'Order Tracking', safe: 'ordertracking' },
+  { label: 'Returns & Claims', safe: 'returns-claims' },
+  { label: 'Chargebacks', safe: 'chargebacks' },
+  { label: 'Recover', safe: 'recover'},
+  { label: 'Checkout Optimization', safe: 'checkout-optimization' },
+  { label: 'Email & SMS', safe: 'email-sms' },
+  { label: 'Order Editing', safe: 'order-editing' },
+  { label: 'Shipping & Fulfillment', safe: 'shipping-fulfillment' },
+  { label: 'Order Tracking', safe: 'order-tracking' },  
+  { label: 'AI Sales Support', safe: 'ai-sales-support' },  
+  { label: 'Warranties', safe: 'warranties' },
+  { label: 'Inventory Management', safe: 'inventory-management' },
+  { label: 'Agentic Catalog', safe: 'agentic-catalog' }
 ]
 
-export default function RecordingControlPanel({ isRecording, onStart, onStop, product, onProductChange }: Props) {
+export default function RecordingControlPanel({ isRecording, onStart, onStop, product, onProductChange, webcamSettings, onWebcamSettingsChange }: Props) {
   const [presenter, setPresenter] = useState('')
   const [users, setUsers] = useState<string[]>([])
   const [sessionExists, setSessionExists] = useState(false)
@@ -107,6 +120,12 @@ export default function RecordingControlPanel({ isRecording, onStart, onStop, pr
           <p className="text-xs text-yellow-500">Will replace existing recording</p>
         )}
       </div>
+
+      <WebcamControls
+        settings={webcamSettings}
+        onChange={onWebcamSettingsChange}
+        disabled={isRecording}
+      />
 
       <button
         onClick={isRecording ? onStop : () => onStart(sessionName, presenter)}

@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from 'react'
 import PageLayout from '@/app/components/PageLayout'
 import PageNav from '@/app/components/PageNav'
+import WebcamControls from '@/app/components/WebcamControls'
+import { type WebcamSettings, DEFAULT_WEBCAM_SETTINGS } from '@/types/webcam'
 
 type RecordingEntry = {
   name: string
@@ -25,6 +27,9 @@ export default function ReviewPage() {
   const [selectedSession, setSelectedSession] = useState<string>('')
   const [state, setState] = useState<PageState>({ status: 'loading-list' })
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [recordedSettings, setRecordedSettings] = useState<WebcamSettings>(DEFAULT_WEBCAM_SETTINGS)
+  const [webcamSettings, setWebcamSettings] = useState<WebcamSettings>(DEFAULT_WEBCAM_SETTINGS)
+  const [useRecordingSettings, setUseRecordingSettings] = useState(true)
 
   useEffect(() => {
     fetch('/api/list-recordings')
@@ -39,6 +44,23 @@ export default function ReviewPage() {
       })
       .catch(() => setState({ status: 'error', message: 'Failed to load session list.' }))
   }, [])
+
+  useEffect(() => {
+    if (!selectedPresenter || !selectedSession) return
+    fetch(`/api/session-metadata?presenter=${selectedPresenter}&session=${selectedSession}`)
+      .then((r) => r.json())
+      .then((data: { webcamMode?: string; webcamVertical?: string; webcamHorizontal?: string }) => {
+        const loaded: WebcamSettings = {
+          webcamMode: (data.webcamMode as WebcamSettings['webcamMode']) ?? DEFAULT_WEBCAM_SETTINGS.webcamMode,
+          webcamVertical: (data.webcamVertical as WebcamSettings['webcamVertical']) ?? DEFAULT_WEBCAM_SETTINGS.webcamVertical,
+          webcamHorizontal: (data.webcamHorizontal as WebcamSettings['webcamHorizontal']) ?? DEFAULT_WEBCAM_SETTINGS.webcamHorizontal,
+        }
+        setRecordedSettings(loaded)
+        setWebcamSettings(loaded)
+        setUseRecordingSettings(true)
+      })
+      .catch(() => {})
+  }, [selectedPresenter, selectedSession])
 
   useEffect(() => {
     const isActive = state.status === 'rendering' || state.status === 'compositing'
@@ -90,7 +112,13 @@ export default function ReviewPage() {
       const response = await fetch('/api/render-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session: selectedSession, presenter: selectedPresenter }),
+        body: JSON.stringify({
+          session: selectedSession,
+          presenter: selectedPresenter,
+          webcamMode: webcamSettings.webcamMode,
+          webcamVertical: webcamSettings.webcamVertical,
+          webcamHorizontal: webcamSettings.webcamHorizontal,
+        }),
       })
       const payload = (await response.json()) as { jobId?: string; error?: string }
       if (!response.ok || !payload.jobId) {
@@ -169,6 +197,29 @@ export default function ReviewPage() {
                 </option>
               ))}
             </select>
+
+            <div className="flex flex-col gap-2">
+              <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+                <input
+                  type="checkbox"
+                  checked={useRecordingSettings}
+                  onChange={(e) => {
+                    setUseRecordingSettings(e.target.checked)
+                    if (e.target.checked) setWebcamSettings(recordedSettings)
+                  }}
+                  disabled={isWorking}
+                  className="rounded border-zinc-300 dark:border-zinc-700"
+                />
+                Use recording settings
+              </label>
+              {!useRecordingSettings && (
+                <WebcamControls
+                  settings={webcamSettings}
+                  onChange={setWebcamSettings}
+                  disabled={isWorking}
+                />
+              )}
+            </div>
 
             <button
               onClick={handleRender}
@@ -251,7 +302,7 @@ export default function ReviewPage() {
           )}
         </div>
       </PageLayout>
-      <PageNav back={{ label: 'Merchant Customization', href: '/merchant' }} />
+      <PageNav back={{ label: 'Merchant Postprocessing', href: '/merchant-postprocess' }} />
     </>
   )
 }

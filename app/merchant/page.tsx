@@ -2,13 +2,16 @@
 import { useEffect, useRef, useState } from 'react'
 import RecordingFrame from '@/app/record/RecordingFrame'
 import WebcamOverlay from '@/app/record/WebcamOverlay'
-import RecordingControlPanel from '@/app/record/RecordingControlPanel'
 import PageLayout from '@/app/components/PageLayout'
 import PageNav from '@/app/components/PageNav'
+import WebcamControls from '@/app/components/WebcamControls'
 import { VIDEO_WIDTH, VIDEO_HEIGHT, RENDER_ZOOM, WEBCAM_RECORDER_TIMESLICE_MS } from '@/app/config'
+import { type WebcamSettings, DEFAULT_WEBCAM_SETTINGS } from '@/types/webcam'
 
 const IFRAME_WIDTH = Math.round(VIDEO_WIDTH / RENDER_ZOOM)
 const IFRAME_HEIGHT = Math.round(VIDEO_HEIGHT / RENDER_ZOOM)
+
+type Merchant = { id: string; name: string; url: string }
 
 type RelayEvent = {
   eventType: string
@@ -25,9 +28,34 @@ export default function MerchantPage() {
   const [scale, setScale] = useState(1)
   const [isRecording, setIsRecording] = useState(false)
   const [recordingComplete, setRecordingComplete] = useState(false)
-  const [product, setProduct] = useState('')
+  const [webcamSettings, setWebcamSettings] = useState<WebcamSettings>(DEFAULT_WEBCAM_SETTINGS)
   const sessionNameRef = useRef('')
   const presenterRef = useRef('')
+  const merchantUrlRef = useRef('')
+  const brandRef = useRef('')
+
+  // Controls
+  const [presenter, setPresenter] = useState('')
+  const [users, setUsers] = useState<string[]>([])
+  const [merchants, setMerchants] = useState<Merchant[]>([])
+  const [selectedMerchantId, setSelectedMerchantId] = useState('')
+
+  // Add user modal
+  const [showAddUser, setShowAddUser] = useState(false)
+  const [firstName, setFirstName] = useState('')
+  const [lastName, setLastName] = useState('')
+  const [addUserError, setAddUserError] = useState('')
+
+  // Add merchant modal
+  const [showAddMerchant, setShowAddMerchant] = useState(false)
+  const [merchantName, setMerchantName] = useState('')
+  const [merchantUrlInput, setMerchantUrlInput] = useState('')
+  const [addMerchantError, setAddMerchantError] = useState('')
+
+  const selectedMerchant = merchants.find((m) => m.id === selectedMerchantId)
+  const sessionName = presenter && selectedMerchantId ? `${presenter}_${selectedMerchantId}` : ''
+
+  const brand = selectedMerchant?.url ?? ''
 
   // Webcam
   const streamRef = useRef<MediaStream | null>(null)
@@ -38,10 +66,25 @@ export default function MerchantPage() {
   const webcamDimsRef = useRef<{ width: number; height: number } | null>(null)
 
   useEffect(() => {
+    fetch('/api/list-users')
+      .then((r) => r.json())
+      .then((d: { users: string[] }) => setUsers(d.users))
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    fetch('/api/list-merchants')
+      .then((r) => r.json())
+      .then((d: { merchants: Merchant[] }) => setMerchants(d.merchants))
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
     const el = containerRef.current
     if (!el) return
     const observer = new ResizeObserver(([entry]) => {
-      setScale(entry.contentRect.width / IFRAME_WIDTH)
+      const w = entry.contentRect.width
+      if (w > 0) setScale(w / IFRAME_WIDTH)
     })
     observer.observe(el)
     return () => observer.disconnect()
@@ -59,6 +102,13 @@ export default function MerchantPage() {
   }, [isRecording])
 
   useEffect(() => {
+    if (webcamSettings.webcamMode === 'off') {
+      streamRef.current?.getTracks().forEach((t) => t.stop())
+      streamRef.current = null
+      if (webcamVideoRef.current) webcamVideoRef.current.srcObject = null
+      return
+    }
+
     navigator.mediaDevices
       .getUserMedia({ video: true, audio: true })
       .then((stream) => {
@@ -74,11 +124,13 @@ export default function MerchantPage() {
     return () => {
       streamRef.current?.getTracks().forEach((t) => t.stop())
     }
-  }, [])
+  }, [webcamSettings.webcamMode])
 
-  function handleStart(sessionName: string, presenter: string) {
+  function handleStart() {
     sessionNameRef.current = sessionName
     presenterRef.current = presenter
+    merchantUrlRef.current = selectedMerchant?.url ?? ''
+    brandRef.current = brand
     const startTime = Date.now()
     recordingStartedAt.current = new Date(startTime).toISOString()
     eventsRef.current = [{ eventType: 'recording-start', x: 0, y: 0, buttons: 0, timestamp: startTime }]
@@ -98,15 +150,15 @@ export default function MerchantPage() {
   async function handleStop() {
     setIsRecording(false)
 
-    const sessionName = sessionNameRef.current
-    const presenter = presenterRef.current
+    const sn = sessionNameRef.current
+    const pres = presenterRef.current
 
     const mousePromise = fetch('/api/save-session', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        session: sessionName,
-        presenter,
+        session: sn,
+        presenter: pres,
         recordedAt: recordingStartedAt.current,
         virtualWidth: IFRAME_WIDTH,
         virtualHeight: IFRAME_HEIGHT,
@@ -120,10 +172,14 @@ export default function MerchantPage() {
       mr.onstop = async () => {
         const blob = new Blob(webcamChunksRef.current, { type: 'video/webm' })
         const fd = new FormData()
-        fd.append('session', sessionName)
-        fd.append('presenter', presenter)
-        fd.append('video', blob, `${sessionName}_webcam.webm`)
+        fd.append('session', sn)
+        fd.append('presenter', pres)
+        fd.append('video', blob, `${sn}_webcam.webm`)
         fd.append('startedAt', recordingStartedAt.current)
+        fd.append('merchantUrl', merchantUrlRef.current)
+        fd.append('webcamMode', webcamSettings.webcamMode)
+        fd.append('webcamVertical', webcamSettings.webcamVertical)
+        fd.append('webcamHorizontal', webcamSettings.webcamHorizontal)
         if (webcamDimsRef.current) {
           fd.append('width', String(webcamDimsRef.current.width))
           fd.append('height', String(webcamDimsRef.current.height))
@@ -138,35 +194,177 @@ export default function MerchantPage() {
     setRecordingComplete(true)
   }
 
+  async function handleAddUser() {
+    setAddUserError('')
+    const res = await fetch('/api/add-user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ firstName: firstName.trim(), lastName: lastName.trim() }),
+    })
+    const data = await res.json() as { ok?: boolean; userId?: string; error?: string }
+    if (!res.ok || !data.ok) {
+      setAddUserError(data.error ?? 'Failed to add user.')
+      return
+    }
+    setUsers((prev) => [...prev, data.userId!].sort())
+    setPresenter(data.userId!)
+    setFirstName('')
+    setLastName('')
+    setShowAddUser(false)
+  }
+
+  async function handleAddMerchant() {
+    setAddMerchantError('')
+    const res = await fetch('/api/add-merchant', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: merchantName.trim(), url: merchantUrlInput.trim() }),
+    })
+    const data = await res.json() as { ok?: boolean; merchant?: Merchant; error?: string }
+    if (!res.ok || !data.ok || !data.merchant) {
+      setAddMerchantError(data.error ?? 'Failed to add merchant.')
+      return
+    }
+    setMerchants((prev) => [...prev, data.merchant!].sort((a, b) => a.name.localeCompare(b.name)))
+    setSelectedMerchantId(data.merchant.id)
+    setMerchantName('')
+    setMerchantUrlInput('')
+    setShowAddMerchant(false)
+  }
+
+  const canStart = !!sessionName && !isRecording
+
   return (
     <>
       <PageLayout
         instructions={
-          <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.</p>
+          <p>Record a merchant customization walkthrough. Select a presenter and merchant, then start recording.</p>
         }
         settings={
-          <RecordingControlPanel
-            isRecording={isRecording}
-            onStart={handleStart}
-            onStop={handleStop}
-            product={product}
-            onProductChange={setProduct}
-          />
+          <>
+            {/* Presenter */}
+            <div className="flex gap-1">
+              <select
+                value={presenter}
+                onChange={(e) => setPresenter(e.target.value)}
+                disabled={isRecording}
+                className="flex-1 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 shadow-sm outline-none focus:border-zinc-500 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+              >
+                <option value="">Select presenter…</option>
+                {users.map((u) => (
+                  <option key={u} value={u}>{u}</option>
+                ))}
+              </select>
+              <button
+                onClick={() => setShowAddUser(true)}
+                disabled={isRecording}
+                className="flex items-center justify-center rounded-md border border-zinc-300 bg-white px-2.5 text-zinc-600 shadow-sm hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                title="Add new user"
+              >
+                +
+              </button>
+            </div>
+
+            {/* Merchant */}
+            <div className="flex gap-1">
+              <select
+                value={selectedMerchantId}
+                onChange={(e) => setSelectedMerchantId(e.target.value)}
+                disabled={isRecording}
+                className="flex-1 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 shadow-sm outline-none focus:border-zinc-500 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+              >
+                <option value="">Select merchant…</option>
+                {merchants.map((m) => (
+                  <option key={m.id} value={m.id}>{m.name}</option>
+                ))}
+              </select>
+              <button
+                onClick={() => setShowAddMerchant(true)}
+                disabled={isRecording}
+                className="flex items-center justify-center rounded-md border border-zinc-300 bg-white px-2.5 text-zinc-600 shadow-sm hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                title="Add new merchant"
+              >
+                +
+              </button>
+            </div>
+
+            <WebcamControls
+              settings={webcamSettings}
+              onChange={setWebcamSettings}
+              disabled={isRecording}
+            />
+
+            <button
+              onClick={isRecording ? handleStop : handleStart}
+              disabled={!isRecording && !canStart}
+              className={`w-full rounded-md px-4 py-1.5 text-sm font-medium shadow-sm disabled:opacity-40 disabled:cursor-not-allowed text-white ${
+                isRecording
+                  ? 'bg-red-600 hover:bg-red-700'
+                  : 'bg-zinc-900 hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300'
+              }`}
+            >
+              {isRecording ? 'Stop Recording' : 'Start Recording'}
+            </button>
+          </>
         }
       >
         <div className="flex flex-1 items-center justify-center overflow-hidden rounded-xl border border-zinc-300 p-[10px] dark:border-zinc-700">
           {recordingComplete ? (
             <p className="text-lg font-medium text-zinc-600 dark:text-zinc-400">
-              Merchant intro recorded — continue to Review
+              Merchant intro recorded — continue to Merchant Postprocessing
             </p>
           ) : (
-            <RecordingFrame iframeRef={iframeRef} containerRef={containerRef} scale={scale} product={product}>
-              <WebcamOverlay videoRef={webcamVideoRef} scale={scale} mirror />
+            <RecordingFrame
+              iframeRef={iframeRef}
+              containerRef={containerRef}
+              scale={scale}
+              product={brand}
+              targetUrl="http://search.redo.com/record"
+              queryParam="brand"
+            >
+              <WebcamOverlay webcamSettings={webcamSettings} videoRef={webcamVideoRef} scale={scale} mirror />
             </RecordingFrame>
           )}
         </div>
       </PageLayout>
-      <PageNav back={{ label: 'Product Preview', href: '/preview' }} forward={{ label: 'Review', href: '/review' }} />
+
+      {/* Add User Modal */}
+      {showAddUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="w-80 rounded-xl border border-zinc-200 bg-white p-6 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+            <h2 className="mb-4 text-sm font-semibold text-zinc-800 dark:text-zinc-100">Add New User</h2>
+            <div className="flex flex-col gap-3">
+              <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="First name" className="w-full rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 placeholder-zinc-400 shadow-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100" />
+              <input type="text" value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="Last name" className="w-full rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 placeholder-zinc-400 shadow-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100" />
+              {addUserError && <p className="text-xs text-red-500">{addUserError}</p>}
+              <div className="flex gap-2 pt-1">
+                <button onClick={() => { setShowAddUser(false); setFirstName(''); setLastName(''); setAddUserError('') }} className="flex-1 rounded-md border border-zinc-300 px-4 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">Cancel</button>
+                <button onClick={handleAddUser} disabled={!firstName.trim() || !lastName.trim()} className="flex-1 rounded-md bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300">Add</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Merchant Modal */}
+      {showAddMerchant && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="w-80 rounded-xl border border-zinc-200 bg-white p-6 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+            <h2 className="mb-4 text-sm font-semibold text-zinc-800 dark:text-zinc-100">Add New Merchant</h2>
+            <div className="flex flex-col gap-3">
+              <input type="text" value={merchantName} onChange={(e) => setMerchantName(e.target.value)} placeholder="Company name" className="w-full rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 placeholder-zinc-400 shadow-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100" />
+              <input type="text" value={merchantUrlInput} onChange={(e) => setMerchantUrlInput(e.target.value)} placeholder="mammut.com" className="w-full rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 placeholder-zinc-400 shadow-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100" />
+              {addMerchantError && <p className="text-xs text-red-500">{addMerchantError}</p>}
+              <div className="flex gap-2 pt-1">
+                <button onClick={() => { setShowAddMerchant(false); setMerchantName(''); setMerchantUrlInput(''); setAddMerchantError('') }} className="flex-1 rounded-md border border-zinc-300 px-4 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">Cancel</button>
+                <button onClick={handleAddMerchant} disabled={!merchantName.trim() || !merchantUrlInput.trim().includes('.')} className="flex-1 rounded-md bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300">Add</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <PageNav back={{ label: 'Product Preview', href: '/preview' }} forward={{ label: 'Merchant Postprocessing', href: '/merchant-postprocess' }} />
     </>
   )
 }

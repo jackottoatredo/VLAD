@@ -8,6 +8,8 @@ import { createReplayAction } from "@/lib/render/actions";
 import { produceSessionVideo } from "@/lib/render/produce";
 import { createJob, updateJobProgress, startCompositing, updateCompositingProgress, completeJob, failJob } from "@/lib/render/job-store";
 
+import { type WebcamSettings, DEFAULT_WEBCAM_SETTINGS } from "@/types/webcam";
+
 export const runtime = "nodejs";
 
 const PUBLIC_DIR = path.join(process.cwd(), "public");
@@ -15,6 +17,9 @@ const PUBLIC_DIR = path.join(process.cwd(), "public");
 type RenderSessionBody = {
   session?: unknown;
   presenter?: unknown;
+  webcamMode?: unknown;
+  webcamVertical?: unknown;
+  webcamHorizontal?: unknown;
 };
 
 export async function POST(request: Request) {
@@ -59,6 +64,18 @@ export async function POST(request: Request) {
   const durationMs = keyframes.length > 0 ? keyframes[keyframes.length - 1].t : 1000;
   const replayAction = createReplayAction(keyframes, durationMs);
 
+  const webcamSettings: WebcamSettings = {
+    webcamMode: typeof body.webcamMode === "string" && ["video", "audio", "off"].includes(body.webcamMode)
+      ? body.webcamMode as WebcamSettings["webcamMode"]
+      : DEFAULT_WEBCAM_SETTINGS.webcamMode,
+    webcamVertical: typeof body.webcamVertical === "string" && ["top", "bottom"].includes(body.webcamVertical)
+      ? body.webcamVertical as WebcamSettings["webcamVertical"]
+      : DEFAULT_WEBCAM_SETTINGS.webcamVertical,
+    webcamHorizontal: typeof body.webcamHorizontal === "string" && ["left", "right"].includes(body.webcamHorizontal)
+      ? body.webcamHorizontal as WebcamSettings["webcamHorizontal"]
+      : DEFAULT_WEBCAM_SETTINGS.webcamHorizontal,
+  };
+
   const jobId = randomUUID().slice(0, 8);
   createJob(jobId);
 
@@ -78,6 +95,7 @@ export async function POST(request: Request) {
     onRenderProgress: (rendered, total) => updateJobProgress(jobId, rendered, total),
     onRenderComplete: () => startCompositing(jobId),
     onComposeProgress: (step, total) => updateCompositingProgress(jobId, step, total),
+    webcamSettings,
   })
     .then((result) => completeJob(jobId, result.videoUrl))
     .catch((error: unknown) => {

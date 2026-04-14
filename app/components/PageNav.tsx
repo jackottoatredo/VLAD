@@ -5,8 +5,10 @@ import { usePathname } from 'next/navigation'
 const PAGE_TITLES: Record<string, string> = {
   '/': 'Home',
   '/record': 'Product Recording',
+  '/postprocess': 'Product Postprocessing',
   '/preview': 'Product Preview',
   '/merchant': 'Merchant Customization',
+  '/merchant-postprocess': 'Merchant Postprocessing',
   '/review': 'Review & Export',
 }
 

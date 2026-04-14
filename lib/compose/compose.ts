@@ -6,11 +6,12 @@ import { resolvedFfmpegPath } from "@/lib/render/render";
 import {
   WEBCAM_OFFSET_MS,
   WEBCAM_OVERLAY_DIAMETER,
-  WEBCAM_OVERLAY_PADDING,
+  WEBCAM_OVERLAY_MARGIN,
   WEBCAM_BORDER_THICKNESS,
   WEBCAM_SHADOW_RADIUS,
   DEFAULT_FPS,
 } from "@/app/config";
+import { type WebcamSettings, type WebcamVertical, type WebcamHorizontal, DEFAULT_WEBCAM_SETTINGS } from "@/types/webcam";
 
 // Reuse the same resolved binary path as render.ts (handles /ROOT/ prefix on bundled installs).
 const FFMPEG_BIN = resolvedFfmpegPath ?? "ffmpeg";
@@ -27,6 +28,7 @@ export type ComposeOptions = {
   screenVideoUrl: string;    // public URL returned as-is when no webcam exists
   durationMs: number;        // render duration — used to compute progress without ffprobe
   onProgress: (step: number, total: number) => void;
+  webcamSettings?: WebcamSettings;
 };
 
 export type ComposeResult = {
@@ -66,7 +68,7 @@ function parseTimemark(mark: string): number {
  *   D         = WEBCAM_OVERLAY_DIAMETER  (120)  — webcam circle diameter
  *   B         = WEBCAM_BORDER_THICKNESS  (4)    — orange ring width
  *   SR        = WEBCAM_SHADOW_RADIUS     (12)   — drop-shadow blur radius
- *   PAD       = WEBCAM_OVERLAY_PADDING   (12)   — gap from video corner
+ *   PAD       = WEBCAM_OVERLAY_MARGIN    (30)   — gap from video edge to plate outer edge
  *   plateSize    = D + 2B                            (128)  — orange plate diameter
  *   shadowSigma  = SR/3                            (4)    — gaussian blur sigma
  *   shadowOffset = shadowSigma                     (4)    — shadow displacement down-right
@@ -79,11 +81,52 @@ function parseTimemark(mark: string): number {
  *   3. Orange border plate circle (128×128)
  *   4. Webcam circle (120×120, center-cropped to fill)
  */
-function buildFilterComplex(): string {
+/**
+ * Builds the geq alpha expression for a simple microphone icon inside a D×D circle.
+ * The icon is white (r=g=b=255) on a dark background; this expression controls alpha.
+ *
+ * Shapes (all relative to D):
+ *   - Mic capsule: pill/ellipse in upper-centre
+ *   - Arc: bottom half-ring below capsule
+ *   - Stand: vertical line from arc bottom to base
+ *   - Base: short horizontal bar at bottom
+ */
+function micIconAlpha(D: number): string {
+  const cx = D / 2;
+  const capCy = Math.round(D * 0.38);          // capsule centre Y
+  const capRx = Math.round(D * 0.10);          // capsule half-width
+  const capRy = Math.round(D * 0.16);          // capsule half-height
+  const arcCy = Math.round(D * 0.56);          // arc centre Y
+  const arcR  = Math.round(D * 0.14);          // arc radius
+  const arcT  = Math.max(Math.round(D * 0.016), 2); // arc thickness
+  const stTop = arcCy + arcR;                   // stand top
+  const stBot = stTop + Math.round(D * 0.08);  // stand bottom
+  const stHW  = Math.max(Math.round(D * 0.016), 2); // stand half-width
+  const bY    = stBot;                           // base centre Y
+  const bHW   = Math.round(D * 0.07);          // base half-width
+  const bHH   = Math.max(Math.round(D * 0.016), 2); // base half-height
+
+  // Each sub-expression evaluates to 0..1 (with antialiased edges).
+  const capsule = `clip(1.5-hypot((X-${cx})/${capRx},(Y-${capCy})/${capRy}),0,1)`;
+  const arc     = `clip(${arcT}+0.5-abs(hypot(X-${cx},Y-${arcCy})-${arcR}),0,1)*clip(Y-${arcCy},0,1)`;
+  const stand   = `clip(${stHW}+0.5-abs(X-${cx}),0,1)*clip(Y-${stTop}+0.5,0,1)*clip(${stBot}-Y+0.5,0,1)`;
+  const base    = `clip(${bHW}+0.5-abs(X-${cx}),0,1)*clip(${bHH}+0.5-abs(Y-${bY}),0,1)`;
+
+  return `clip(${capsule}+${arc}+${stand}+${base},0,1)*255`;
+}
+
+/**
+ * Builds the FFmpeg filter_complex for the webcam badge overlay.
+ *
+ * When `baseLabel` is provided, it is used as the background video stream
+ * instead of `[0:v]`.  This allows prepending a crop+scale step that feeds
+ * its output into the badge overlay (e.g. for postprocess compositing).
+ */
+function buildFilterComplex(vertical: WebcamVertical, horizontal: WebcamHorizontal, mode: 'video' | 'audio' = 'video', baseLabel?: string): string {
   const D   = WEBCAM_OVERLAY_DIAMETER;
   const B   = WEBCAM_BORDER_THICKNESS;
   const SR  = WEBCAM_SHADOW_RADIUS;
-  const PAD = WEBCAM_OVERLAY_PADDING;
+  const PAD = WEBCAM_OVERLAY_MARGIN;
 
   const plateSize    = D + 2 * B;                           //  128 — orange plate diameter
   const shadowSigma  = Math.round(SR / 3);                  //    4 — gaussian blur sigma
@@ -92,10 +135,13 @@ function buildFilterComplex(): string {
   const platePos     = (canvasSize - plateSize) / 2;        //   16 — plate top-left within canvas
   const webcamPos    = platePos + B;                        //   20 — webcam top-left within canvas
 
-  // Canvas top-left on the main video: plate outer edge sits PAD px from bottom-left corner.
-  // overlayX is negative — the canvas bleeds 4px off the left edge, which FFmpeg clips harmlessly.
-  const overlayX     = PAD - platePos;                        //  -4
-  const overlayYExpr = `H-${PAD + platePos + plateSize}`;     // H-156
+  // Canvas top-left on the main video: plate outer edge sits PAD px from the chosen corner.
+  const overlayX = horizontal === 'left'
+    ? PAD - platePos
+    : `W-${PAD + platePos + plateSize}`;
+  const overlayYExpr = vertical === 'bottom'
+    ? `H-${PAD + platePos + plateSize}`
+    : `${PAD - platePos}`;
 
   const halfD         = D / 2;
   const halfP         = plateSize / 2;
@@ -112,9 +158,21 @@ function buildFilterComplex(): string {
 
   const fps = DEFAULT_FPS;
 
+  // Step 1 differs by mode: video uses webcam footage, audio generates a mic icon.
+  let contentStep: string;
+  if (mode === 'video') {
+    contentStep = `[1:v]scale=${D}:${D}:force_original_aspect_ratio=increase,crop=${D}:${D},format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='${circCam}'[wc]`;
+  } else {
+    // Mic icon: white icon on dark gray (#282828) circle. The luma expression blends
+    // background (40) toward white (255) using the icon shape as a mask.
+    const micAlpha = micIconAlpha(D);
+    const luma = `min(255,40+215*clip(${micAlpha}/255,0,1))`;
+    contentStep = `color=c=black:s=${D}x${D}:r=${fps},format=rgba,geq=r='${luma}':g='${luma}':b='${luma}':a='${circCam}'[wc]`;
+  }
+
   return [
-    // 1. Webcam: scale to fill D×D with center crop, apply circular alpha mask.
-    `[1:v]scale=${D}:${D}:force_original_aspect_ratio=increase,crop=${D}:${D},format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='${circCam}'[wc]`,
+    // 1. Content circle (webcam video or mic icon).
+    contentStep,
 
     // 2. Fully transparent canvas (badge background).
     `color=c=black:s=${canvasSize}x${canvasSize}:r=${fps},format=rgba,geq=r=0:g=0:b=0:a=0[bg]`,
@@ -125,27 +183,27 @@ function buildFilterComplex(): string {
     // 4. Shadow: padded source image so blur fades to zero before reaching the image edge.
     `color=c=black:s=${shadowImgSize}x${shadowImgSize}:r=${fps},format=rgba,geq=r=0:g=0:b=0:a='${circShad}',gblur=sigma=${shadowSigma}[sc]`,
 
-    // 5. Shadow onto canvas — top-left offset backs the image up by SR so the shadow circle
-    //    center lands at (platePos+shadowOffset+halfP) within the canvas.
+    // 5. Shadow onto canvas.
     `[bg][sc]overlay=x=${platePos + shadowOffset - SR}:y=${platePos + shadowOffset - SR}:format=auto[b1]`,
 
     // 6. Orange plate onto canvas.
     `[b1][pc]overlay=x=${platePos}:y=${platePos}:format=auto[b2]`,
 
-    // 7. Circular webcam on top of plate (inside the border ring).
+    // 7. Content circle on top of plate (inside the border ring).
     `[b2][wc]overlay=x=${webcamPos}:y=${webcamPos}:format=auto[badge]`,
 
     // 8. Badge onto main screen recording.
-    `[0:v][badge]overlay=x=${overlayX}:y=${overlayYExpr}[out]`,
+    `[${baseLabel ?? '0:v'}][badge]overlay=x=${overlayX}:y=${overlayYExpr}[out]`,
   ].join(";");
 }
 
 export async function compositeSessionVideo(options: ComposeOptions): Promise<ComposeResult> {
   const { presenter, sessionName, screenVideoPath, screenVideoUrl, durationMs, onProgress } = options;
+  const settings = options.webcamSettings ?? DEFAULT_WEBCAM_SETTINGS;
   const webcamPath = webcamVideoPath(presenter, sessionName);
 
-  // If no webcam recording exists for this session, skip compositing entirely.
-  if (!existsSync(webcamPath)) {
+  // Off mode or no webcam file: return screen video as-is.
+  if (settings.webcamMode === 'off' || !existsSync(webcamPath)) {
     onProgress(10, 10);
     return { videoUrl: screenVideoUrl };
   }
@@ -156,11 +214,14 @@ export async function compositeSessionVideo(options: ComposeOptions): Promise<Co
   const outputPath = path.join(renderingsDir, fileName);
   const videoUrl = `/users/${presenter}/${sessionName}/renderings/${fileName}`;
 
-  const args = [
-    "-i", screenVideoPath,                             // [0:v] screen recording, no audio
-    "-itsoffset", String(-(WEBCAM_OFFSET_MS / 1000)), // advance webcam timestamps to align with frame 0
-    "-i", webcamPath,                                  // [1:v] + [1:a] webcam + mic
-    "-filter_complex", buildFilterComplex(),
+  let args: string[];
+
+  // Both video and audio modes use the overlay filter (audio shows a mic icon badge).
+  args = [
+    "-i", screenVideoPath,
+    "-itsoffset", String(-(WEBCAM_OFFSET_MS / 1000)),
+    "-i", webcamPath,
+    "-filter_complex", buildFilterComplex(settings.webcamVertical, settings.webcamHorizontal, settings.webcamMode as 'video' | 'audio'),
     "-map", "[out]",
     "-map", "1:a",
     "-c:v", "libx264",
@@ -168,8 +229,8 @@ export async function compositeSessionVideo(options: ComposeOptions): Promise<Co
     "-pix_fmt", "yuv420p",
     "-movflags", "+faststart",
     "-shortest",
-    "-progress", "pipe:1",  // structured key=value progress output on stdout
-    "-y",                   // overwrite output without interactive prompt
+    "-progress", "pipe:1",
+    "-y",
     outputPath,
   ];
 
@@ -216,3 +277,4 @@ export async function compositeSessionVideo(options: ComposeOptions): Promise<Co
   onProgress(100, 100);
   return { videoUrl };
 }
+

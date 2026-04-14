@@ -6,6 +6,7 @@ import RecordingControlPanel from '@/app/record/RecordingControlPanel'
 import PageLayout from '@/app/components/PageLayout'
 import PageNav from '@/app/components/PageNav'
 import { VIDEO_WIDTH, VIDEO_HEIGHT, RENDER_ZOOM, WEBCAM_RECORDER_TIMESLICE_MS } from '@/app/config'
+import { type WebcamSettings, DEFAULT_WEBCAM_SETTINGS } from '@/types/webcam'
 
 const IFRAME_WIDTH = Math.round(VIDEO_WIDTH / RENDER_ZOOM)
 const IFRAME_HEIGHT = Math.round(VIDEO_HEIGHT / RENDER_ZOOM)
@@ -26,6 +27,7 @@ export default function RecordPage() {
   const [isRecording, setIsRecording] = useState(false)
   const [product, setProduct] = useState('')
   const [recordingKey, setRecordingKey] = useState(0)
+  const [webcamSettings, setWebcamSettings] = useState<WebcamSettings>(DEFAULT_WEBCAM_SETTINGS)
   const sessionNameRef = useRef('')
   const presenterRef = useRef('')
   const productRef = useRef('')
@@ -60,6 +62,13 @@ export default function RecordPage() {
   }, [isRecording])
 
   useEffect(() => {
+    if (webcamSettings.webcamMode === 'off') {
+      streamRef.current?.getTracks().forEach((t) => t.stop())
+      streamRef.current = null
+      if (webcamVideoRef.current) webcamVideoRef.current.srcObject = null
+      return
+    }
+
     navigator.mediaDevices
       .getUserMedia({ video: true, audio: true })
       .then((stream) => {
@@ -75,7 +84,7 @@ export default function RecordPage() {
     return () => {
       streamRef.current?.getTracks().forEach((t) => t.stop())
     }
-  }, [])
+  }, [webcamSettings.webcamMode])
 
   function handleStart(sessionName: string, presenter: string) {
     sessionNameRef.current = sessionName
@@ -129,6 +138,9 @@ export default function RecordPage() {
         fd.append('video', blob, `${sessionName}_webcam.webm`)
         fd.append('product', savedProduct)
         fd.append('startedAt', recordingStartedAt.current)
+        fd.append('webcamMode', webcamSettings.webcamMode)
+        fd.append('webcamVertical', webcamSettings.webcamVertical)
+        fd.append('webcamHorizontal', webcamSettings.webcamHorizontal)
         if (webcamDimsRef.current) {
           fd.append('width', String(webcamDimsRef.current.width))
           fd.append('height', String(webcamDimsRef.current.height))
@@ -155,16 +167,18 @@ export default function RecordPage() {
             onStop={handleStop}
             product={product}
             onProductChange={setProduct}
+            webcamSettings={webcamSettings}
+            onWebcamSettingsChange={setWebcamSettings}
           />
         }
       >
         <div className="flex flex-1 items-center justify-center overflow-hidden rounded-xl border border-zinc-300 p-[10px] dark:border-zinc-700">
           <RecordingFrame iframeRef={iframeRef} containerRef={containerRef} scale={scale} product={product} recordingKey={recordingKey}>
-            <WebcamOverlay videoRef={webcamVideoRef} scale={scale} mirror />
+            <WebcamOverlay webcamSettings={webcamSettings} videoRef={webcamVideoRef} scale={scale} mirror />
           </RecordingFrame>
         </div>
       </PageLayout>
-      <PageNav back={{ label: 'Home', href: '/' }} forward={{ label: 'Preview', href: '/preview' }} />
+      <PageNav back={{ label: 'Home', href: '/' }} forward={{ label: 'Postprocessing', href: '/postprocess' }} />
     </>
   )
 }

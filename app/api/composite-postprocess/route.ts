@@ -14,53 +14,39 @@ import {
   completeJob,
   failJob,
 } from "@/lib/render/job-store";
+import { DEFAULT_WEBCAM_SETTINGS } from "@/types/webcam";
 
 export const runtime = "nodejs";
 
 const PUBLIC_DIR = path.join(process.cwd(), "public");
 
-import { type WebcamSettings, DEFAULT_WEBCAM_SETTINGS } from "@/types/webcam";
-
-type RenderPreviewBody = {
-  session?: unknown;
+type RequestBody = {
   presenter?: unknown;
-  brand?: unknown;
-  product?: unknown;
-  webcamMode?: unknown;
-  webcamVertical?: unknown;
-  webcamHorizontal?: unknown;
+  session?: unknown;
+  targetUrl?: unknown;
 };
 
 export async function POST(request: Request) {
-  let body: RenderPreviewBody;
-
+  let body: RequestBody;
   try {
-    body = (await request.json()) as RenderPreviewBody;
+    body = (await request.json()) as RequestBody;
   } catch {
-    return NextResponse.json({ error: "Invalid JSON request body." }, { status: 400 });
+    return NextResponse.json({ error: "Invalid JSON." }, { status: 400 });
   }
 
-  if (typeof body.session !== "string" || !body.session.trim()) {
-    return NextResponse.json({ error: "Missing session name." }, { status: 400 });
-  }
   if (typeof body.presenter !== "string" || !body.presenter.trim()) {
     return NextResponse.json({ error: "Missing presenter." }, { status: 400 });
   }
-  if (typeof body.brand !== "string" || !body.brand.trim()) {
-    return NextResponse.json({ error: "Missing brand." }, { status: 400 });
+  if (typeof body.session !== "string" || !body.session.trim()) {
+    return NextResponse.json({ error: "Missing session." }, { status: 400 });
   }
 
-  const safeName = body.session.replace(/[^a-z0-9_\-]/gi, "_");
   const safePresenter = body.presenter.replace(/[^a-z0-9_\-]/gi, "_");
-  const product = typeof body.product === "string" && body.product.trim() ? body.product.trim() : "returns";
+  const safeName = body.session.replace(/[^a-z0-9_\-]/gi, "_");
 
+  // Read mouse events
   const filePath = path.join(
-    PUBLIC_DIR,
-    "users",
-    safePresenter,
-    safeName,
-    "recordings",
-    `${safeName}_mouse.json`
+    PUBLIC_DIR, "users", safePresenter, safeName, "recordings", `${safeName}_mouse.json`,
   );
 
   let raw: string;
@@ -85,47 +71,40 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Session file is missing required fields." }, { status: 400 });
   }
 
-  // Always use full keyframes — we must simulate the entire mouse interaction so
-  // page state (loads, scrolls, clicks) builds up correctly.  Trimming happens as
-  // the very last step, after Playwright render + webcam composite.
   const keyframes = eventsToKeyframes(data.events as Parameters<typeof eventsToKeyframes>[0]);
   const durationMs = keyframes.length > 0 ? keyframes[keyframes.length - 1].t : 1000;
   const replayAction = createReplayAction(keyframes, durationMs);
 
-  // Read trim marks from postprocessing metadata (applied after composite).
-  // Both postprocess and preview use the same Playwright render pipeline, so
-  // trim marks transfer 1:1 with no offset correction needed.
+  // Read product from metadata for the target URL
   const metadataPath = path.join(
     PUBLIC_DIR, "users", safePresenter, safeName, "recordings", "metadata.json",
   );
-  let trimStartSec: number | undefined;
-  let trimEndSec: number | undefined;
+  let product = "returns";
+  let webcamSettings = DEFAULT_WEBCAM_SETTINGS;
   try {
     const meta = JSON.parse(await readFile(metadataPath, "utf-8")) as Record<string, unknown>;
-    if (typeof meta.trimStartSec === "number") trimStartSec = meta.trimStartSec;
-    if (typeof meta.trimEndSec === "number") trimEndSec = meta.trimEndSec;
-  } catch {
-    // No metadata or no trim
+    if (typeof meta.product === "string") product = meta.product;
+    webcamSettings = {
+      webcamMode: (typeof meta.webcamMode === "string" ? meta.webcamMode : DEFAULT_WEBCAM_SETTINGS.webcamMode) as typeof DEFAULT_WEBCAM_SETTINGS.webcamMode,
+      webcamVertical: (typeof meta.webcamVertical === "string" ? meta.webcamVertical : DEFAULT_WEBCAM_SETTINGS.webcamVertical) as typeof DEFAULT_WEBCAM_SETTINGS.webcamVertical,
+      webcamHorizontal: (typeof meta.webcamHorizontal === "string" ? meta.webcamHorizontal : DEFAULT_WEBCAM_SETTINGS.webcamHorizontal) as typeof DEFAULT_WEBCAM_SETTINGS.webcamHorizontal,
+    };
+  } catch {}
+
+  // Build the target URL — use provided targetUrl as-is, otherwise TARGET_URL with product
+  let url: string;
+  if (typeof body.targetUrl === "string" && body.targetUrl.trim()) {
+    url = body.targetUrl.trim();
+  } else {
+    const params = new URLSearchParams(product ? { product } : {});
+    url = params.toString() ? `${TARGET_URL}?${params.toString()}` : TARGET_URL;
   }
-
-  const webcamSettings: WebcamSettings = {
-    webcamMode: typeof body.webcamMode === "string" && ["video", "audio", "off"].includes(body.webcamMode)
-      ? body.webcamMode as WebcamSettings["webcamMode"]
-      : DEFAULT_WEBCAM_SETTINGS.webcamMode,
-    webcamVertical: typeof body.webcamVertical === "string" && ["top", "bottom"].includes(body.webcamVertical)
-      ? body.webcamVertical as WebcamSettings["webcamVertical"]
-      : DEFAULT_WEBCAM_SETTINGS.webcamVertical,
-    webcamHorizontal: typeof body.webcamHorizontal === "string" && ["left", "right"].includes(body.webcamHorizontal)
-      ? body.webcamHorizontal as WebcamSettings["webcamHorizontal"]
-      : DEFAULT_WEBCAM_SETTINGS.webcamHorizontal,
-  };
-
-  const params = new URLSearchParams({ product, brand: body.brand });
-  const url = `${TARGET_URL}?${params.toString()}`;
 
   const jobId = randomUUID().slice(0, 8);
   createJob(jobId);
 
+  // Same pipeline as preview: Playwright render → webcam composite
+  // No trim for postprocess — user sets trim marks on this video
   produceSessionVideo({
     url,
     presenter: safePresenter,
@@ -142,12 +121,10 @@ export async function POST(request: Request) {
     onRenderComplete: () => startCompositing(jobId),
     onComposeProgress: (step, total) => updateCompositingProgress(jobId, step, total),
     webcamSettings,
-    trimStartSec,
-    trimEndSec,
   })
     .then((result) => completeJob(jobId, result.videoUrl))
     .catch((error: unknown) => {
-      console.error("Produce preview failed", error);
+      console.error("Postprocess render failed", error);
       failJob(jobId, error instanceof Error ? error.message : "Render failed.");
     });
 

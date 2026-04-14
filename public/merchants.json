@@ -1,0 +1,12 @@
+[
+  {
+    "id": "mammut",
+    "name": "mammut",
+    "url": "https://mammut.com"
+  },
+  {
+    "id": "test",
+    "name": "test",
+    "url": "mammut.com"
+  }
+]

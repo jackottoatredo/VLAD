@@ -1,21 +1,17 @@
 import { NextResponse } from "next/server";
-import { readdir } from "node:fs/promises";
-import path from "node:path";
+import { supabase } from "@/lib/db/supabase";
 
 export const runtime = "nodejs";
 
-const USERS_DIR = path.join(process.cwd(), "public", "users");
-const PRESENTER_PATTERN = /^[a-zA-Z]+_[a-zA-Z]+$/;
-
 export async function GET() {
-  try {
-    const entries = await readdir(USERS_DIR, { withFileTypes: true });
-    const users = entries
-      .filter((e) => e.isDirectory() && PRESENTER_PATTERN.test(e.name))
-      .map((e) => e.name)
-      .sort();
-    return NextResponse.json({ users });
-  } catch {
+  const { data, error } = await supabase
+    .from("vlad_users")
+    .select("id")
+    .order("id");
+
+  if (error) {
     return NextResponse.json({ users: [] });
   }
+
+  return NextResponse.json({ users: data.map((r) => r.id) });
 }

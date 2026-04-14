@@ -1,7 +1,6 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import PageLayout from '@/app/components/PageLayout'
 import PageNav from '@/app/components/PageNav'
 import VideoTrimmer from '@/app/postprocess/VideoTrimmer'
@@ -19,8 +18,6 @@ type JobStatus =
 type RecordingEntry = { name: string; presenter: string; recordedAt: string }
 
 export default function MerchantPostprocessPage() {
-  const router = useRouter()
-
   // Session selection
   const [recordings, setRecordings] = useState<RecordingEntry[]>([])
   const [selectedPresenter, setSelectedPresenter] = useState('')
@@ -32,8 +29,11 @@ export default function MerchantPostprocessPage() {
   const [trimStart, setTrimStart] = useState(0)
   const [trimEnd, setTrimEnd] = useState(0)
   const [isSaving, setIsSaving] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle')
+  const [saveError, setSaveError] = useState('')
   const jobIdRef = useRef<string | null>(null)
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const merchantIdRef = useRef<string>('')
 
   const handleTrimChange = useCallback((start: number, end: number) => {
     setTrimStart(start)
@@ -70,6 +70,10 @@ export default function MerchantPostprocessPage() {
         const metaRes = await fetch(`/api/session-metadata?presenter=${selectedPresenter}&session=${selectedSession}`)
         const meta = (await metaRes.json()) as { merchantUrl?: string }
         if (cancelled) return
+
+        // Extract merchantId from session name (format: {presenter}_{merchantId})
+        const parts = selectedSession.split('_')
+        merchantIdRef.current = parts.length > 2 ? parts.slice(2).join('_') : parts[parts.length - 1]
 
         // Use brand-based target URL: search.redo.com/record?brand=mammut.com
         const merchantUrl = meta.merchantUrl ?? ''
@@ -138,7 +142,10 @@ export default function MerchantPostprocessPage() {
   async function handleSaveAndContinue() {
     if (!selectedPresenter || !selectedSession) return
     setIsSaving(true)
+    setSaveStatus('idle')
+    setSaveError('')
     try {
+      // Save trim marks to local metadata
       await fetch('/api/save-trim', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -149,8 +156,31 @@ export default function MerchantPostprocessPage() {
           trimEndSec: trimEnd,
         }),
       })
-      router.push(`/review?presenter=${encodeURIComponent(selectedPresenter)}&session=${encodeURIComponent(selectedSession)}`)
+
+      // Save recording to library (Supabase + R2)
+      const saveRes = await fetch('/api/save-recording', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          presenter: selectedPresenter,
+          session: selectedSession,
+          type: 'merchant',
+          merchantId: merchantIdRef.current,
+        }),
+      })
+      const saveData = (await saveRes.json()) as { ok?: boolean; error?: string }
+      if (!saveRes.ok || !saveData.ok) {
+        setSaveStatus('error')
+        setSaveError(saveData.error ?? 'Failed to save to library.')
+        setIsSaving(false)
+        return
+      }
+
+      setSaveStatus('saved')
+      setIsSaving(false)
     } catch {
+      setSaveStatus('error')
+      setSaveError('Unexpected error.')
       setIsSaving(false)
     }
   }
@@ -221,13 +251,21 @@ export default function MerchantPostprocessPage() {
             </select>
 
             {jobStatus.status === 'done' && (
-              <button
-                onClick={handleSaveAndContinue}
-                disabled={isSaving}
-                className="w-full rounded-md bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
-              >
-                {isSaving ? 'Saving…' : 'Save Trim & Continue'}
-              </button>
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={handleSaveAndContinue}
+                  disabled={isSaving || saveStatus === 'saved'}
+                  className="w-full rounded-md bg-green-600 px-4 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-green-500 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isSaving ? 'Saving…' : saveStatus === 'saved' ? 'Saved to Library' : 'Save to Library'}
+                </button>
+                {saveStatus === 'saved' && (
+                  <p className="text-xs text-green-600 dark:text-green-400">Recording saved successfully.</p>
+                )}
+                {saveStatus === 'error' && (
+                  <p className="text-xs text-red-600 dark:text-red-400">{saveError}</p>
+                )}
+              </div>
             )}
           </div>
         }
@@ -296,7 +334,7 @@ export default function MerchantPostprocessPage() {
       </PageLayout>
       <PageNav
         back={{ label: 'Merchant Customization', href: '/merchant' }}
-        forward={{ label: 'Review & Export', href: '/review' }}
+        forward={{ label: 'Final Rendering', href: '/review' }}
       />
     </>
   )

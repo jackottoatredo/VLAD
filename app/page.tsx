@@ -21,20 +21,16 @@ export default function Home() {
           </p>
           <ol className="list-decimal list-inside space-y-2">
             <li>
-              <Link href="/record" className="font-medium text-zinc-800 underline-offset-2 hover:underline dark:text-zinc-200">Product Recording</Link>
-              {" — "}load the target site in the iframe and capture your mouse interactions with webcam overlay.
+              <Link href="/record" className="font-medium text-zinc-800 underline-offset-2 hover:underline dark:text-zinc-200">Product Flow</Link>
+              {" — "}record mouse interactions, trim, preview across brands, and save to library.
             </li>
             <li>
-              <Link href="/preview" className="font-medium text-zinc-800 underline-offset-2 hover:underline dark:text-zinc-200">Product Preview</Link>
-              {" — "}review four rendered versions of your recording, each driven by a unique URL.
+              <Link href="/merchant" className="font-medium text-zinc-800 underline-offset-2 hover:underline dark:text-zinc-200">Merchant Flow</Link>
+              {" — "}record a merchant-specific intro, trim, and save to library.
             </li>
             <li>
-              <Link href="/merchant" className="font-medium text-zinc-800 underline-offset-2 hover:underline dark:text-zinc-200">Merchant Customization</Link>
-              {" — "}record a short intro that will be prepended to the final product video.
-            </li>
-            <li>
-              <Link href="/review" className="font-medium text-zinc-800 underline-offset-2 hover:underline dark:text-zinc-200">Review & Export</Link>
-              {" — "}combine the merchant intro with the product recording and download the final MP4.
+              <Link href="/review" className="font-medium text-zinc-800 underline-offset-2 hover:underline dark:text-zinc-200">Final Rendering</Link>
+              {" — "}combine a saved product recording with a saved merchant recording into a final video. <span className="text-zinc-400">(Coming soon)</span>
             </li>
           </ol>
         </div>

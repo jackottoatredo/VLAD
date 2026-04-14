@@ -9,7 +9,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/preview': 'Product Preview',
   '/merchant': 'Merchant Customization',
   '/merchant-postprocess': 'Merchant Postprocessing',
-  '/review': 'Review & Export',
+  '/review': 'Final Rendering',
 }
 
 type NavLink = {

@@ -71,6 +71,8 @@ export async function POST(request: Request) {
   try {
     const result = await renderUrlToMp4({
       url,
+      presenter: "debug",
+      sessionName: "debug_recording",
       width,
       height,
       fps,

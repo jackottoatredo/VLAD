@@ -135,9 +135,7 @@ export default function PreviewPage() {
   const [recordedSettings, setRecordedSettings] = useState<WebcamSettings>(DEFAULT_WEBCAM_SETTINGS)
   const [webcamSettings, setWebcamSettings] = useState<WebcamSettings>(DEFAULT_WEBCAM_SETTINGS)
   const [useRecordingSettings, setUseRecordingSettings] = useState(true)
-  const [showSaveModal, setShowSaveModal] = useState(false)
-  const [saveName, setSaveName] = useState('')
-  const [isSaving, setIsSaving] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [saveError, setSaveError] = useState('')
 
   const videoRefs = useRef<Record<Brand, React.RefObject<HTMLVideoElement | null>>>(
@@ -166,6 +164,8 @@ export default function PreviewPage() {
 
   useEffect(() => {
     if (!selectedPresenter || !selectedSession) { setProduct(''); return }
+    setSaveStatus('idle')
+    setSaveError('')
     fetch(`/api/session-metadata?presenter=${selectedPresenter}&session=${selectedSession}`)
       .then((r) => r.json())
       .then((data: { product?: string; webcamMode?: string; webcamVertical?: string; webcamHorizontal?: string }) => {
@@ -293,26 +293,25 @@ export default function PreviewPage() {
   }
 
   async function handleSave() {
-    if (!saveName.trim() || !selectedPresenter || !selectedSession) return
-    setIsSaving(true)
+    if (!selectedPresenter || !selectedSession) return
+    setSaveStatus('saving')
     setSaveError('')
     try {
       const res = await fetch('/api/save-recording', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ presenter: selectedPresenter, session: selectedSession, name: saveName.trim() }),
+        body: JSON.stringify({ presenter: selectedPresenter, session: selectedSession, type: 'product', productName: product }),
       })
       const data = (await res.json()) as { ok?: boolean; error?: string }
       if (!res.ok || !data.ok) {
+        setSaveStatus('error')
         setSaveError(data.error ?? 'Failed to save.')
       } else {
-        setShowSaveModal(false)
-        setSaveName('')
+        setSaveStatus('saved')
       }
     } catch {
+      setSaveStatus('error')
       setSaveError('Unexpected error.')
-    } finally {
-      setIsSaving(false)
     }
   }
 
@@ -407,11 +406,18 @@ export default function PreviewPage() {
                   Play All
                 </button>
                 <button
-                  onClick={() => setShowSaveModal(true)}
-                  className="w-full rounded-md bg-green-600 px-4 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-green-500"
+                  onClick={handleSave}
+                  disabled={saveStatus === 'saving' || saveStatus === 'saved'}
+                  className="w-full rounded-md bg-green-600 px-4 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-green-500 disabled:opacity-50"
                 >
-                  Save Recording
+                  {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? 'Saved to Library' : 'Save to Library'}
                 </button>
+                {saveStatus === 'saved' && (
+                  <p className="text-xs text-green-600 dark:text-green-400">Recording saved successfully.</p>
+                )}
+                {saveStatus === 'error' && (
+                  <p className="text-xs text-red-600 dark:text-red-400">{saveError}</p>
+                )}
               </>
             )}
 
@@ -436,38 +442,6 @@ export default function PreviewPage() {
         forward={{ label: 'Merchant Customization', href: '/merchant' }}
       />
 
-      {showSaveModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="w-full max-w-sm rounded-xl border border-zinc-200 bg-white p-6 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
-            <h2 className="mb-4 text-lg font-semibold text-zinc-900 dark:text-zinc-100">Save Recording</h2>
-            <input
-              type="text"
-              value={saveName}
-              onChange={(e) => setSaveName(e.target.value)}
-              placeholder="Recording name"
-              className="mb-3 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
-              autoFocus
-              onKeyDown={(e) => { if (e.key === 'Enter') handleSave() }}
-            />
-            {saveError && <p className="mb-2 text-xs text-red-500">{saveError}</p>}
-            <div className="flex gap-2">
-              <button
-                onClick={() => { setShowSaveModal(false); setSaveName(''); setSaveError('') }}
-                className="flex-1 rounded-md border border-zinc-300 px-4 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSave}
-                disabled={!saveName.trim() || isSaving}
-                className="flex-1 rounded-md bg-green-600 px-4 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-green-500 disabled:opacity-50"
-              >
-                {isSaving ? 'Saving…' : 'Save'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   )
 }

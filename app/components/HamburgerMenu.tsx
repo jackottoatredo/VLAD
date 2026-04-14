@@ -11,7 +11,7 @@ const links = [
   { href: "/preview", label: "Product Preview" },
   { href: "/merchant", label: "Merchant Customization" },
   { href: "/merchant-postprocess", label: "Merchant Postprocessing" },
-  { href: "/review", label: "Review" },
+  { href: "/review", label: "Final Rendering" },
 ];
 
 export default function HamburgerMenu() {

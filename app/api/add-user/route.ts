@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
+import { supabase } from "@/lib/db/supabase";
 
 export const runtime = "nodejs";
 
@@ -25,6 +26,22 @@ export async function POST(request: Request) {
   }
 
   const userId = `${lastName.toLowerCase()}_${firstName.toLowerCase()}`;
+
+  const { error } = await supabase.from("vlad_users").insert({
+    id: userId,
+    first_name: firstName.toLowerCase(),
+    last_name: lastName.toLowerCase(),
+  });
+
+  if (error) {
+    if (error.code === "23505") {
+      // User already exists — not an error, just ensure the local dir exists
+    } else {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+  }
+
+  // Keep local directory for draft recordings
   await mkdir(path.join(USERS_DIR, userId), { recursive: true });
 
   return NextResponse.json({ ok: true, userId });

@@ -6,7 +6,7 @@ import PageLayout from '@/app/components/PageLayout'
 import PageNav from '@/app/components/PageNav'
 import VideoTrimmer from '@/app/postprocess/VideoTrimmer'
 import { DEFAULT_FPS } from '@/app/config'
-import { useAppContext } from '@/app/appContext'
+import { useAppContext, computeStartStep, type PipelineCache } from '@/app/appContext'
 
 const JOB_POLL_INTERVAL_MS = 500
 
@@ -17,121 +17,74 @@ type JobStatus =
   | { status: 'done'; videoUrl: string }
   | { status: 'error'; message: string }
 
-type RecordingEntry = { name: string; presenter: string; recordedAt: string }
-
 export default function PostprocessPage() {
   const router = useRouter()
   const {
     product: productDraft,
-    markProductRecordingClean,
-    markProductTrimDirty,
+    setProductTrim,
+    setProductPipelineCache,
+    clearProductPipelineCache,
   } = useAppContext()
 
-  // Session selection — local list for the dropdowns
-  const [recordings, setRecordings] = useState<RecordingEntry[]>([])
-  const [selectedPresenter, setSelectedPresenter] = useState('')
-  const [selectedSession, setSelectedSession] = useState('')
-  const [isLoadingList, setIsLoadingList] = useState(true)
+  const { presenter, session, product, webcamSettings, trimStartSec, trimEndSec, pipelineCache } = productDraft
+  const sessionKey = `${presenter}/${session}`
 
-  // Job state
   const [jobStatus, setJobStatus] = useState<JobStatus>({ status: 'idle' })
-  const [trimStart, setTrimStart] = useState(0)
-  const [trimEnd, setTrimEnd] = useState(0)
-  const [isSaving, setIsSaving] = useState(false)
   const jobIdRef = useRef<string | null>(null)
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  // Track whether we auto-rendered for the current recording to avoid re-rendering
-  // when the user navigates back and the recording hasn't changed.
-  const lastRenderedSessionRef = useRef<string>('')
+  const startStep = computeStartStep(pipelineCache, sessionKey, webcamSettings)
+
+  // Derive which video to show when cached
+  const cachedVideoUrl = pipelineCache
+    ? (pipelineCache.trimmedUrl ?? pipelineCache.compositeUrl) || null
+    : null
 
   const handleTrimChange = useCallback((start: number, end: number) => {
-    setTrimStart(start)
-    setTrimEnd(end)
-  }, [])
+    setProductTrim(start, end)
+  }, [setProductTrim])
 
-  // Load available recordings on mount — prefer context values
+  // On mount / session change: restore from cache or idle
   useEffect(() => {
-    fetch('/api/list-recordings')
-      .then((r) => r.json())
-      .then((data: { recordings: RecordingEntry[] }) => {
-        setRecordings(data.recordings)
-        // If context has a session selected, use it; otherwise pick the most recent
-        if (productDraft.presenter && productDraft.session) {
-          setSelectedPresenter(productDraft.presenter)
-          setSelectedSession(productDraft.session)
-        } else if (data.recordings.length > 0) {
-          setSelectedPresenter(data.recordings[0].presenter)
-          setSelectedSession(data.recordings[0].name)
-        }
-        setIsLoadingList(false)
-      })
-      .catch(() => { setIsLoadingList(false) })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  // Start the render job when session changes — but skip if already rendered and not dirty
-  useEffect(() => {
-    if (!selectedPresenter || !selectedSession) return
-
-    const sessionKey = `${selectedPresenter}/${selectedSession}`
-    const needsRender = productDraft.dirty.recording || lastRenderedSessionRef.current !== sessionKey
-
-    if (!needsRender && jobStatus.status === 'done') {
-      // Already rendered and recording hasn't changed — keep showing current video
-      return
+    if (startStep === 'cached' && cachedVideoUrl) {
+      setJobStatus({ status: 'done', videoUrl: cachedVideoUrl })
+    } else if (startStep !== 1 && pipelineCache?.compositeUrl) {
+      // Have a composite — show it for trimming even though trim may be stale
+      setJobStatus({ status: 'done', videoUrl: pipelineCache.compositeUrl })
+    } else {
+      setJobStatus({ status: 'idle' })
     }
-
-    setJobStatus({ status: 'rendering', rendered: 0, total: 0 })
-    setTrimStart(0)
-    setTrimEnd(0)
     jobIdRef.current = null
-
-    let cancelled = false
-    ;(async () => {
-      try {
-        const res = await fetch('/api/composite-postprocess', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ presenter: selectedPresenter, session: selectedSession }),
-        })
-        if (cancelled) return
-        const data = (await res.json()) as { jobId?: string; error?: string }
-        if (!res.ok || !data.jobId) {
-          setJobStatus({ status: 'error', message: data.error ?? 'Failed to start processing.' })
-          return
-        }
-        jobIdRef.current = data.jobId
-      } catch {
-        if (!cancelled) setJobStatus({ status: 'error', message: 'Unexpected error starting processing.' })
-      }
-    })()
-
-    return () => { cancelled = true }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedPresenter, selectedSession])
+  }, [presenter, session, startStep, cachedVideoUrl, pipelineCache?.compositeUrl])
 
   // Poll for job progress
   useEffect(() => {
     pollingRef.current = setInterval(async () => {
       const jobId = jobIdRef.current
       if (!jobId) return
-
       try {
         const res = await fetch(`/api/render-progress/${jobId}`)
         const job = (await res.json()) as {
-          status: string
-          rendered?: number
-          composited?: number
-          total?: number
-          videoUrl?: string
-          message?: string
+          status: string; rendered?: number; composited?: number; total?: number;
+          videoUrl?: string; message?: string;
+          renderUrl?: string; renderPath?: string; renderDurationMs?: number;
+          compositeUrl?: string; compositePath?: string; trimmedUrl?: string | null;
         }
-
         if (job.status === 'done' && job.videoUrl) {
           jobIdRef.current = null
-          lastRenderedSessionRef.current = `${selectedPresenter}/${selectedSession}`
-          markProductRecordingClean()
+          const cache: PipelineCache = {
+            sessionKey,
+            renderUrl: job.renderUrl ?? '',
+            renderPath: job.renderPath ?? '',
+            renderDurationMs: job.renderDurationMs ?? 0,
+            compositeUrl: job.compositeUrl ?? '',
+            compositePath: job.compositePath ?? '',
+            webcamSettings: { ...webcamSettings },
+            trimmedUrl: job.trimmedUrl ?? null,
+            trimStartSec,
+            trimEndSec,
+          }
+          setProductPipelineCache(cache)
           setJobStatus({ status: 'done', videoUrl: job.videoUrl })
         } else if (job.status === 'error') {
           jobIdRef.current = null
@@ -141,39 +94,101 @@ export default function PostprocessPage() {
         } else if (job.status === 'compositing') {
           setJobStatus({ status: 'compositing', composited: job.composited ?? 0, total: job.total ?? 0 })
         }
-      } catch {
-        // transient error — keep polling
-      }
+      } catch { /* transient */ }
     }, JOB_POLL_INTERVAL_MS)
+    return () => { if (pollingRef.current) clearInterval(pollingRef.current) }
+  }, [sessionKey, webcamSettings, trimStartSec, trimEndSec, setProductPipelineCache])
 
-    return () => {
-      if (pollingRef.current) clearInterval(pollingRef.current)
+  async function handleRender() {
+    if (!presenter || !session) return
+
+    // Build the request body with warm-start fields based on what's cached
+    const step = computeStartStep(pipelineCache, sessionKey, webcamSettings)
+    if (step === 'cached') {
+      // Already fully cached — just show it
+      if (cachedVideoUrl) setJobStatus({ status: 'done', videoUrl: cachedVideoUrl })
+      return
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedPresenter, selectedSession])
 
-  async function handleSaveAndContinue() {
-    if (!selectedPresenter || !selectedSession) return
-    setIsSaving(true)
+    // Set initial job status based on which step we're starting from
+    if (step >= 2) {
+      setJobStatus({ status: 'compositing', composited: 0, total: 0 })
+    } else {
+      setJobStatus({ status: 'rendering', rendered: 0, total: 0 })
+    }
+    jobIdRef.current = null
+
+    const bodyObj: Record<string, unknown> = {
+      presenter, session, product,
+      webcamMode: webcamSettings.webcamMode,
+      webcamVertical: webcamSettings.webcamVertical,
+      webcamHorizontal: webcamSettings.webcamHorizontal,
+      trimStartSec, trimEndSec,
+      startFromStep: step,
+    }
+
+    if (step >= 2 && pipelineCache) {
+      bodyObj.existingRenderPath = pipelineCache.renderPath
+      bodyObj.existingRenderUrl = pipelineCache.renderUrl
+      bodyObj.existingRenderDurationMs = pipelineCache.renderDurationMs
+    }
+    if (step >= 3 && pipelineCache) {
+      bodyObj.existingCompositePath = pipelineCache.compositePath
+      bodyObj.existingCompositeUrl = pipelineCache.compositeUrl
+    }
+
     try {
-      await fetch('/api/save-trim', {
+      const res = await fetch('/api/composite-postprocess', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          presenter: selectedPresenter,
-          session: selectedSession,
-          trimStartSec: trimStart,
-          trimEndSec: trimEnd,
-        }),
+        body: JSON.stringify(bodyObj),
       })
-      markProductTrimDirty()
-      router.push(`/preview?presenter=${encodeURIComponent(selectedPresenter)}&session=${encodeURIComponent(selectedSession)}`)
+      const data = (await res.json()) as { jobId?: string; error?: string }
+      if (res.status === 404 && pipelineCache) {
+        // Cached file was deleted — fall back to full render
+        clearProductPipelineCache()
+        setJobStatus({ status: 'rendering', rendered: 0, total: 0 })
+        const retryRes = await fetch('/api/composite-postprocess', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            presenter, session, product,
+            webcamMode: webcamSettings.webcamMode,
+            webcamVertical: webcamSettings.webcamVertical,
+            webcamHorizontal: webcamSettings.webcamHorizontal,
+            trimStartSec, trimEndSec,
+            startFromStep: 1,
+          }),
+        })
+        const retryData = (await retryRes.json()) as { jobId?: string; error?: string }
+        if (!retryRes.ok || !retryData.jobId) {
+          setJobStatus({ status: 'error', message: retryData.error ?? 'Failed to start processing.' })
+          return
+        }
+        jobIdRef.current = retryData.jobId
+        return
+      }
+      if (!res.ok || !data.jobId) {
+        setJobStatus({ status: 'error', message: data.error ?? 'Failed to start processing.' })
+        return
+      }
+      jobIdRef.current = data.jobId
     } catch {
-      setIsSaving(false)
+      setJobStatus({ status: 'error', message: 'Unexpected error starting processing.' })
     }
   }
 
+  function handleContinue() {
+    router.push('/preview')
+  }
+
   const isProcessing = jobStatus.status === 'rendering' || jobStatus.status === 'compositing'
+  const canRender = !!presenter && !!session && !isProcessing
+
+  const stepLabel = startStep === 1 ? 'Full render'
+    : startStep === 2 ? 'Recomposite (skip Playwright)'
+    : startStep === 3 ? 'Retrim only'
+    : null
 
   const renderProgress =
     jobStatus.status === 'rendering' && jobStatus.total > 0
@@ -185,11 +200,6 @@ export default function PostprocessPage() {
       ? Math.round((jobStatus.composited / jobStatus.total) * 100)
       : jobStatus.status === 'done' ? 100 : 0
 
-  const presenters = [...new Set(recordings.map((r) => r.presenter))].sort()
-  const sessionsForPresenter = recordings
-    .filter((r) => r.presenter === selectedPresenter)
-    .sort((a, b) => b.recordedAt.localeCompare(a.recordedAt))
-
   return (
     <>
       <PageLayout
@@ -197,54 +207,34 @@ export default function PostprocessPage() {
           <div className="space-y-2 text-sm text-zinc-600 dark:text-zinc-400">
             <p>Review your recording and trim any dead air from the start and end.</p>
             <p>Drag the green handles to set in/out points, or use arrow keys for frame-by-frame precision.</p>
-            <p>When you are satisfied, click &ldquo;Save Trim &amp; Continue&rdquo; to proceed to brand previews.</p>
           </div>
         }
         settings={
           <div className="flex flex-col gap-3">
-            <select
-              value={selectedPresenter}
-              onChange={(e) => {
-                const p = e.target.value
-                setSelectedPresenter(p)
-                const first = recordings.find((r) => r.presenter === p)
-                setSelectedSession(first?.name ?? '')
-                setJobStatus({ status: 'idle' })
-              }}
-              disabled={isLoadingList || isProcessing}
-              className="w-full rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 shadow-sm outline-none focus:border-zinc-500 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-            >
-              {isLoadingList && <option value="">Loading…</option>}
-              {!isLoadingList && presenters.length === 0 && <option value="">No presenters yet</option>}
-              {presenters.map((p) => (
-                <option key={p} value={p}>{p}</option>
-              ))}
-            </select>
+            <div className="rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+              {presenter && session ? <span>{session}</span> : <span className="text-zinc-400">No recording selected — go to Recording first</span>}
+            </div>
 
-            <select
-              value={selectedSession}
-              onChange={(e) => {
-                setSelectedSession(e.target.value)
-                setJobStatus({ status: 'idle' })
-              }}
-              disabled={isLoadingList || isProcessing || sessionsForPresenter.length === 0}
-              className="w-full rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 shadow-sm outline-none focus:border-zinc-500 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-            >
-              {sessionsForPresenter.length === 0 && <option value="">No sessions</option>}
-              {sessionsForPresenter.map((r) => (
-                <option key={r.name} value={r.name}>
-                  {r.name} — {new Date(r.recordedAt).toLocaleString()}
-                </option>
-              ))}
-            </select>
+            {(jobStatus.status === 'idle' || jobStatus.status === 'error') && canRender && (
+              <div className="flex flex-col gap-1">
+                <button
+                  onClick={handleRender}
+                  className="w-full rounded-md bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+                >
+                  Render
+                </button>
+                {stepLabel && (
+                  <p className="text-xs text-zinc-400">{stepLabel}</p>
+                )}
+              </div>
+            )}
 
             {jobStatus.status === 'done' && (
               <button
-                onClick={handleSaveAndContinue}
-                disabled={isSaving}
-                className="w-full rounded-md bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+                onClick={handleContinue}
+                className="w-full rounded-md bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
               >
-                {isSaving ? 'Saving…' : 'Save Trim & Continue'}
+                Continue to Preview
               </button>
             )}
           </div>
@@ -253,7 +243,9 @@ export default function PostprocessPage() {
         <div className="flex flex-1 flex-col gap-4 overflow-hidden rounded-xl border border-zinc-300 p-4 dark:border-zinc-700">
           {jobStatus.status === 'idle' && (
             <div className="flex w-full aspect-video items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800">
-              <p className="text-sm text-zinc-500">Select a recording to begin processing</p>
+              <p className="text-sm text-zinc-500">
+                {canRender ? 'Click Render to process the recording' : 'No recording selected'}
+              </p>
             </div>
           )}
 
@@ -272,28 +264,17 @@ export default function PostprocessPage() {
                     <span>{renderProgress}%</span>
                   </div>
                   <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700">
-                    <div
-                      className="h-full rounded-full bg-zinc-900 transition-all duration-500 dark:bg-zinc-100"
-                      style={{ width: `${renderProgress}%` }}
-                    />
+                    <div className="h-full rounded-full bg-zinc-900 transition-all duration-500 dark:bg-zinc-100" style={{ width: `${renderProgress}%` }} />
                   </div>
                 </div>
-
                 {jobStatus.status === 'compositing' && (
                   <div className="space-y-1">
                     <div className="flex justify-between text-xs text-zinc-500 dark:text-zinc-400">
-                      <span>
-                        {jobStatus.total > 0
-                          ? `Compositing — ${composeProgress}%`
-                          : 'Compositing — starting…'}
-                      </span>
+                      <span>Compositing — {composeProgress}%</span>
                       <span>{composeProgress}%</span>
                     </div>
                     <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700">
-                      <div
-                        className="h-full rounded-full bg-zinc-900 transition-all duration-500 dark:bg-zinc-100"
-                        style={{ width: `${composeProgress}%` }}
-                      />
+                      <div className="h-full rounded-full bg-zinc-900 transition-all duration-500 dark:bg-zinc-100" style={{ width: `${composeProgress}%` }} />
                     </div>
                   </div>
                 )}
@@ -308,18 +289,11 @@ export default function PostprocessPage() {
           )}
 
           {jobStatus.status === 'done' && (
-            <VideoTrimmer
-              videoUrl={jobStatus.videoUrl}
-              fps={DEFAULT_FPS}
-              onTrimChange={handleTrimChange}
-            />
+            <VideoTrimmer videoUrl={jobStatus.videoUrl} fps={DEFAULT_FPS} onTrimChange={handleTrimChange} initialTrimStart={trimStartSec} initialTrimEnd={trimEndSec} />
           )}
         </div>
       </PageLayout>
-      <PageNav
-        back={{ label: 'Recording', href: '/record' }}
-        forward={{ label: 'Preview', href: '/preview' }}
-      />
+      <PageNav back={{ label: 'Recording', href: '/record' }} forward={{ label: 'Preview', href: '/preview' }} />
     </>
   )
 }

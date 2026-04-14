@@ -4,7 +4,6 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { resolvedFfmpegPath } from "@/lib/render/render";
 import {
-  WEBCAM_OFFSET_MS,
   WEBCAM_OVERLAY_DIAMETER,
   WEBCAM_OVERLAY_MARGIN,
   WEBCAM_BORDER_THICKNESS,
@@ -219,7 +218,6 @@ export async function compositeSessionVideo(options: ComposeOptions): Promise<Co
   // Both video and audio modes use the overlay filter (audio shows a mic icon badge).
   args = [
     "-i", screenVideoPath,
-    "-itsoffset", String(-(WEBCAM_OFFSET_MS / 1000)),
     "-i", webcamPath,
     "-filter_complex", buildFilterComplex(settings.webcamVertical, settings.webcamHorizontal, settings.webcamMode as 'video' | 'audio'),
     "-map", "[out]",

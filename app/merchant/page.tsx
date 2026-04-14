@@ -24,12 +24,11 @@ export default function MerchantPage() {
     users, merchants, addUser, addMerchant,
     merchant: merchantDraft,
     setMerchantPresenter, setMerchantMerchantId, setMerchantWebcamSettings,
-    markMerchantRecordingDirty,
+    clearMerchantPipelineCache,
   } = useAppContext()
 
-  const { presenter, merchantId: selectedMerchantId, webcamSettings } = merchantDraft
+  const { presenter, merchantId: selectedMerchantId, session: sessionName, webcamSettings } = merchantDraft
   const selectedMerchant = merchants.find((m) => m.id === selectedMerchantId)
-  const sessionName = presenter && selectedMerchantId ? `${presenter}_${selectedMerchantId}` : ''
   const brand = selectedMerchant?.url ?? ''
 
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
@@ -40,7 +39,6 @@ export default function MerchantPage() {
   const [recordingComplete, setRecordingComplete] = useState(false)
   const sessionNameRef = useRef('')
   const presenterRef = useRef('')
-  const merchantUrlRef = useRef('')
 
   // Add user modal
   const [showAddUser, setShowAddUser] = useState(false)
@@ -60,7 +58,6 @@ export default function MerchantPage() {
   const webcamChunksRef = useRef<Blob[]>([])
   const recordingStartedAt = useRef<string>('')
   const webcamVideoRef = useRef<HTMLVideoElement | null>(null)
-  const webcamDimsRef = useRef<{ width: number; height: number } | null>(null)
 
   useEffect(() => {
     const el = containerRef.current
@@ -77,7 +74,7 @@ export default function MerchantPage() {
     const handler = (e: MessageEvent) => {
       if (!e.data || e.data.source !== 'mouse-relay') return
       if (e.source !== iframeRef.current?.contentWindow) return
-      const event: RelayEvent = e.data.payload
+      const event: RelayEvent = { ...e.data.payload, timestamp: performance.now() }
       if (isRecording) eventsRef.current.push(event)
     }
     window.addEventListener('message', handler)
@@ -97,10 +94,6 @@ export default function MerchantPage() {
       .then((stream) => {
         streamRef.current = stream
         if (webcamVideoRef.current) webcamVideoRef.current.srcObject = stream
-        const settings = stream.getVideoTracks()[0]?.getSettings()
-        if (settings?.width && settings?.height) {
-          webcamDimsRef.current = { width: settings.width, height: settings.height }
-        }
       })
       .catch(() => {})
 
@@ -112,10 +105,8 @@ export default function MerchantPage() {
   function handleStart() {
     sessionNameRef.current = sessionName
     presenterRef.current = presenter
-    merchantUrlRef.current = selectedMerchant?.url ?? ''
-    const startTime = Date.now()
-    recordingStartedAt.current = new Date(startTime).toISOString()
-    eventsRef.current = [{ eventType: 'recording-start', x: 0, y: 0, buttons: 0, timestamp: startTime }]
+    recordingStartedAt.current = new Date().toISOString()
+    eventsRef.current = [{ eventType: 'recording-start', x: 0, y: 0, buttons: 0, timestamp: performance.now() }]
     setIsRecording(true)
     setRecordingComplete(false)
 
@@ -158,15 +149,6 @@ export default function MerchantPage() {
         fd.append('session', sn)
         fd.append('presenter', pres)
         fd.append('video', blob, `${sn}_webcam.webm`)
-        fd.append('startedAt', recordingStartedAt.current)
-        fd.append('merchantUrl', merchantUrlRef.current)
-        fd.append('webcamMode', webcamSettings.webcamMode)
-        fd.append('webcamVertical', webcamSettings.webcamVertical)
-        fd.append('webcamHorizontal', webcamSettings.webcamHorizontal)
-        if (webcamDimsRef.current) {
-          fd.append('width', String(webcamDimsRef.current.width))
-          fd.append('height', String(webcamDimsRef.current.height))
-        }
         await fetch('/api/save-webcam', { method: 'POST', body: fd }).catch(() => {})
         resolve()
       }
@@ -174,7 +156,7 @@ export default function MerchantPage() {
     })
 
     await Promise.all([mousePromise, webcamPromise])
-    markMerchantRecordingDirty()
+    clearMerchantPipelineCache()
     setRecordingComplete(true)
   }
 

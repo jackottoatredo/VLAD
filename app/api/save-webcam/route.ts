@@ -28,15 +28,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Missing video data." }, { status: 400 });
   }
 
-  const product = formData.get("product");
-  const startedAt = formData.get("startedAt");
-  const width = Number(formData.get("width") ?? 0);
-  const height = Number(formData.get("height") ?? 0);
-  const webcamMode = (formData.get("webcamMode") as string) ?? "video";
-  const webcamVertical = (formData.get("webcamVertical") as string) ?? "bottom";
-  const webcamHorizontal = (formData.get("webcamHorizontal") as string) ?? "right";
-  const merchantUrl = formData.get("merchantUrl") as string | null;
-
   const safeName = session.replace(/[^a-z0-9_\-]/gi, "_");
   const safePresenter = presenter.replace(/[^a-z0-9_\-]/gi, "_");
   const recordingsDir = path.join(PUBLIC_DIR, "users", safePresenter, safeName, "recordings");
@@ -45,12 +36,6 @@ export async function POST(request: Request) {
 
   const buffer = Buffer.from(await video.arrayBuffer());
   await writeFile(path.join(recordingsDir, `${safeName}_webcam.webm`), buffer);
-
-  await writeFile(
-    path.join(recordingsDir, "metadata.json"),
-    JSON.stringify({ product, merchantUrl, width, height, startedAt, webcamMode, webcamVertical, webcamHorizontal }, null, 2),
-    "utf-8"
-  );
 
   return NextResponse.json({ ok: true, path: `/users/${safePresenter}/${safeName}/recordings/${safeName}_webcam.webm` });
 }

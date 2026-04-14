@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { TARGET_URL, DEFAULT_FPS, VIDEO_WIDTH, VIDEO_HEIGHT, RENDER_ZOOM } from "@/app/config";
@@ -7,14 +8,14 @@ import { eventsToKeyframes } from "@/lib/render/keyframes";
 import { createReplayAction } from "@/lib/render/actions";
 import { produceSessionVideo } from "@/lib/render/produce";
 import {
-  createJob,
+  createJobAtStep,
   updateJobProgress,
   startCompositing,
   updateCompositingProgress,
   completeJob,
   failJob,
 } from "@/lib/render/job-store";
-import { DEFAULT_WEBCAM_SETTINGS } from "@/types/webcam";
+import { type WebcamSettings, DEFAULT_WEBCAM_SETTINGS } from "@/types/webcam";
 
 export const runtime = "nodejs";
 
@@ -24,6 +25,19 @@ type RequestBody = {
   presenter?: unknown;
   session?: unknown;
   targetUrl?: unknown;
+  product?: unknown;
+  webcamMode?: unknown;
+  webcamVertical?: unknown;
+  webcamHorizontal?: unknown;
+  trimStartSec?: unknown;
+  trimEndSec?: unknown;
+  // Warm-start fields
+  startFromStep?: unknown;
+  existingRenderPath?: unknown;
+  existingRenderUrl?: unknown;
+  existingRenderDurationMs?: unknown;
+  existingCompositePath?: unknown;
+  existingCompositeUrl?: unknown;
 };
 
 export async function POST(request: Request) {
@@ -44,7 +58,27 @@ export async function POST(request: Request) {
   const safePresenter = body.presenter.replace(/[^a-z0-9_\-]/gi, "_");
   const safeName = body.session.replace(/[^a-z0-9_\-]/gi, "_");
 
-  // Read mouse events
+  const startFromStep = (body.startFromStep === 2 || body.startFromStep === 3) ? body.startFromStep : 1;
+
+  // Validate warm-start fields
+  if (startFromStep >= 2) {
+    if (typeof body.existingRenderPath !== "string" || typeof body.existingRenderUrl !== "string" || typeof body.existingRenderDurationMs !== "number") {
+      return NextResponse.json({ error: "Warm-start from step 2 requires existingRenderPath, existingRenderUrl, and existingRenderDurationMs." }, { status: 400 });
+    }
+    if (!existsSync(body.existingRenderPath)) {
+      return NextResponse.json({ error: "Cached render file not found on disk." }, { status: 404 });
+    }
+  }
+  if (startFromStep >= 3) {
+    if (typeof body.existingCompositePath !== "string" || typeof body.existingCompositeUrl !== "string") {
+      return NextResponse.json({ error: "Warm-start from step 3 requires existingCompositePath and existingCompositeUrl." }, { status: 400 });
+    }
+    if (!existsSync(body.existingCompositePath)) {
+      return NextResponse.json({ error: "Cached composite file not found on disk." }, { status: 404 });
+    }
+  }
+
+  // Read mouse events from disk (needed for step 1 replay)
   const filePath = path.join(
     PUBLIC_DIR, "users", safePresenter, safeName, "recordings", `${safeName}_mouse.json`,
   );
@@ -75,23 +109,23 @@ export async function POST(request: Request) {
   const durationMs = keyframes.length > 0 ? keyframes[keyframes.length - 1].t : 1000;
   const replayAction = createReplayAction(keyframes, durationMs);
 
-  // Read product from metadata for the target URL
-  const metadataPath = path.join(
-    PUBLIC_DIR, "users", safePresenter, safeName, "recordings", "metadata.json",
-  );
-  let product = "returns";
-  let webcamSettings = DEFAULT_WEBCAM_SETTINGS;
-  try {
-    const meta = JSON.parse(await readFile(metadataPath, "utf-8")) as Record<string, unknown>;
-    if (typeof meta.product === "string") product = meta.product;
-    webcamSettings = {
-      webcamMode: (typeof meta.webcamMode === "string" ? meta.webcamMode : DEFAULT_WEBCAM_SETTINGS.webcamMode) as typeof DEFAULT_WEBCAM_SETTINGS.webcamMode,
-      webcamVertical: (typeof meta.webcamVertical === "string" ? meta.webcamVertical : DEFAULT_WEBCAM_SETTINGS.webcamVertical) as typeof DEFAULT_WEBCAM_SETTINGS.webcamVertical,
-      webcamHorizontal: (typeof meta.webcamHorizontal === "string" ? meta.webcamHorizontal : DEFAULT_WEBCAM_SETTINGS.webcamHorizontal) as typeof DEFAULT_WEBCAM_SETTINGS.webcamHorizontal,
-    };
-  } catch {}
+  const product = typeof body.product === "string" && body.product.trim() ? body.product.trim() : "returns";
 
-  // Build the target URL — use provided targetUrl as-is, otherwise TARGET_URL with product
+  const webcamSettings: WebcamSettings = {
+    webcamMode: typeof body.webcamMode === "string" && ["video", "audio", "off"].includes(body.webcamMode)
+      ? body.webcamMode as WebcamSettings["webcamMode"]
+      : DEFAULT_WEBCAM_SETTINGS.webcamMode,
+    webcamVertical: typeof body.webcamVertical === "string" && ["top", "bottom"].includes(body.webcamVertical)
+      ? body.webcamVertical as WebcamSettings["webcamVertical"]
+      : DEFAULT_WEBCAM_SETTINGS.webcamVertical,
+    webcamHorizontal: typeof body.webcamHorizontal === "string" && ["left", "right"].includes(body.webcamHorizontal)
+      ? body.webcamHorizontal as WebcamSettings["webcamHorizontal"]
+      : DEFAULT_WEBCAM_SETTINGS.webcamHorizontal,
+  };
+
+  const trimStartSec = typeof body.trimStartSec === "number" ? body.trimStartSec : undefined;
+  const trimEndSec = typeof body.trimEndSec === "number" ? body.trimEndSec : undefined;
+
   let url: string;
   if (typeof body.targetUrl === "string" && body.targetUrl.trim()) {
     url = body.targetUrl.trim();
@@ -101,10 +135,8 @@ export async function POST(request: Request) {
   }
 
   const jobId = randomUUID().slice(0, 8);
-  createJob(jobId);
+  createJobAtStep(jobId, startFromStep as 1 | 2 | 3);
 
-  // Same pipeline as preview: Playwright render → webcam composite
-  // No trim for postprocess — user sets trim marks on this video
   produceSessionVideo({
     url,
     presenter: safePresenter,
@@ -121,8 +153,16 @@ export async function POST(request: Request) {
     onRenderComplete: () => startCompositing(jobId),
     onComposeProgress: (step, total) => updateCompositingProgress(jobId, step, total),
     webcamSettings,
+    trimStartSec,
+    trimEndSec,
+    startFromStep: startFromStep as 1 | 2 | 3,
+    existingRenderPath: typeof body.existingRenderPath === "string" ? body.existingRenderPath : undefined,
+    existingRenderUrl: typeof body.existingRenderUrl === "string" ? body.existingRenderUrl : undefined,
+    existingRenderDurationMs: typeof body.existingRenderDurationMs === "number" ? body.existingRenderDurationMs : undefined,
+    existingCompositePath: typeof body.existingCompositePath === "string" ? body.existingCompositePath : undefined,
+    existingCompositeUrl: typeof body.existingCompositeUrl === "string" ? body.existingCompositeUrl : undefined,
   })
-    .then((result) => completeJob(jobId, result.videoUrl))
+    .then((result) => completeJob(jobId, result))
     .catch((error: unknown) => {
       console.error("Postprocess render failed", error);
       failJob(jobId, error instanceof Error ? error.message : "Render failed.");

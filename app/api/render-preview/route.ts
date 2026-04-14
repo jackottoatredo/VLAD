@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { TARGET_URL, DEFAULT_FPS, VIDEO_WIDTH, VIDEO_HEIGHT, RENDER_ZOOM } from "@/app/config";
@@ -7,19 +8,18 @@ import { eventsToKeyframes } from "@/lib/render/keyframes";
 import { createReplayAction } from "@/lib/render/actions";
 import { produceSessionVideo } from "@/lib/render/produce";
 import {
-  createJob,
+  createJobAtStep,
   updateJobProgress,
   startCompositing,
   updateCompositingProgress,
   completeJob,
   failJob,
 } from "@/lib/render/job-store";
+import { type WebcamSettings, DEFAULT_WEBCAM_SETTINGS } from "@/types/webcam";
 
 export const runtime = "nodejs";
 
 const PUBLIC_DIR = path.join(process.cwd(), "public");
-
-import { type WebcamSettings, DEFAULT_WEBCAM_SETTINGS } from "@/types/webcam";
 
 type RenderPreviewBody = {
   session?: unknown;
@@ -29,11 +29,18 @@ type RenderPreviewBody = {
   webcamMode?: unknown;
   webcamVertical?: unknown;
   webcamHorizontal?: unknown;
+  trimStartSec?: unknown;
+  trimEndSec?: unknown;
+  startFromStep?: unknown;
+  existingRenderPath?: unknown;
+  existingRenderUrl?: unknown;
+  existingRenderDurationMs?: unknown;
+  existingCompositePath?: unknown;
+  existingCompositeUrl?: unknown;
 };
 
 export async function POST(request: Request) {
   let body: RenderPreviewBody;
-
   try {
     body = (await request.json()) as RenderPreviewBody;
   } catch {
@@ -54,13 +61,29 @@ export async function POST(request: Request) {
   const safePresenter = body.presenter.replace(/[^a-z0-9_\-]/gi, "_");
   const product = typeof body.product === "string" && body.product.trim() ? body.product.trim() : "returns";
 
+  const startFromStep = (body.startFromStep === 2 || body.startFromStep === 3) ? body.startFromStep : 1;
+
+  // Validate warm-start fields
+  if (startFromStep >= 2) {
+    if (typeof body.existingRenderPath !== "string" || typeof body.existingRenderUrl !== "string" || typeof body.existingRenderDurationMs !== "number") {
+      return NextResponse.json({ error: "Warm-start from step 2 requires render artifacts." }, { status: 400 });
+    }
+    if (!existsSync(body.existingRenderPath)) {
+      return NextResponse.json({ error: "Cached render file not found." }, { status: 404 });
+    }
+  }
+  if (startFromStep >= 3) {
+    if (typeof body.existingCompositePath !== "string" || typeof body.existingCompositeUrl !== "string") {
+      return NextResponse.json({ error: "Warm-start from step 3 requires composite artifacts." }, { status: 400 });
+    }
+    if (!existsSync(body.existingCompositePath)) {
+      return NextResponse.json({ error: "Cached composite file not found." }, { status: 404 });
+    }
+  }
+
+  // Read mouse events from disk
   const filePath = path.join(
-    PUBLIC_DIR,
-    "users",
-    safePresenter,
-    safeName,
-    "recordings",
-    `${safeName}_mouse.json`
+    PUBLIC_DIR, "users", safePresenter, safeName, "recordings", `${safeName}_mouse.json`,
   );
 
   let raw: string;
@@ -85,28 +108,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Session file is missing required fields." }, { status: 400 });
   }
 
-  // Always use full keyframes — we must simulate the entire mouse interaction so
-  // page state (loads, scrolls, clicks) builds up correctly.  Trimming happens as
-  // the very last step, after Playwright render + webcam composite.
   const keyframes = eventsToKeyframes(data.events as Parameters<typeof eventsToKeyframes>[0]);
   const durationMs = keyframes.length > 0 ? keyframes[keyframes.length - 1].t : 1000;
   const replayAction = createReplayAction(keyframes, durationMs);
 
-  // Read trim marks from postprocessing metadata (applied after composite).
-  // Both postprocess and preview use the same Playwright render pipeline, so
-  // trim marks transfer 1:1 with no offset correction needed.
-  const metadataPath = path.join(
-    PUBLIC_DIR, "users", safePresenter, safeName, "recordings", "metadata.json",
-  );
-  let trimStartSec: number | undefined;
-  let trimEndSec: number | undefined;
-  try {
-    const meta = JSON.parse(await readFile(metadataPath, "utf-8")) as Record<string, unknown>;
-    if (typeof meta.trimStartSec === "number") trimStartSec = meta.trimStartSec;
-    if (typeof meta.trimEndSec === "number") trimEndSec = meta.trimEndSec;
-  } catch {
-    // No metadata or no trim
-  }
+  const trimStartSec = typeof body.trimStartSec === "number" ? body.trimStartSec : undefined;
+  const trimEndSec = typeof body.trimEndSec === "number" ? body.trimEndSec : undefined;
 
   const webcamSettings: WebcamSettings = {
     webcamMode: typeof body.webcamMode === "string" && ["video", "audio", "off"].includes(body.webcamMode)
@@ -124,7 +131,7 @@ export async function POST(request: Request) {
   const url = `${TARGET_URL}?${params.toString()}`;
 
   const jobId = randomUUID().slice(0, 8);
-  createJob(jobId);
+  createJobAtStep(jobId, startFromStep as 1 | 2 | 3);
 
   produceSessionVideo({
     url,
@@ -144,8 +151,14 @@ export async function POST(request: Request) {
     webcamSettings,
     trimStartSec,
     trimEndSec,
+    startFromStep: startFromStep as 1 | 2 | 3,
+    existingRenderPath: typeof body.existingRenderPath === "string" ? body.existingRenderPath : undefined,
+    existingRenderUrl: typeof body.existingRenderUrl === "string" ? body.existingRenderUrl : undefined,
+    existingRenderDurationMs: typeof body.existingRenderDurationMs === "number" ? body.existingRenderDurationMs : undefined,
+    existingCompositePath: typeof body.existingCompositePath === "string" ? body.existingCompositePath : undefined,
+    existingCompositeUrl: typeof body.existingCompositeUrl === "string" ? body.existingCompositeUrl : undefined,
   })
-    .then((result) => completeJob(jobId, result.videoUrl))
+    .then((result) => completeJob(jobId, result))
     .catch((error: unknown) => {
       console.error("Produce preview failed", error);
       failJob(jobId, error instanceof Error ? error.message : "Render failed.");

@@ -16,6 +16,7 @@ type RequestBody = {
   type?: unknown;
   productName?: unknown;
   merchantId?: unknown;
+  metadata?: unknown;
 };
 
 export async function POST(request: Request) {
@@ -47,15 +48,15 @@ export async function POST(request: Request) {
 
   const recordingId = randomUUID();
 
-  // Read local draft files
+  // Read local draft files (only mouse JSON and webcam video — no metadata.json)
   const mouseBuffer = await readFile(mouseJsonPath);
-  const metadataPath = path.join(recordingsDir, "metadata.json");
-  const metadataRaw = existsSync(metadataPath) ? await readFile(metadataPath, "utf-8") : "{}";
-  const metadata = JSON.parse(metadataRaw);
 
   const webcamPath = path.join(recordingsDir, `${safeSession}_webcam.webm`);
   const hasWebcam = existsSync(webcamPath);
   const webcamBuffer = hasWebcam ? await readFile(webcamPath) : null;
+
+  // Metadata comes from request body (passed from client-side context state)
+  const metadata = body.metadata != null && typeof body.metadata === "object" ? body.metadata : {};
 
   // Upload to R2 in parallel
   const uploads: Promise<void>[] = [

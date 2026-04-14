@@ -6,6 +6,8 @@ type Props = {
   videoUrl: string
   fps: number
   onTrimChange: (startSec: number, endSec: number) => void
+  initialTrimStart?: number
+  initialTrimEnd?: number
 }
 
 type DragTarget = 'start' | 'end' | 'playhead' | null
@@ -20,7 +22,7 @@ function formatTime(sec: number): string {
   return `${m}:${s.toFixed(1).padStart(4, '0')}`
 }
 
-export default function VideoTrimmer({ videoUrl, fps, onTrimChange }: Props) {
+export default function VideoTrimmer({ videoUrl, fps, onTrimChange, initialTrimStart, initialTrimEnd }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const trackRef = useRef<HTMLDivElement>(null)
   const [duration, setDuration] = useState(0)
@@ -40,14 +42,18 @@ export default function VideoTrimmer({ videoUrl, fps, onTrimChange }: Props) {
       const d = video.duration
       if (Number.isFinite(d) && d > 0) {
         setDuration(d)
-        setTrimEnd(d)
-        setPlayhead(0)
-        video.currentTime = 0
+        const start = initialTrimStart != null && initialTrimStart > 0 && initialTrimStart < d ? initialTrimStart : 0
+        const end = initialTrimEnd != null && initialTrimEnd > 0 && initialTrimEnd <= d ? initialTrimEnd : d
+        setTrimStart(start)
+        setTrimEnd(end)
+        setPlayhead(start)
+        video.currentTime = start
       }
     }
     video.addEventListener('loadedmetadata', onLoaded)
     if (video.duration && Number.isFinite(video.duration)) onLoaded()
     return () => video.removeEventListener('loadedmetadata', onLoaded)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [videoUrl])
 
   const pct = useCallback((sec: number) => (duration > 0 ? (sec / duration) * 100 : 0), [duration])

@@ -20,7 +20,7 @@ type RelayEvent = {
 }
 
 export default function RecordPage() {
-  const { product: productDraft, markProductRecordingDirty } = useAppContext()
+  const { product: productDraft, clearProductPipelineCache } = useAppContext()
   const { product, webcamSettings } = productDraft
 
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
@@ -31,7 +31,6 @@ export default function RecordPage() {
   const [recordingKey, setRecordingKey] = useState(0)
   const sessionNameRef = useRef('')
   const presenterRef = useRef('')
-  const productRef = useRef('')
 
   // Webcam
   const streamRef = useRef<MediaStream | null>(null)
@@ -39,7 +38,6 @@ export default function RecordPage() {
   const webcamChunksRef = useRef<Blob[]>([])
   const recordingStartedAt = useRef<string>('')
   const webcamVideoRef = useRef<HTMLVideoElement | null>(null)
-  const webcamDimsRef = useRef<{ width: number; height: number } | null>(null)
 
   useEffect(() => {
     const el = containerRef.current
@@ -55,7 +53,7 @@ export default function RecordPage() {
     const handler = (e: MessageEvent) => {
       if (!e.data || e.data.source !== 'mouse-relay') return
       if (e.source !== iframeRef.current?.contentWindow) return
-      const event: RelayEvent = e.data.payload
+      const event: RelayEvent = { ...e.data.payload, timestamp: performance.now() }
       if (isRecording) eventsRef.current.push(event)
     }
     window.addEventListener('message', handler)
@@ -75,10 +73,6 @@ export default function RecordPage() {
       .then((stream) => {
         streamRef.current = stream
         if (webcamVideoRef.current) webcamVideoRef.current.srcObject = stream
-        const settings = stream.getVideoTracks()[0]?.getSettings()
-        if (settings?.width && settings?.height) {
-          webcamDimsRef.current = { width: settings.width, height: settings.height }
-        }
       })
       .catch(() => {})
 
@@ -90,10 +84,9 @@ export default function RecordPage() {
   function handleStart(sessionName: string, presenter: string) {
     sessionNameRef.current = sessionName
     presenterRef.current = presenter
-    productRef.current = product
     const startTime = Date.now()
     recordingStartedAt.current = new Date(startTime).toISOString()
-    eventsRef.current = [{ eventType: 'recording-start', x: 0, y: 0, buttons: 0, timestamp: startTime }]
+    eventsRef.current = [{ eventType: 'recording-start', x: 0, y: 0, buttons: 0, timestamp: performance.now() }]
     setRecordingKey((k) => k + 1)
     setIsRecording(true)
 
@@ -113,7 +106,6 @@ export default function RecordPage() {
 
     const sessionName = sessionNameRef.current
     const presenter = presenterRef.current
-    const savedProduct = productRef.current
 
     const mousePromise = fetch('/api/save-session', {
       method: 'POST',
@@ -137,15 +129,6 @@ export default function RecordPage() {
         fd.append('session', sessionName)
         fd.append('presenter', presenter)
         fd.append('video', blob, `${sessionName}_webcam.webm`)
-        fd.append('product', savedProduct)
-        fd.append('startedAt', recordingStartedAt.current)
-        fd.append('webcamMode', webcamSettings.webcamMode)
-        fd.append('webcamVertical', webcamSettings.webcamVertical)
-        fd.append('webcamHorizontal', webcamSettings.webcamHorizontal)
-        if (webcamDimsRef.current) {
-          fd.append('width', String(webcamDimsRef.current.width))
-          fd.append('height', String(webcamDimsRef.current.height))
-        }
         await fetch('/api/save-webcam', { method: 'POST', body: fd }).catch(() => {})
         resolve()
       }
@@ -153,7 +136,7 @@ export default function RecordPage() {
     })
 
     await Promise.all([mousePromise, webcamPromise])
-    markProductRecordingDirty()
+    clearProductPipelineCache()
   }
 
   return (

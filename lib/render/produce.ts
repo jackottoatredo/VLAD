@@ -24,69 +24,56 @@ export type ProduceOptions = {
   onRenderComplete?: () => void;
   onComposeProgress?: (step: number, total: number) => void;
   webcamSettings?: WebcamSettings;
-  trimStartSec?: number;   // trim the final composited video (not the replay)
+  trimStartSec?: number;
   trimEndSec?: number;
+
+  // Warm-start: skip expensive stages by providing cached outputs
+  startFromStep?: 1 | 2 | 3;
+  existingRenderPath?: string;        // absolute filesystem path — required if startFromStep >= 2
+  existingRenderUrl?: string;         // public URL — required if startFromStep >= 2
+  existingRenderDurationMs?: number;  // required if startFromStep >= 2
+  existingCompositePath?: string;     // absolute filesystem path — required if startFromStep >= 3
+  existingCompositeUrl?: string;      // public URL — required if startFromStep >= 3
 };
 
 export type ProduceResult = {
-  videoUrl: string;
+  renderUrl: string;
+  renderPath: string;
+  renderDurationMs: number;
+  compositeUrl: string;
+  compositePath: string;
+  trimmedUrl: string | null;
+  finalUrl: string;
 };
 
-export async function produceSessionVideo(options: ProduceOptions): Promise<ProduceResult> {
-  // 1. Render full mouse interaction via Playwright
-  const renderResult = await renderUrlToMp4({
-    url: options.url,
-    presenter: options.presenter,
-    sessionName: options.sessionName,
-    width: options.width,
-    height: options.height,
-    videoWidth: options.videoWidth,
-    videoHeight: options.videoHeight,
-    zoom: options.zoom,
-    fps: options.fps,
-    durationMs: options.durationMs,
-    actions: options.actions,
-    onProgress: options.onRenderProgress,
-  });
+async function trimVideoFile(
+  composedPath: string,
+  sessionName: string,
+  trimStartSec: number | undefined,
+  trimEndSec: number | undefined,
+): Promise<{ trimmedUrl: string; trimmedPath: string } | null> {
+  const hasTrim = (trimStartSec != null && trimStartSec > 0) ||
+                  (trimEndSec != null && trimEndSec > 0);
+  if (!hasTrim) return null;
 
-  options.onRenderComplete?.();
-
-  // 2. Composite webcam overlay onto the full render
-  const composeResult = await compositeSessionVideo({
-    presenter: options.presenter,
-    sessionName: options.sessionName,
-    screenVideoPath: renderResult.outputPath,
-    screenVideoUrl: renderResult.videoUrl,
-    durationMs: renderResult.totalDurationMs,
-    onProgress: options.onComposeProgress ?? (() => {}),
-    webcamSettings: options.webcamSettings,
-  });
-
-  // 3. Trim the final video if trim marks are set
-  const hasTrim = (options.trimStartSec != null && options.trimStartSec > 0) ||
-                  (options.trimEndSec != null && Number.isFinite(options.trimEndSec));
-
-  if (!hasTrim) {
-    return { videoUrl: composeResult.videoUrl };
-  }
-
-  const composedPath = path.join(
-    process.cwd(), "public", composeResult.videoUrl,
-  );
-  const trimmedName = `${options.sessionName}-trimmed-${Date.now()}-${randomUUID().slice(0, 8)}.mp4`;
+  const trimmedName = `${sessionName}-trimmed-${Date.now()}-${randomUUID().slice(0, 8)}.mp4`;
   const renderingsDir = path.dirname(composedPath);
   const trimmedPath = path.join(renderingsDir, trimmedName);
-  const trimmedUrl = composeResult.videoUrl.replace(/[^/]+$/, trimmedName);
+
+  // Derive public URL from composedPath
+  const publicDir = path.join(process.cwd(), "public");
+  const relativeDir = path.relative(publicDir, renderingsDir);
+  const trimmedUrl = `/${relativeDir}/${trimmedName}`.replace(/\\/g, "/");
 
   const args = [
-    ...(options.trimStartSec != null && options.trimStartSec > 0
-      ? ["-ss", String(options.trimStartSec)]
+    ...(trimStartSec != null && trimStartSec > 0
+      ? ["-ss", String(trimStartSec)]
       : []),
     "-i", composedPath,
-    ...(options.trimEndSec != null && Number.isFinite(options.trimEndSec)
-      ? ["-to", String(options.trimEndSec - (options.trimStartSec ?? 0))]
+    ...(trimEndSec != null && trimEndSec > 0
+      ? ["-to", String(trimEndSec - (trimStartSec ?? 0))]
       : []),
-    "-c", "copy",          // stream copy — no re-encode, nearly instant
+    "-c", "copy",
     "-movflags", "+faststart",
     "-y",
     trimmedPath,
@@ -103,5 +90,77 @@ export async function produceSessionVideo(options: ProduceOptions): Promise<Prod
     proc.on("error", reject);
   });
 
-  return { videoUrl: trimmedUrl };
+  return { trimmedUrl, trimmedPath };
+}
+
+export async function produceSessionVideo(options: ProduceOptions): Promise<ProduceResult> {
+  const step = options.startFromStep ?? 1;
+
+  // ---- Step 1: Playwright render ----
+  let renderUrl: string;
+  let renderPath: string;
+  let renderDurationMs: number;
+
+  if (step <= 1) {
+    const renderResult = await renderUrlToMp4({
+      url: options.url,
+      presenter: options.presenter,
+      sessionName: options.sessionName,
+      width: options.width,
+      height: options.height,
+      videoWidth: options.videoWidth,
+      videoHeight: options.videoHeight,
+      zoom: options.zoom,
+      fps: options.fps,
+      durationMs: options.durationMs,
+      actions: options.actions,
+      onProgress: options.onRenderProgress,
+    });
+    renderUrl = renderResult.videoUrl;
+    renderPath = renderResult.outputPath;
+    renderDurationMs = renderResult.totalDurationMs;
+    options.onRenderComplete?.();
+  } else {
+    renderUrl = options.existingRenderUrl!;
+    renderPath = options.existingRenderPath!;
+    renderDurationMs = options.existingRenderDurationMs!;
+  }
+
+  // ---- Step 2: Webcam composite ----
+  let compositeUrl: string;
+  let compositePath: string;
+
+  if (step <= 2) {
+    const composeResult = await compositeSessionVideo({
+      presenter: options.presenter,
+      sessionName: options.sessionName,
+      screenVideoPath: renderPath,
+      screenVideoUrl: renderUrl,
+      durationMs: renderDurationMs,
+      onProgress: options.onComposeProgress ?? (() => {}),
+      webcamSettings: options.webcamSettings,
+    });
+    compositeUrl = composeResult.videoUrl;
+    compositePath = path.join(process.cwd(), "public", composeResult.videoUrl);
+  } else {
+    compositeUrl = options.existingCompositeUrl!;
+    compositePath = options.existingCompositePath!;
+  }
+
+  // ---- Step 3: Trim ----
+  const trimResult = await trimVideoFile(
+    compositePath, options.sessionName, options.trimStartSec, options.trimEndSec,
+  );
+
+  const finalUrl = trimResult?.trimmedUrl ?? compositeUrl;
+
+  return {
+    renderUrl,
+    renderPath,
+    renderDurationMs,
+    compositeUrl,
+    compositePath,
+    trimmedUrl: trimResult?.trimmedUrl ?? null,
+    finalUrl,
+  };
 }

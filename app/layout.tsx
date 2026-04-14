@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { AppContextProvider } from "./appContext";
+import { UserContextProvider } from "./contexts/UserContext";
 import HamburgerMenu from "./components/HamburgerMenu";
 import "./globals.css";
 
@@ -31,7 +31,7 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         <HamburgerMenu />
-        <AppContextProvider>{children}</AppContextProvider>
+        <UserContextProvider>{children}</UserContextProvider>
       </body>
     </html>
   );

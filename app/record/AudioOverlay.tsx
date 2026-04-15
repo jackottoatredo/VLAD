@@ -7,14 +7,16 @@ import {
   WEBCAM_SHADOW_RADIUS,
   WEBCAM_BORDER_COLOR,
 } from '@/app/config'
+import { useFrameScale } from '@/app/record/RecordingFrame'
 
 type Props = {
   vertical: WebcamVertical
   horizontal: WebcamHorizontal
-  scale: number
 }
 
-export default function AudioOverlay({ vertical, horizontal, scale }: Props) {
+export default function AudioOverlay({ vertical, horizontal }: Props) {
+  const scale = useFrameScale()
+
   return (
     <div
       style={{

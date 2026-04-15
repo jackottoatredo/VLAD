@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import PageLayout from '@/app/components/PageLayout'
+import PageLayout, { type NavButton } from '@/app/components/PageLayout'
 import MediaEditor from '@/app/components/MediaEditor'
 import { DEFAULT_FPS, TARGET_URL } from '@/app/config'
 import { useUser } from '@/app/contexts/UserContext'
@@ -11,7 +11,12 @@ const POLL_MS = 500
 
 type LoadingStage = { label: string; progress: number }
 
-export default function PostprocessStep() {
+type Props = {
+  navBack?: NavButton | null
+  navForward?: NavButton | null
+}
+
+export default function PostprocessStep({ navBack, navForward }: Props) {
   const { presenter } = useUser()
   const flow = useProductFlow()
   const { product, webcamSettings, trimStartSec, trimEndSec, postprocessVideoUrl } = flow
@@ -94,6 +99,7 @@ export default function PostprocessStep() {
           webcamMode: webcamSettings.webcamMode,
           webcamVertical: webcamSettings.webcamVertical,
           webcamHorizontal: webcamSettings.webcamHorizontal,
+          trimStartSec, trimEndSec,
         }),
       })
       const data = (await res.json()) as { jobId?: string; videoUrl?: string; error?: string }
@@ -117,6 +123,8 @@ export default function PostprocessStep() {
 
   return (
     <PageLayout
+      navBack={navBack}
+      navForward={navForward}
       instructions={
         <div className="space-y-2 text-sm text-zinc-600 dark:text-zinc-400">
           <p>Review your recording and trim any dead air from the start and end.</p>

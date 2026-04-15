@@ -7,16 +7,18 @@ import {
   WEBCAM_SHADOW_RADIUS,
   WEBCAM_BORDER_COLOR,
 } from '@/app/config'
+import { useFrameScale } from '@/app/record/RecordingFrame'
 
 type Props = {
   videoRef: React.RefObject<HTMLVideoElement | null>
   vertical: WebcamVertical
   horizontal: WebcamHorizontal
-  scale: number
   mirror?: boolean
 }
 
-export default function VideoOverlay({ videoRef, vertical, horizontal, scale, mirror = false }: Props) {
+export default function VideoOverlay({ videoRef, vertical, horizontal, mirror = false }: Props) {
+  const scale = useFrameScale()
+
   return (
     <div
       style={{

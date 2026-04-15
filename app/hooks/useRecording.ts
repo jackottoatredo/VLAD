@@ -22,12 +22,12 @@ type UseRecordingOpts = {
 
 export function useRecording({ webcamMode, onSaved }: UseRecordingOpts) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
-  const containerRef = useRef<HTMLDivElement | null>(null);
   const webcamVideoRef = useRef<HTMLVideoElement | null>(null);
   const eventsRef = useRef<RelayEvent[]>([]);
-  const [scale, setScale] = useState(1);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingKey, setRecordingKey] = useState(0);
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const countdownTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   // Snapshot refs for async save
   const dirNameRef = useRef("");
@@ -38,18 +38,6 @@ export function useRecording({ webcamMode, onSaved }: UseRecordingOpts) {
   const streamRef = useRef<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const webcamChunksRef = useRef<Blob[]>([]);
-
-  // ResizeObserver for scale
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const observer = new ResizeObserver(([entry]) => {
-      const w = entry.contentRect.width;
-      if (w > 0) setScale(w / IFRAME_WIDTH);
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
 
   // Relay event listener
   useEffect(() => {
@@ -83,13 +71,12 @@ export function useRecording({ webcamMode, onSaved }: UseRecordingOpts) {
     };
   }, [webcamMode]);
 
-  const start = useCallback((presenter: string, identifier: string) => {
+  const beginRecording = useCallback((presenter: string, identifier: string) => {
     const dn = `${presenter}_${identifier}`;
     dirNameRef.current = dn;
     presenterRef.current = presenter;
     recordingStartedAt.current = new Date().toISOString();
     eventsRef.current = [{ eventType: "recording-start", x: 0, y: 0, buttons: 0, timestamp: performance.now() }];
-    setRecordingKey((k) => k + 1);
     setIsRecording(true);
 
     if (streamRef.current) {
@@ -103,7 +90,29 @@ export function useRecording({ webcamMode, onSaved }: UseRecordingOpts) {
     }
   }, []);
 
+  const clearCountdown = useCallback(() => {
+    countdownTimeoutsRef.current.forEach(clearTimeout);
+    countdownTimeoutsRef.current = [];
+    setCountdown(null);
+  }, []);
+
+  const start = useCallback((presenter: string, identifier: string) => {
+    clearCountdown();
+    setRecordingKey((k) => k + 1); // refresh iframe immediately
+    setCountdown(3);
+    const timeouts = [
+      setTimeout(() => setCountdown(2), 1000),
+      setTimeout(() => setCountdown(1), 2000),
+      setTimeout(() => {
+        setCountdown(null);
+        beginRecording(presenter, identifier);
+      }, 3000),
+    ];
+    countdownTimeoutsRef.current = timeouts;
+  }, [beginRecording, clearCountdown]);
+
   const stop = useCallback(async () => {
+    clearCountdown();
     setIsRecording(false);
     const dn = dirNameRef.current;
     const presenter = presenterRef.current;
@@ -138,14 +147,13 @@ export function useRecording({ webcamMode, onSaved }: UseRecordingOpts) {
 
     await Promise.all([mousePromise, webcamPromise]);
     onSaved?.();
-  }, [onSaved]);
+  }, [onSaved, clearCountdown]);
 
   return {
     iframeRef,
-    containerRef,
     webcamVideoRef,
-    scale,
     isRecording,
+    countdown,
     recordingKey,
     start,
     stop,

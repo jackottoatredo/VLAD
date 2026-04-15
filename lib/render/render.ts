@@ -251,13 +251,13 @@ export async function renderUrlToMp4(options: RenderOptions): Promise<RenderResu
     const page = await context.newPage();
 
     const clock = await installVirtualTimeClock(page);
-    // Wait only for HTML parse (domcontentloaded), not full asset load —
-    // rendering starts before images/CSS/JS finish so the video captures
-    // the page-load sequence (layout shifts, images streaming in, etc.).
     await page.goto(options.url, {
-      waitUntil: "domcontentloaded",
+      waitUntil: "networkidle",
       timeout: 30_000,
     });
+
+    // Advance 3s of virtual time so page animations settle before capture begins.
+    await clock.advance(3000);
 
     const totalDurationMs = await renderFrames(page, framesDir, options, clock);
     await encodeVideo(framesDir, outputPath, {

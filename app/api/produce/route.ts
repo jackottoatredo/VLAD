@@ -166,8 +166,9 @@ export async function POST(request: Request) {
     existingCompositeUrl: cached.compositeUrl,
   })
     .then(async (result) => {
-      // Update manifest with new artifacts
-      const updated = updateManifestFromResult(manifest, urlHash, url, mouseHash, wcFP, tKey, result);
+      // Re-read manifest to avoid overwriting entries from concurrent requests
+      const current = await readManifest(presenter, safeId);
+      const updated = updateManifestFromResult(current, urlHash, url, mouseHash, wcFP, tKey, result);
       await writeManifest(presenter, safeId, updated);
       completeJob(jobId, result);
     })

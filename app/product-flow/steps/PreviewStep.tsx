@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import PageLayout from '@/app/components/PageLayout'
+import PageLayout, { type NavButton } from '@/app/components/PageLayout'
 import MediaPlayer from '@/app/components/MediaPlayer'
 import { TARGET_URL } from '@/app/config'
 import { useUser } from '@/app/contexts/UserContext'
@@ -21,7 +21,12 @@ function initialBrandJobs(): Record<Brand, BrandJob> {
   return Object.fromEntries(BRANDS.map((b) => [b, { videoUrl: null, loading: null, error: null }])) as Record<Brand, BrandJob>
 }
 
-export default function PreviewStep() {
+type Props = {
+  navBack?: NavButton | null
+  navForward?: NavButton | null
+}
+
+export default function PreviewStep({ navBack, navForward }: Props) {
   const { presenter } = useUser()
   const flow = useProductFlow()
   const { product, webcamSettings, trimStartSec, trimEndSec, brandVideoUrls } = flow
@@ -159,6 +164,8 @@ export default function PreviewStep() {
 
   return (
     <PageLayout
+      navBack={navBack}
+      navForward={navForward}
       instructions={<p>Preview your recording rendered across multiple brands. Use the back arrow to adjust trim if needed.</p>}
       settings={
         <div className="flex flex-col gap-3">
@@ -174,7 +181,7 @@ export default function PreviewStep() {
             disabled={!allDone || saveStatus === 'saving' || saveStatus === 'saved'}
             className="w-full rounded-md border border-zinc-300 bg-white px-4 py-1.5 text-sm font-medium text-zinc-700 shadow-sm hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
           >
-            {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? 'Saved to Library' : 'Save to Library'}
+            {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? 'Saved' : 'Save'}
           </button>
           {saveStatus === 'error' && <p className="text-xs text-red-600 dark:text-red-400">{saveError}</p>}
         </div>
@@ -191,6 +198,7 @@ export default function PreviewStep() {
               <div className="flex flex-1 items-center justify-center">
                 <MediaPlayer
                   videoUrl={bj.videoUrl}
+                  videoRef={videoRefs.current[brand]}
                   loading={bj.loading ? { stages: bj.loading } : undefined}
                   error={bj.error}
                   emptyMessage="Waiting…"

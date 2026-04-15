@@ -67,16 +67,11 @@ function saveState(state: MerchantFlowState) {
 const MerchantFlowContext = createContext<MerchantFlowContextValue | undefined>(undefined);
 
 export function MerchantFlowContextProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<MerchantFlowState>(initialState);
-  const didHydrate = useRef(false);
+  const [state, setState] = useState<MerchantFlowState>(loadState);
+  const isFirstRender = useRef(true);
 
   useEffect(() => {
-    setState(loadState());
-    didHydrate.current = true;
-  }, []);
-
-  useEffect(() => {
-    if (!didHydrate.current) return;
+    if (isFirstRender.current) { isFirstRender.current = false; return; }
     saveState(state);
   }, [state]);
 
@@ -97,7 +92,8 @@ export function MerchantFlowContextProvider({ children }: { children: ReactNode 
 
   const setTrim = useCallback((startSec: number, endSec: number) => {
     setState((prev) => ({
-      ...prev, trimStartSec: startSec, trimEndSec: endSec, savedToLibrary: false,
+      ...prev, trimStartSec: startSec, trimEndSec: endSec,
+      postprocessVideoUrl: null, savedToLibrary: false,
     }));
   }, []);
 
@@ -114,10 +110,12 @@ export function MerchantFlowContextProvider({ children }: { children: ReactNode 
 
   const markSaved = useCallback(() => {
     setState((prev) => ({ ...prev, savedToLibrary: true }));
+    try { localStorage.removeItem(LS_KEY); } catch { /* ignore */ }
   }, []);
 
   const reset = useCallback(() => {
     setState(initialState());
+    try { localStorage.removeItem(LS_KEY); } catch { /* ignore */ }
   }, []);
 
   const value = useMemo<MerchantFlowContextValue>(

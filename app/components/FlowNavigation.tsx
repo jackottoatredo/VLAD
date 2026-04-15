@@ -17,7 +17,7 @@ export default function FlowNavigation({ steps, currentStep, canGoForward, onBac
   return (
     <>
       {showBack && (
-        <button
+        <button 
           onClick={onBack}
           className="fixed left-4 top-1/2 z-40 flex -translate-y-1/2 flex-col items-center gap-1"
         >

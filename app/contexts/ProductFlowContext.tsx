@@ -70,18 +70,12 @@ function saveState(state: ProductFlowState) {
 const ProductFlowContext = createContext<ProductFlowContextValue | undefined>(undefined);
 
 export function ProductFlowContextProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<ProductFlowState>(initialState);
-  const didHydrate = useRef(false);
+  const [state, setState] = useState<ProductFlowState>(loadState);
+  const isFirstRender = useRef(true);
 
-  // Hydrate from localStorage on mount
+  // Persist to localStorage on change (skip the initial load)
   useEffect(() => {
-    setState(loadState());
-    didHydrate.current = true;
-  }, []);
-
-  // Persist to localStorage on change (skip before hydration)
-  useEffect(() => {
-    if (!didHydrate.current) return;
+    if (isFirstRender.current) { isFirstRender.current = false; return; }
     saveState(state);
   }, [state]);
 
@@ -103,7 +97,7 @@ export function ProductFlowContextProvider({ children }: { children: ReactNode }
   const setTrim = useCallback((startSec: number, endSec: number) => {
     setState((prev) => ({
       ...prev, trimStartSec: startSec, trimEndSec: endSec,
-      brandVideoUrls: {}, savedToLibrary: false,
+      postprocessVideoUrl: null, brandVideoUrls: {}, savedToLibrary: false,
     }));
   }, []);
 
@@ -126,10 +120,13 @@ export function ProductFlowContextProvider({ children }: { children: ReactNode }
 
   const markSaved = useCallback(() => {
     setState((prev) => ({ ...prev, savedToLibrary: true }));
+    // Clear persisted state so revisiting the flow starts fresh
+    try { localStorage.removeItem(LS_KEY); } catch { /* ignore */ }
   }, []);
 
   const reset = useCallback(() => {
     setState(initialState());
+    try { localStorage.removeItem(LS_KEY); } catch { /* ignore */ }
   }, []);
 
   const value = useMemo<ProductFlowContextValue>(

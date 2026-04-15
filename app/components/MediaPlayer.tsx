@@ -4,6 +4,7 @@ type LoadingStage = { label: string; progress: number }
 
 type MediaPlayerProps = {
   videoUrl?: string | null
+  videoRef?: React.RefObject<HTMLVideoElement | null>
   emptyMessage?: string
   emptyAction?: { label: string; onClick: () => void }
   loading?: { stages: LoadingStage[] }
@@ -14,6 +15,7 @@ export type { MediaPlayerProps }
 
 export default function MediaPlayer({
   videoUrl,
+  videoRef,
   emptyMessage = 'No media',
   emptyAction,
   loading,
@@ -54,7 +56,7 @@ export default function MediaPlayer({
       )}
 
       {showVideo && (
-        <video src={videoUrl!} controls className="h-full w-full object-contain" />
+        <video ref={videoRef} src={videoUrl!} controls className="h-full w-full object-contain" />
       )}
 
       {showEmpty && (

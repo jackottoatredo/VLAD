@@ -1,6 +1,6 @@
 'use client'
 
-import PageLayout from '@/app/components/PageLayout'
+import PageLayout, { type NavButton } from '@/app/components/PageLayout'
 import RecordingFrame from '@/app/record/RecordingFrame'
 import WebcamOverlay from '@/app/record/WebcamOverlay'
 import WebcamControls from '@/app/components/WebcamControls'
@@ -24,16 +24,21 @@ const PRODUCTS = [
 
 type Props = {
   recording: ReturnType<typeof import('@/app/hooks/useRecording').useRecording>
+  navBack?: NavButton | null
+  navForward?: NavButton | null
 }
 
-export default function RecordStep({ recording }: Props) {
+export default function RecordStep({ recording, navBack, navForward }: Props) {
   const { presenter } = useUser()
   const { product, webcamSettings, setProduct, setWebcamSettings } = useProductFlow()
 
-  const canStart = !!presenter && !!product && !recording.isRecording
+  const isCountingDown = recording.countdown != null
+  const canStart = !!presenter && !!product && !recording.isRecording && !isCountingDown
 
   return (
     <PageLayout
+      navBack={navBack}
+      navForward={navForward}
       instructions={
         <p>Select a product and start recording. Your mouse interactions and webcam will be captured.</p>
       }
@@ -59,14 +64,14 @@ export default function RecordStep({ recording }: Props) {
 
           <button
             onClick={recording.isRecording ? recording.stop : () => recording.start(presenter, product)}
-            disabled={!recording.isRecording && !canStart}
+            disabled={isCountingDown || (!recording.isRecording && !canStart)}
             className={`w-full rounded-md px-4 py-1.5 text-sm font-medium shadow-sm disabled:opacity-40 disabled:cursor-not-allowed text-white ${
               recording.isRecording
                 ? 'bg-red-600 hover:bg-red-700'
                 : 'bg-zinc-900 hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300'
             }`}
           >
-            {recording.isRecording ? 'Stop Recording' : 'Start Recording'}
+            {isCountingDown ? 'Starting…' : recording.isRecording ? 'Stop Recording' : 'Start Recording'}
           </button>
         </div>
       }
@@ -74,12 +79,12 @@ export default function RecordStep({ recording }: Props) {
       <div className="flex flex-1 items-center justify-center overflow-hidden rounded-xl border border-zinc-300 p-[10px] dark:border-zinc-700">
         <RecordingFrame
           iframeRef={recording.iframeRef}
-          containerRef={recording.containerRef}
-          scale={recording.scale}
           product={product}
           recordingKey={recording.recordingKey}
+          isRecording={recording.isRecording}
+          countdown={recording.countdown}
         >
-          <WebcamOverlay webcamSettings={webcamSettings} videoRef={recording.webcamVideoRef} scale={recording.scale} mirror />
+          <WebcamOverlay webcamSettings={webcamSettings} videoRef={recording.webcamVideoRef} mirror />
         </RecordingFrame>
       </div>
     </PageLayout>

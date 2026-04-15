@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import PageLayout from '@/app/components/PageLayout'
+import PageLayout, { type NavButton } from '@/app/components/PageLayout'
 import MediaEditor from '@/app/components/MediaEditor'
 import { DEFAULT_FPS } from '@/app/config'
 import { useUser } from '@/app/contexts/UserContext'
@@ -11,7 +11,12 @@ const POLL_MS = 500
 
 type LoadingStage = { label: string; progress: number }
 
-export default function PostprocessStep() {
+type Props = {
+  navBack?: NavButton | null
+  navForward?: NavButton | null
+}
+
+export default function PostprocessStep({ navBack, navForward }: Props) {
   const { presenter, merchants } = useUser()
   const flow = useMerchantFlow()
   const { merchantId, webcamSettings, trimStartSec, trimEndSec, postprocessVideoUrl } = flow
@@ -92,6 +97,7 @@ export default function PostprocessStep() {
           webcamMode: webcamSettings.webcamMode,
           webcamVertical: webcamSettings.webcamVertical,
           webcamHorizontal: webcamSettings.webcamHorizontal,
+          trimStartSec, trimEndSec,
         }),
       })
       const data = (await res.json()) as { jobId?: string; videoUrl?: string; error?: string }
@@ -139,6 +145,8 @@ export default function PostprocessStep() {
 
   return (
     <PageLayout
+      navBack={navBack}
+      navForward={navForward}
       instructions={
         <div className="space-y-2 text-sm text-zinc-600 dark:text-zinc-400">
           <p>Review your merchant recording and trim any dead air from the start and end.</p>
@@ -153,7 +161,7 @@ export default function PostprocessStep() {
             disabled={!videoUrl || saveStatus === 'saving' || saveStatus === 'saved'}
             className="w-full rounded-md border border-zinc-300 bg-white px-4 py-1.5 text-sm font-medium text-zinc-700 shadow-sm hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
           >
-            {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? 'Saved to Library' : 'Save to Library'}
+            {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? 'Saved' : 'Save'}
           </button>
           {saveStatus === 'error' && <p className="text-xs text-red-600 dark:text-red-400">{saveError}</p>}
         </div>

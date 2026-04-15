@@ -6,11 +6,10 @@ import AudioOverlay from '@/app/record/AudioOverlay'
 type Props = {
   webcamSettings: WebcamSettings
   videoRef: React.RefObject<HTMLVideoElement | null>
-  scale: number
   mirror?: boolean
 }
 
-export default function WebcamOverlay({ webcamSettings, videoRef, scale, mirror }: Props) {
+export default function WebcamOverlay({ webcamSettings, videoRef, mirror }: Props) {
   if (webcamSettings.webcamMode === 'off') return null
 
   if (webcamSettings.webcamMode === 'audio') {
@@ -18,7 +17,6 @@ export default function WebcamOverlay({ webcamSettings, videoRef, scale, mirror 
       <AudioOverlay
         vertical={webcamSettings.webcamVertical}
         horizontal={webcamSettings.webcamHorizontal}
-        scale={scale}
       />
     )
   }
@@ -28,7 +26,6 @@ export default function WebcamOverlay({ webcamSettings, videoRef, scale, mirror 
       videoRef={videoRef}
       vertical={webcamSettings.webcamVertical}
       horizontal={webcamSettings.webcamHorizontal}
-      scale={scale}
       mirror={mirror}
     />
   )

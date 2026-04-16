@@ -22,7 +22,7 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
   const selectedMerchant = merchants.find((m) => m.id === merchantId)
   const brand = selectedMerchant?.url ?? ''
   const isCountingDown = recording.countdown != null
-  const canStart = !!presenter && !!merchantId && !recording.isRecording && !isCountingDown
+  const canStart = !!merchantId && !recording.isRecording && !isCountingDown
 
   // Add merchant modal
   const [showAddMerchant, setShowAddMerchant] = useState(false)
@@ -57,10 +57,6 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
         instructions={<p>Record a merchant customization walkthrough. Select a merchant and start recording.</p>}
         settings={
           <div className="flex flex-col gap-3">
-            <div className="rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
-              {presenter}
-            </div>
-
             <div className="flex gap-1">
               <select
                 value={merchantId}

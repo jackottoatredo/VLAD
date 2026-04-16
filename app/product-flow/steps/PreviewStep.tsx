@@ -29,7 +29,7 @@ type Props = {
 export default function PreviewStep({ navBack, navForward }: Props) {
   const { presenter } = useUser()
   const flow = useProductFlow()
-  const { product, webcamSettings, trimStartSec, trimEndSec, brandVideoUrls } = flow
+  const { product, webcamSettings, trimStartSec, trimEndSec, brandVideoUrls, postprocessVideoUrl } = flow
 
   const [brandJobs, setBrandJobs] = useState<Record<Brand, BrandJob>>(() => {
     const initial = initialBrandJobs()
@@ -145,6 +145,7 @@ export default function PreviewStep({ navBack, navForward }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           presenter, session: `${presenter}_${product}`, type: 'product', productName: product,
+          previewVideoUrl: postprocessVideoUrl,
           metadata: {
             trimStartSec, trimEndSec,
             webcamMode: webcamSettings.webcamMode,

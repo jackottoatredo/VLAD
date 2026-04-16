@@ -129,6 +129,7 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           presenter, session: `${presenter}_${merchantId}`, type: 'merchant', merchantId,
+          previewVideoUrl: videoUrl,
           metadata: {
             merchantUrl, trimStartSec, trimEndSec,
             webcamMode: webcamSettings.webcamMode,

@@ -19,7 +19,7 @@ export async function GET(request: Request) {
 
   let query = supabase
     .from("vlad_recordings")
-    .select("id, type, product_name, merchant_id, created_at")
+    .select("id, type, product_name, merchant_id, preview_url, created_at")
     .order("created_at", { ascending: false });
 
   if (type) {

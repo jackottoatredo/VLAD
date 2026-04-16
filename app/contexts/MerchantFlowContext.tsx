@@ -93,7 +93,7 @@ export function MerchantFlowContextProvider({ children }: { children: ReactNode 
   const setTrim = useCallback((startSec: number, endSec: number) => {
     setState((prev) => ({
       ...prev, trimStartSec: startSec, trimEndSec: endSec,
-      postprocessVideoUrl: null, savedToLibrary: false,
+      savedToLibrary: false,
     }));
   }, []);
 

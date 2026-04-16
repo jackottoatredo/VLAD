@@ -13,6 +13,7 @@ type Recording = {
   type: 'product' | 'merchant'
   product_name: string | null
   merchant_id: string | null
+  preview_url: string | null
   created_at: string
 }
 
@@ -119,6 +120,11 @@ export default function MergeExportPage() {
     return products.find((p) => p.id === id)?.product_name ?? id.slice(0, 8)
   }
 
+  function openRecordingPreview(recording: Recording, title: string) {
+    // Pass the R2 key directly — PreviewModal streams via /api/stream?key=...
+    setPreviewTarget({ title, videoUrl: recording.preview_url })
+  }
+
   async function runTask(merchantRecordingId: string, productRecordingId: string) {
     const brand = `${merchantLabel(merchantRecordingId)}-${productLabel(productRecordingId)}`
     const key = `${merchantRecordingId}-${productRecordingId}-${Date.now()}`
@@ -173,7 +179,7 @@ export default function MergeExportPage() {
         <div className="absolute inset-0 flex gap-[10px]">
             {/* Column A — Merchant Recordings */}
             <div className="flex w-1/3 flex-col overflow-hidden rounded-xl border border-zinc-700">
-              <div className="flex items-center justify-between border-b border-zinc-700 px-4 py-3">
+              <div className="flex items-center justify-between border-b border-zinc-700 bg-zinc-800 px-4 py-3">
                 <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
                   Merchant Intros
                 </h2>
@@ -198,7 +204,7 @@ export default function MergeExportPage() {
                     <span className="min-w-0 truncate">{r.merchant_id ?? r.id.slice(0, 8)}</span>
                     <span className="ml-2 flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                       <button
-                        onClick={(e) => { e.stopPropagation(); setPreviewTarget({ title: `Merchant Intro: ${r.merchant_id ?? r.id.slice(0, 8)}` }) }}
+                        onClick={(e) => { e.stopPropagation(); openRecordingPreview(r, `Merchant Intro: ${r.merchant_id ?? r.id.slice(0, 8)}`) }}
                         className="text-zinc-600 hover:text-zinc-200"
                       >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
@@ -220,7 +226,7 @@ export default function MergeExportPage() {
 
             {/* Column B — Product Recordings */}
             <div className="flex w-1/3 flex-col overflow-hidden rounded-xl border border-zinc-700">
-              <div className="flex items-center justify-between border-b border-zinc-700 px-4 py-3">
+              <div className="flex items-center justify-between border-b border-zinc-700 bg-zinc-800 px-4 py-3">
                 <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
                   Product Recordings
                 </h2>
@@ -245,7 +251,7 @@ export default function MergeExportPage() {
                     <span className="min-w-0 truncate">{r.product_name ?? r.id.slice(0, 8)}</span>
                     <span className="ml-2 flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                       <button
-                        onClick={(e) => { e.stopPropagation(); setPreviewTarget({ title: `Product Recording: ${r.product_name ?? r.id.slice(0, 8)}` }) }}
+                        onClick={(e) => { e.stopPropagation(); openRecordingPreview(r, `Product Recording: ${r.product_name ?? r.id.slice(0, 8)}`) }}
                         className="text-zinc-600 hover:text-zinc-200"
                       >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
@@ -267,7 +273,7 @@ export default function MergeExportPage() {
 
             {/* Column C — Renders */}
             <div className="flex w-1/3 flex-col overflow-hidden rounded-xl border border-zinc-700">
-              <div className="flex items-center justify-between border-b border-zinc-700 px-4 py-3">
+              <div className="flex items-center justify-between border-b border-zinc-700 bg-zinc-800 px-4 py-3">
                 <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
                   Exports
                 </h2>
@@ -301,56 +307,61 @@ export default function MergeExportPage() {
 
                     if (entry.kind === 'active') {
                       const { task } = entry
-                      const currentStep = task.renderId
-                        ? null
-                        : task.steps.find((s) => s.progress < 100) ?? task.steps[task.steps.length - 1]
+                      const inProgress = !task.renderId && !task.error
+                      const currentStep = inProgress
+                        ? task.steps.find((s) => s.progress < 100) ?? task.steps[task.steps.length - 1]
+                        : null
                       const isNew = task.renderId && !task.markedSeen
+                      const isComplete = !!task.renderId
+
+                      function openActivePreview() {
+                        if (isNew) markSeen(task.renderId!)
+                        setPreviewTarget({ title: `Export: ${task.brand}`, videoUrl: renders.find((r) => r.id === task.renderId)?.video_url, renderId: task.renderId, downloadName: task.brand })
+                      }
 
                       return (
                         <div
                           key={task.key}
-                          className={`group relative flex h-10 items-center justify-between px-4 transition-colors hover:bg-zinc-900${border}${isNew ? ' cursor-pointer' : ''}`}
-                          onClick={isNew ? () => markSeen(task.renderId!) : undefined}
+                          className={`group relative flex h-10 items-center justify-between px-4 transition-colors hover:bg-zinc-900${border}`}
+                          onDoubleClick={isComplete ? openActivePreview : undefined}
                         >
-                          <p className="min-w-0 truncate text-sm text-zinc-400">{task.brand}</p>
-                          <span className="ml-3 flex shrink-0 items-center gap-2">
-                            {task.error ? (
-                              <>
-                                <span className="text-xs text-red-500">Failed</span>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    setActiveTasks((prev) => prev.filter((t) => t.key !== task.key))
-                                    runTask(task.merchantRecordingId, task.productRecordingId)
-                                  }}
-                                  className="text-xs text-zinc-500 hover:text-zinc-200"
-                                >
-                                  Retry
-                                </button>
-                              </>
-                            ) : currentStep ? (
-                              <span className="text-xs text-zinc-600">{currentStep.label}</span>
-                            ) : isNew ? (
-                              <span className="text-xs text-zinc-500">new</span>
-                            ) : null}
-                            {task.renderId && (
-                              <span className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); setPreviewTarget({ title: `Export: ${task.brand}`, videoUrl: renders.find((r) => r.id === task.renderId)?.video_url, renderId: task.renderId, downloadName: task.brand }) }}
-                                  className="text-zinc-600 hover:text-zinc-200"
-                                >
-                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                                </button>
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: task.renderId!, name: task.brand, kind: 'render' }) }}
-                                  className="text-zinc-600 hover:text-red-500"
-                                >
-                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
-                                </button>
-                              </span>
-                            )}
+                          <span className="flex min-w-0 items-center gap-2">
+                            {isNew && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-white" />}
+                            <p className="min-w-0 truncate text-sm text-zinc-400">{task.brand}</p>
                           </span>
-                          {!task.renderId && !task.error && (
+                          {task.error ? (
+                            <span className="ml-3 flex shrink-0 items-center gap-2">
+                              <span className="text-xs text-red-500">Failed</span>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setActiveTasks((prev) => prev.filter((t) => t.key !== task.key))
+                                  runTask(task.merchantRecordingId, task.productRecordingId)
+                                }}
+                                className="text-xs text-zinc-500 hover:text-zinc-200"
+                              >
+                                Retry
+                              </button>
+                            </span>
+                          ) : currentStep ? (
+                            <span className="ml-3 shrink-0 text-xs text-zinc-600">{currentStep.label}</span>
+                          ) : isComplete ? (
+                            <span className="ml-3 flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); openActivePreview() }}
+                                className="text-zinc-600 hover:text-zinc-200"
+                              >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                              </button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: task.renderId!, name: task.brand, kind: 'render' }) }}
+                                className="text-zinc-600 hover:text-red-500"
+                              >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                              </button>
+                            </span>
+                          ) : null}
+                          {inProgress && (
                             <div className="absolute bottom-0 left-0 right-0 flex h-[2px] gap-[2px]">
                               {task.steps.map((step) => (
                                 <div key={step.label} className="flex-1 bg-zinc-800">
@@ -368,29 +379,36 @@ export default function MergeExportPage() {
 
                     const { render: r } = entry
                     const isNew = !r.seen
+                    const label = r.brand ?? r.id.slice(0, 8)
+
+                    function openDbPreview() {
+                      if (isNew) markSeen(r.id)
+                      setPreviewTarget({ title: `Export: ${label}`, videoUrl: r.video_url, renderId: r.id, downloadName: label })
+                    }
+
                     return (
                       <div
                         key={r.id}
-                        className={`group flex h-10 items-center justify-between px-4 transition-colors hover:bg-zinc-900${border}${isNew ? ' cursor-pointer' : ''}`}
-                        onClick={isNew ? () => markSeen(r.id) : undefined}
+                        className={`group flex h-10 items-center justify-between px-4 transition-colors hover:bg-zinc-900${border}`}
+                        onDoubleClick={openDbPreview}
                       >
-                        <p className="min-w-0 truncate text-sm text-zinc-400">{r.brand ?? r.id.slice(0, 8)}</p>
-                        <span className="ml-3 flex shrink-0 items-center gap-2">
-                          {isNew && <span className="text-xs text-zinc-500">new</span>}
-                          <span className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                            <button
-                              onClick={(e) => { e.stopPropagation(); setPreviewTarget({ title: `Export: ${r.brand ?? r.id.slice(0, 8)}`, videoUrl: r.video_url, renderId: r.id, downloadName: r.brand ?? r.id.slice(0, 8) }) }}
-                              className="text-zinc-600 hover:text-zinc-200"
-                            >
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                            </button>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: r.id, name: r.brand ?? r.id.slice(0, 8), kind: 'render' }) }}
-                              className="text-zinc-600 hover:text-red-500"
-                            >
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
-                            </button>
-                          </span>
+                        <span className="flex min-w-0 items-center gap-2">
+                          {isNew && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-white" />}
+                          <p className="min-w-0 truncate text-sm text-zinc-400">{label}</p>
+                        </span>
+                        <span className="ml-3 flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); openDbPreview() }}
+                            className="text-zinc-600 hover:text-zinc-200"
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: r.id, name: label, kind: 'render' }) }}
+                            className="text-zinc-600 hover:text-red-500"
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                          </button>
                         </span>
                       </div>
                     )

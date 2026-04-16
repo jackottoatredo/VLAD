@@ -42,6 +42,7 @@ create table vlad_renders (
   video_url               text,
   status                  text not null default 'pending' check (status in ('pending', 'rendering', 'done', 'error')),
   progress                int default 0,
+  seen                    boolean not null default false,
   created_at              timestamptz default now()
 );
 

@@ -38,7 +38,7 @@ export default function Home() {
           )}
         </div>
 
-        <div className="grid grid-cols-2 gap-4 pt-2">
+        <div className="grid grid-cols-3 gap-4 pt-2">
           <Link
             href="/product-flow"
             className="flex flex-col gap-2 rounded-xl border border-zinc-200 bg-zinc-50 p-5 transition hover:border-zinc-400 hover:shadow-sm dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600"
@@ -52,6 +52,13 @@ export default function Home() {
           >
             <h3 className="font-medium text-zinc-900 dark:text-zinc-100">Merchant Flow</h3>
             <p className="text-xs text-zinc-500">Record and save a merchant customization intro.</p>
+          </Link>
+          <Link
+            href="/merge-export"
+            className="flex flex-col gap-2 rounded-xl border border-zinc-200 bg-zinc-50 p-5 transition hover:border-zinc-400 hover:shadow-sm dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600"
+          >
+            <h3 className="font-medium text-zinc-900 dark:text-zinc-100">Merge & Export</h3>
+            <p className="text-xs text-zinc-500">Merge recordings and export final videos.</p>
           </Link>
         </div>
       </main>

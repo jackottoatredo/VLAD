@@ -17,7 +17,7 @@ export default function SavedStep() {
             Your merchant recording has been saved. What would you like to do next?
           </p>
         </div>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-4 gap-4">
           <button
             onClick={flow.reset}
             className="flex flex-col gap-2 rounded-xl border border-zinc-200 bg-zinc-50 p-5 text-left transition hover:border-zinc-400 hover:shadow-sm dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600"
@@ -32,6 +32,14 @@ export default function SavedStep() {
           >
             <h3 className="font-medium text-zinc-900 dark:text-zinc-100">Product Flow</h3>
             <p className="text-xs text-zinc-500">Record a product demo.</p>
+          </Link>
+          <Link
+            href="/merge-export"
+            onClick={() => flow.reset()}
+            className="flex flex-col gap-2 rounded-xl border border-zinc-200 bg-zinc-50 p-5 transition hover:border-zinc-400 hover:shadow-sm dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600"
+          >
+            <h3 className="font-medium text-zinc-900 dark:text-zinc-100">Merge & Export</h3>
+            <p className="text-xs text-zinc-500">Merge recordings and export final videos.</p>
           </Link>
           <Link
             href="/"

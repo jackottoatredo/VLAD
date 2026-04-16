@@ -7,6 +7,7 @@ import WebcamOverlay from '@/app/record/WebcamOverlay'
 import WebcamControls from '@/app/components/WebcamControls'
 import { useUser, type Merchant } from '@/app/contexts/UserContext'
 import { useMerchantFlow } from '@/app/contexts/MerchantFlowContext'
+import { MERCHANT_TARGET_URL } from '@/app/config'
 
 type Props = {
   recording: ReturnType<typeof import('@/app/hooks/useRecording').useRecording>
@@ -103,7 +104,7 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
             iframeRef={recording.iframeRef}
             product={brand}
             recordingKey={recording.recordingKey}
-            targetUrl="http://search.redo.com/record"
+            targetUrl={MERCHANT_TARGET_URL}
             queryParam="brand"
             isRecording={recording.isRecording}
             countdown={recording.countdown}

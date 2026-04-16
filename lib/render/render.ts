@@ -256,8 +256,8 @@ export async function renderUrlToMp4(options: RenderOptions): Promise<RenderResu
       timeout: 30_000,
     });
 
-    // Advance 3s of virtual time so page animations settle before capture begins.
-    await clock.advance(3000);
+    // Advance 5s virtual time so page animations settle before capture begins.
+    await clock.advance(10000);
 
     const totalDurationMs = await renderFrames(page, framesDir, options, clock);
     await encodeVideo(framesDir, outputPath, {

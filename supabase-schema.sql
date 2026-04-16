@@ -46,8 +46,4 @@ create table vlad_renders (
   created_at              timestamptz default now()
 );
 
--- Seed existing merchants (from current merchants.json)
-insert into vlad_merchants (id, name, url) values
-  ('mammut', 'mammut', 'mammut.com'),
-  ('test', 'test', 'test.com')
-on conflict (id) do nothing;
+

@@ -5,7 +5,8 @@ import { useCallback, useEffect, useState } from 'react'
 import Modal from '@/app/components/Modal'
 import DeleteModal from '@/app/components/DeleteModal'
 import MultiSelect from '@/app/components/MultiSelect'
-import { buildPipeline } from './pipeline'
+import PreviewModal from '@/app/components/PreviewModal'
+import { initialSteps, runMergeJob } from './pipeline'
 
 type Recording = {
   id: string
@@ -51,6 +52,7 @@ export default function MergeExportPage() {
   const [modalProduct, setModalProduct] = useState('')
   const [activeTasks, setActiveTasks] = useState<ActiveTask[]>([])
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string; kind: 'recording' | 'render' } | null>(null)
+  const [previewTarget, setPreviewTarget] = useState<{ title: string; videoUrl?: string | null; renderId?: string } | null>(null)
 
   async function handleDelete() {
     if (!deleteTarget) return
@@ -119,7 +121,6 @@ export default function MergeExportPage() {
 
   async function runTask(merchantRecordingId: string, productRecordingId: string) {
     const brand = `${merchantLabel(merchantRecordingId)}-${productLabel(productRecordingId)}`
-    const pipeline = buildPipeline()
     const key = `${merchantRecordingId}-${productRecordingId}-${Date.now()}`
 
     const task: ActiveTask = {
@@ -127,36 +128,27 @@ export default function MergeExportPage() {
       brand,
       merchantRecordingId,
       productRecordingId,
-      steps: pipeline.map((s) => ({ label: s.label, progress: 0 })),
+      steps: initialSteps(),
     }
 
     setActiveTasks((prev) => [...prev, task])
 
     try {
-      for (let i = 0; i < pipeline.length; i++) {
-        await pipeline[i].run((pct) => {
+      const result = await runMergeJob(
+        merchantRecordingId,
+        productRecordingId,
+        brand,
+        (steps) => {
           setActiveTasks((prev) =>
-            prev.map((t) => {
-              if (t.key !== key) return t
-              const steps = [...t.steps]
-              steps[i] = { ...steps[i], progress: pct }
-              return { ...t, steps }
-            })
+            prev.map((t) => (t.key === key ? { ...t, steps } : t))
           )
-        })
-      }
-
-      // Save to database
-      const res = await fetch('/api/renders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ merchantRecordingId, productRecordingId, brand }),
-      })
-      const { render } = await res.json() as { render: Render }
+        },
+      )
 
       // Stash the DB id so the unified list can swap the active entry for the DB row
-      setActiveTasks((prev) => prev.map((t) => (t.key === key ? { ...t, renderId: render.id } : t)))
-      setRenders((prev) => [render, ...prev])
+      setActiveTasks((prev) => prev.map((t) => (t.key === key ? { ...t, renderId: result.renderId } : t)))
+      // Refresh renders from DB to pick up the new entry
+      fetchRenders()
     } catch {
       setActiveTasks((prev) =>
         prev.map((t) => (t.key === key ? { ...t, error: 'Render failed' } : t))
@@ -204,12 +196,20 @@ export default function MergeExportPage() {
                     }`}
                   >
                     <span className="min-w-0 truncate">{r.merchant_id ?? r.id.slice(0, 8)}</span>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: r.id, name: r.merchant_id ?? r.id.slice(0, 8), kind: 'recording' }) }}
-                      className="ml-2 shrink-0 text-zinc-600 opacity-0 transition-opacity hover:text-red-500 group-hover:opacity-100"
-                    >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
-                    </button>
+                    <span className="ml-2 flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setPreviewTarget({ title: `Merchant Intro: ${r.merchant_id ?? r.id.slice(0, 8)}` }) }}
+                        className="text-zinc-600 hover:text-zinc-200"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: r.id, name: r.merchant_id ?? r.id.slice(0, 8), kind: 'recording' }) }}
+                        className="text-zinc-600 hover:text-red-500"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                      </button>
+                    </span>
                   </div>
                 ))}
                 {merchants.length === 0 && (
@@ -243,12 +243,20 @@ export default function MergeExportPage() {
                     }`}
                   >
                     <span className="min-w-0 truncate">{r.product_name ?? r.id.slice(0, 8)}</span>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: r.id, name: r.product_name ?? r.id.slice(0, 8), kind: 'recording' }) }}
-                      className="ml-2 shrink-0 text-zinc-600 opacity-0 transition-opacity hover:text-red-500 group-hover:opacity-100"
-                    >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
-                    </button>
+                    <span className="ml-2 flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setPreviewTarget({ title: `Product Recording: ${r.product_name ?? r.id.slice(0, 8)}` }) }}
+                        className="text-zinc-600 hover:text-zinc-200"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: r.id, name: r.product_name ?? r.id.slice(0, 8), kind: 'recording' }) }}
+                        className="text-zinc-600 hover:text-red-500"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                      </button>
+                    </span>
                   </div>
                 ))}
                 {products.length === 0 && (
@@ -307,19 +315,39 @@ export default function MergeExportPage() {
                           <p className="min-w-0 truncate text-sm text-zinc-400">{task.brand}</p>
                           <span className="ml-3 flex shrink-0 items-center gap-2">
                             {task.error ? (
-                              <span className="text-xs text-red-500">{task.error}</span>
+                              <>
+                                <span className="text-xs text-red-500">Failed</span>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setActiveTasks((prev) => prev.filter((t) => t.key !== task.key))
+                                    runTask(task.merchantRecordingId, task.productRecordingId)
+                                  }}
+                                  className="text-xs text-zinc-500 hover:text-zinc-200"
+                                >
+                                  Retry
+                                </button>
+                              </>
                             ) : currentStep ? (
                               <span className="text-xs text-zinc-600">{currentStep.label}</span>
                             ) : isNew ? (
                               <span className="text-xs text-zinc-500">new</span>
                             ) : null}
                             {task.renderId && (
-                              <button
-                                onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: task.renderId!, name: task.brand, kind: 'render' }) }}
-                                className="text-zinc-600 opacity-0 transition-opacity hover:text-red-500 group-hover:opacity-100"
-                              >
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
-                              </button>
+                              <span className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setPreviewTarget({ title: `Export: ${task.brand}`, videoUrl: renders.find((r) => r.id === task.renderId)?.video_url, renderId: task.renderId }) }}
+                                  className="text-zinc-600 hover:text-zinc-200"
+                                >
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                                </button>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: task.renderId!, name: task.brand, kind: 'render' }) }}
+                                  className="text-zinc-600 hover:text-red-500"
+                                >
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                                </button>
+                              </span>
                             )}
                           </span>
                           {!task.renderId && !task.error && (
@@ -349,12 +377,20 @@ export default function MergeExportPage() {
                         <p className="min-w-0 truncate text-sm text-zinc-400">{r.brand ?? r.id.slice(0, 8)}</p>
                         <span className="ml-3 flex shrink-0 items-center gap-2">
                           {isNew && <span className="text-xs text-zinc-500">new</span>}
-                          <button
-                            onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: r.id, name: r.brand ?? r.id.slice(0, 8), kind: 'render' }) }}
-                            className="text-zinc-600 opacity-0 transition-opacity hover:text-red-500 group-hover:opacity-100"
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
-                          </button>
+                          <span className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setPreviewTarget({ title: `Export: ${r.brand ?? r.id.slice(0, 8)}`, videoUrl: r.video_url, renderId: r.id }) }}
+                              className="text-zinc-600 hover:text-zinc-200"
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: r.id, name: r.brand ?? r.id.slice(0, 8), kind: 'render' }) }}
+                              className="text-zinc-600 hover:text-red-500"
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                            </button>
+                          </span>
                         </span>
                       </div>
                     )
@@ -364,6 +400,18 @@ export default function MergeExportPage() {
             </div>
         </div>
       </div>
+
+      {previewTarget && (
+        <PreviewModal
+          title={previewTarget.title}
+          videoUrl={previewTarget.videoUrl}
+          onClose={() => setPreviewTarget(null)}
+          onDelete={previewTarget.renderId ? () => {
+            setDeleteTarget({ id: previewTarget.renderId!, name: previewTarget.title, kind: 'render' })
+            setPreviewTarget(null)
+          } : undefined}
+        />
+      )}
 
       {deleteTarget && (
         <DeleteModal

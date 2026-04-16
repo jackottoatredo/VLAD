@@ -1,35 +1,94 @@
 export type PipelineStep = {
   label: string
-  run: (onProgress: (pct: number) => void) => Promise<void>
+  progress: number
 }
 
-/** Stub: simulate a 1-second task with smooth progress. Replace with real implementation later. */
-function stubStep(label: string): PipelineStep {
-  return {
-    label,
-    run: (onProgress) =>
-      new Promise<void>((resolve) => {
-        const duration = 1000
-        const interval = 50
-        let elapsed = 0
-        const timer = setInterval(() => {
-          elapsed += interval
-          onProgress(Math.min(100, (elapsed / duration) * 100))
-          if (elapsed >= duration) {
-            clearInterval(timer)
-            resolve()
-          }
-        }, interval)
-      }),
+export const STEP_LABELS = [
+  'Rendering intro',
+  'Compositing intro',
+  'Rendering product',
+  'Compositing product',
+  'Merging',
+]
+
+export function initialSteps(): PipelineStep[] {
+  return STEP_LABELS.map((label) => ({ label, progress: 0 }))
+}
+
+type MergeJobResponse = {
+  status: 'running' | 'done' | 'error'
+  currentStep: number
+  stepProgress: number[]
+  stepLabels: string[]
+  videoUrl?: string
+  renderId?: string
+  error?: string
+}
+
+/**
+ * Start a merge-export job on the server and poll for progress.
+ *
+ * Calls `onProgress` with updated step progress on each poll tick.
+ * Returns the final job state when complete.
+ */
+export async function runMergeJob(
+  merchantRecordingId: string,
+  productRecordingId: string,
+  brand: string,
+  onProgress: (steps: PipelineStep[]) => void,
+): Promise<{ renderId: string; videoUrl: string }> {
+  const res = await fetch('/api/merge-export', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ merchantRecordingId, productRecordingId, brand }),
+  })
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(data.error ?? 'Failed to start merge job.')
   }
-}
 
-export function buildPipeline(): PipelineStep[] {
-  return [
-    stubStep('Rendering intro'),
-    stubStep('Compositing intro'),
-    stubStep('Rendering product'),
-    stubStep('Compositing product'),
-    stubStep('Merging'),
-  ]
+  const { jobId } = (await res.json()) as { jobId: string }
+
+  // Poll for progress
+  return new Promise((resolve, reject) => {
+    const poll = async () => {
+      try {
+        const r = await fetch(`/api/merge-export?jobId=${jobId}`)
+        if (!r.ok) {
+          reject(new Error('Failed to fetch job progress.'))
+          return
+        }
+
+        const job = (await r.json()) as MergeJobResponse
+
+        // Update progress
+        const steps = STEP_LABELS.map((label, i) => ({
+          label,
+          progress: job.stepProgress[i] ?? 0,
+        }))
+        onProgress(steps)
+
+        if (job.status === 'done') {
+          resolve({
+            renderId: job.renderId ?? '',
+            videoUrl: job.videoUrl ?? '',
+          })
+          return
+        }
+
+        if (job.status === 'error') {
+          reject(new Error(job.error ?? 'Merge failed.'))
+          return
+        }
+
+        // Keep polling
+        setTimeout(poll, 500)
+      } catch (err) {
+        reject(err)
+      }
+    }
+
+    setTimeout(poll, 500)
+  })
 }

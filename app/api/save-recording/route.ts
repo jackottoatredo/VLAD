@@ -17,6 +17,8 @@ type RequestBody = {
   productName?: unknown;
   merchantId?: unknown;
   metadata?: unknown;
+  /** Relative URL of the rendered preview video (e.g. /users/presenter/session/renderings/file.mp4) */
+  previewVideoUrl?: unknown;
 };
 
 export async function POST(request: Request) {
@@ -66,6 +68,18 @@ export async function POST(request: Request) {
       uploadToR2(`recordings/${recordingId}/webcam.webm`, webcamBuffer, "video/webm")
     );
   }
+
+  // Upload preview video if provided
+  let previewKey: string | null = null;
+  if (typeof body.previewVideoUrl === "string" && body.previewVideoUrl.trim()) {
+    const previewPath = path.join(PUBLIC_DIR, body.previewVideoUrl);
+    if (existsSync(previewPath)) {
+      const previewBuffer = await readFile(previewPath);
+      previewKey = `recordings/${recordingId}/preview.mp4`;
+      uploads.push(uploadToR2(previewKey, previewBuffer, "video/mp4"));
+    }
+  }
+
   await Promise.all(uploads);
 
   // Use raw email as user_id (matches vlad_users.id)
@@ -77,6 +91,7 @@ export async function POST(request: Request) {
     merchant_id: body.type === "merchant" && typeof body.merchantId === "string" ? body.merchantId : null,
     mouse_events_url: `recordings/${recordingId}/mouse.json`,
     webcam_url: hasWebcam ? `recordings/${recordingId}/webcam.webm` : null,
+    preview_url: previewKey,
     metadata,
     status: "saved",
   });

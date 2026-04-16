@@ -29,6 +29,7 @@ create table vlad_recordings (
   merchant_id       text references vlad_merchants(id),
   mouse_events_url  text not null,
   webcam_url        text,
+  preview_url       text,
   metadata          jsonb not null default '{}',
   status            text not null default 'saved' check (status in ('saved')),
   created_at        timestamptz default now()
@@ -36,17 +37,14 @@ create table vlad_recordings (
 
 create table vlad_renders (
   id                      uuid primary key default gen_random_uuid(),
-  product_recording_id    uuid references vlad_recordings(id),
-  merchant_recording_id   uuid references vlad_recordings(id),
+  product_recording_id    uuid references vlad_recordings(id) on delete set null,
+  merchant_recording_id   uuid references vlad_recordings(id) on delete set null,
   brand                   text,
   video_url               text,
   status                  text not null default 'pending' check (status in ('pending', 'rendering', 'done', 'error')),
   progress                int default 0,
+  seen                    boolean not null default false,
   created_at              timestamptz default now()
 );
 
--- Seed existing merchants (from current merchants.json)
-insert into vlad_merchants (id, name, url) values
-  ('mammut', 'mammut', 'mammut.com'),
-  ('test', 'test', 'test.com')
-on conflict (id) do nothing;
+

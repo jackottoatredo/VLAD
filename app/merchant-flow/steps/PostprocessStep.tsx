@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import PageLayout, { type NavButton } from '@/app/components/PageLayout'
 import MediaEditor from '@/app/components/MediaEditor'
-import { DEFAULT_FPS } from '@/app/config'
+import { DEFAULT_FPS, MERCHANT_TARGET_URL } from '@/app/config'
 import { useUser } from '@/app/contexts/UserContext'
 import { useMerchantFlow } from '@/app/contexts/MerchantFlowContext'
 
@@ -85,8 +85,8 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
     jobIdRef.current = null
 
     const targetUrl = merchantUrl
-      ? `http://search.redo.com/record?brand=${encodeURIComponent(merchantUrl)}`
-      : 'http://search.redo.com/record'
+      ? `${MERCHANT_TARGET_URL}?brand=${encodeURIComponent(merchantUrl)}`
+      : MERCHANT_TARGET_URL
 
     try {
       const res = await fetch('/api/produce', {
@@ -129,6 +129,7 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           presenter, session: `${presenter}_${merchantId}`, type: 'merchant', merchantId,
+          previewVideoUrl: videoUrl,
           metadata: {
             merchantUrl, trimStartSec, trimEndSec,
             webcamMode: webcamSettings.webcamMode,

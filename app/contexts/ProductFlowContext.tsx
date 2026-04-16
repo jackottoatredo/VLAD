@@ -97,7 +97,7 @@ export function ProductFlowContextProvider({ children }: { children: ReactNode }
   const setTrim = useCallback((startSec: number, endSec: number) => {
     setState((prev) => ({
       ...prev, trimStartSec: startSec, trimEndSec: endSec,
-      postprocessVideoUrl: null, brandVideoUrls: {}, savedToLibrary: false,
+      savedToLibrary: false,
     }));
   }, []);
 

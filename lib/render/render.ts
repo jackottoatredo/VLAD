@@ -22,6 +22,8 @@ export type RenderOptions = {
   durationMs: number;
   actions?: RenderAction[];
   onProgress?: (rendered: number, total: number) => void;
+  /** First cursor position — used to wiggle the mouse during the settle phase so the page initialises. */
+  settleHint?: { x: number; y: number };
 };
 
 export type RenderResult = {
@@ -256,8 +258,21 @@ export async function renderUrlToMp4(options: RenderOptions): Promise<RenderResu
       timeout: 30_000,
     });
 
-    // Advance 3s of virtual time so page animations settle before capture begins.
-    await clock.advance(3000);
+    // Wiggle the mouse near the first cursor position for 4s of virtual time
+    // so the page receives real interaction events and settles (lazy loaders,
+    // hover-gated initialisation, etc.) before capture begins.
+    const SETTLE_MS = 4000;
+    const SETTLE_STEP_MS = 1000 / (options.fps || 30);
+    const settleSteps = Math.ceil(SETTLE_MS / SETTLE_STEP_MS);
+    const hintX = options.settleHint?.x ?? Math.round((options.videoWidth ?? options.width) / (options.zoom ?? 1) / 2);
+    const hintY = options.settleHint?.y ?? Math.round((options.videoHeight ?? options.height) / (options.zoom ?? 1) / 2);
+
+    for (let i = 0; i < settleSteps; i++) {
+      const offsetX = (i % 2 === 0 ? 2 : -2);
+      const offsetY = (i % 4 < 2 ? 1 : -1);
+      await page.mouse.move(hintX + offsetX, hintY + offsetY, { steps: 1 });
+      await clock.advance(SETTLE_STEP_MS);
+    }
 
     const totalDurationMs = await renderFrames(page, framesDir, options, clock);
     await encodeVideo(framesDir, outputPath, {

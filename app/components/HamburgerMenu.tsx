@@ -9,6 +9,7 @@ const links = [
   { href: "/", label: "Home" },
   { href: "/product-flow", label: "Product Flow" },
   { href: "/merchant-flow", label: "Merchant Flow" },
+  { href: "/merge-export", label: "Merge & Export" },
 ];
 
 export default function HamburgerMenu() {

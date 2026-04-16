@@ -2,11 +2,11 @@ import { NextResponse } from "next/server";
 import { readdir, readFile } from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import path from "node:path";
+import { requireSession } from "@/lib/apiAuth";
 
 export const runtime = "nodejs";
 
 const USERS_DIR = path.join(process.cwd(), "public", "users");
-const PRESENTER_PATTERN = /^[a-zA-Z]+_[a-zA-Z]+$/;
 
 type RecordingEntry = {
   name: string;
@@ -15,6 +15,11 @@ type RecordingEntry = {
 };
 
 export async function GET() {
+  const session = await requireSession();
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   let topEntries: Dirent[];
 
   try {
@@ -24,7 +29,7 @@ export async function GET() {
   }
 
   const presenterDirs = topEntries.filter(
-    (e) => e.isDirectory() && PRESENTER_PATTERN.test(e.name)
+    (e) => e.isDirectory()
   );
 
   const perPresenter = await Promise.all(

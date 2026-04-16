@@ -5,13 +5,13 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { supabase } from "@/lib/db/supabase";
 import { uploadToR2 } from "@/lib/storage/r2";
+import { requireSession, sanitizePresenter } from "@/lib/apiAuth";
 
 export const runtime = "nodejs";
 
 const PUBLIC_DIR = path.join(process.cwd(), "public");
 
 type RequestBody = {
-  presenter?: unknown;
   session?: unknown;
   type?: unknown;
   productName?: unknown;
@@ -20,6 +20,11 @@ type RequestBody = {
 };
 
 export async function POST(request: Request) {
+  const session = await requireSession();
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   let body: RequestBody;
   try {
     body = (await request.json()) as RequestBody;
@@ -27,9 +32,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid JSON." }, { status: 400 });
   }
 
-  if (typeof body.presenter !== "string" || !body.presenter.trim()) {
-    return NextResponse.json({ error: "Missing presenter." }, { status: 400 });
-  }
   if (typeof body.session !== "string" || !body.session.trim()) {
     return NextResponse.json({ error: "Missing session." }, { status: 400 });
   }
@@ -37,7 +39,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid type. Must be 'product' or 'merchant'." }, { status: 400 });
   }
 
-  const safePresenter = body.presenter.replace(/[^a-z0-9_\-]/gi, "_");
+  const safePresenter = sanitizePresenter(session.email);
   const safeSession = body.session.replace(/[^a-z0-9_\-]/gi, "_");
   const recordingsDir = path.join(PUBLIC_DIR, "users", safePresenter, safeSession, "recordings");
 
@@ -48,17 +50,14 @@ export async function POST(request: Request) {
 
   const recordingId = randomUUID();
 
-  // Read local draft files (only mouse JSON and webcam video — no metadata.json)
   const mouseBuffer = await readFile(mouseJsonPath);
 
   const webcamPath = path.join(recordingsDir, `${safeSession}_webcam.webm`);
   const hasWebcam = existsSync(webcamPath);
   const webcamBuffer = hasWebcam ? await readFile(webcamPath) : null;
 
-  // Metadata comes from request body (passed from client-side context state)
   const metadata = body.metadata != null && typeof body.metadata === "object" ? body.metadata : {};
 
-  // Upload to R2 in parallel
   const uploads: Promise<void>[] = [
     uploadToR2(`recordings/${recordingId}/mouse.json`, mouseBuffer, "application/json"),
   ];
@@ -69,10 +68,10 @@ export async function POST(request: Request) {
   }
   await Promise.all(uploads);
 
-  // Insert into Supabase
+  // Use raw email as user_id (matches vlad_users.id)
   const { error } = await supabase.from("vlad_recordings").insert({
     id: recordingId,
-    user_id: safePresenter,
+    user_id: session.email,
     type: body.type,
     product_name: body.type === "product" && typeof body.productName === "string" ? body.productName : null,
     merchant_id: body.type === "merchant" && typeof body.merchantId === "string" ? body.merchantId : null,

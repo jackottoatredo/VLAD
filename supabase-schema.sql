@@ -1,10 +1,16 @@
 -- VLAD Supabase Schema
 -- Run this in the Supabase SQL editor to create all required tables.
+--
+-- FRESH START: if migrating from the old name-based user system,
+-- drop the old tables first:
+--   DROP TABLE IF EXISTS vlad_renders CASCADE;
+--   DROP TABLE IF EXISTS vlad_recordings CASCADE;
+--   DROP TABLE IF EXISTS vlad_users CASCADE;
 
 create table vlad_users (
-  id          text primary key,
+  id          text primary key,        -- email address (e.g. jack.otto@redo.com)
   first_name  text not null,
-  last_name   text not null,
+  last_name   text not null default '',
   created_at  timestamptz default now()
 );
 

@@ -98,3 +98,32 @@ export async function PATCH(request: Request) {
 
   return NextResponse.json({ ok: true });
 }
+
+export async function DELETE(request: Request) {
+  const session = await requireSession();
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  let body: { id?: unknown };
+  try {
+    body = (await request.json()) as { id?: unknown };
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON." }, { status: 400 });
+  }
+
+  if (typeof body.id !== "string") {
+    return NextResponse.json({ error: "Missing id." }, { status: 400 });
+  }
+
+  const { error } = await supabase
+    .from("vlad_renders")
+    .delete()
+    .eq("id", body.id);
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true });
+}

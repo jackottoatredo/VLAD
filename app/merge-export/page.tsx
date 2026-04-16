@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 import Modal from '@/app/components/Modal'
+import DeleteModal from '@/app/components/DeleteModal'
 import MultiSelect from '@/app/components/MultiSelect'
 import { buildPipeline } from './pipeline'
 
@@ -49,6 +50,25 @@ export default function MergeExportPage() {
   const [modalMerchants, setModalMerchants] = useState<Set<string>>(new Set())
   const [modalProduct, setModalProduct] = useState('')
   const [activeTasks, setActiveTasks] = useState<ActiveTask[]>([])
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string; kind: 'recording' | 'render' } | null>(null)
+
+  async function handleDelete() {
+    if (!deleteTarget) return
+    const endpoint = deleteTarget.kind === 'recording' ? '/api/recordings' : '/api/renders'
+    await fetch(endpoint, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: deleteTarget.id }),
+    })
+    if (deleteTarget.kind === 'recording') {
+      setMerchants((prev) => prev.filter((r) => r.id !== deleteTarget.id))
+      setProducts((prev) => prev.filter((r) => r.id !== deleteTarget.id))
+    } else {
+      setRenders((prev) => prev.filter((r) => r.id !== deleteTarget.id))
+      setActiveTasks((prev) => prev.filter((t) => t.renderId !== deleteTarget.id))
+    }
+    setDeleteTarget(null)
+  }
 
   function markSeen(id: string) {
     setRenders((prev) => prev.map((r) => (r.id === id ? { ...r, seen: true } : r)))
@@ -173,20 +193,24 @@ export default function MergeExportPage() {
                 </Link>
               </div>
               <div className="flex-1 overflow-y-auto">
-                {merchants.map((r, i) => (
-                  <button
+                {merchants.map((r) => (
+                  <div
                     key={r.id}
                     onClick={() => toggleMerchant(r.id)}
-                    className={`flex h-10 w-full items-center px-4 text-left text-sm transition-colors ${
-                      'border-b border-zinc-800'
-                    } ${
+                    className={`group flex h-10 w-full cursor-pointer items-center justify-between border-b border-zinc-800 px-4 text-sm transition-colors ${
                       selectedMerchants.has(r.id)
                         ? 'bg-zinc-800 text-zinc-50'
                         : 'text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200'
                     }`}
                   >
-                    {r.merchant_id ?? r.id.slice(0, 8)}
-                  </button>
+                    <span className="min-w-0 truncate">{r.merchant_id ?? r.id.slice(0, 8)}</span>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: r.id, name: r.merchant_id ?? r.id.slice(0, 8), kind: 'recording' }) }}
+                      className="ml-2 shrink-0 text-zinc-600 opacity-0 transition-opacity hover:text-red-500 group-hover:opacity-100"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                    </button>
+                  </div>
                 ))}
                 {merchants.length === 0 && (
                   <p className="px-4 py-3 text-xs text-zinc-600">No merchant recordings yet.</p>
@@ -208,20 +232,24 @@ export default function MergeExportPage() {
                 </Link>
               </div>
               <div className="flex-1 overflow-y-auto">
-                {products.map((r, i) => (
-                  <button
+                {products.map((r) => (
+                  <div
                     key={r.id}
                     onClick={() => setSelectedProduct(r.id === selectedProduct ? null : r.id)}
-                    className={`flex h-10 w-full items-center px-4 text-left text-sm transition-colors ${
-                      'border-b border-zinc-800'
-                    } ${
+                    className={`group flex h-10 w-full cursor-pointer items-center justify-between border-b border-zinc-800 px-4 text-sm transition-colors ${
                       selectedProduct === r.id
                         ? 'bg-zinc-800 text-zinc-50'
                         : 'text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200'
                     }`}
                   >
-                    {r.product_name ?? r.id.slice(0, 8)}
-                  </button>
+                    <span className="min-w-0 truncate">{r.product_name ?? r.id.slice(0, 8)}</span>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: r.id, name: r.product_name ?? r.id.slice(0, 8), kind: 'recording' }) }}
+                      className="ml-2 shrink-0 text-zinc-600 opacity-0 transition-opacity hover:text-red-500 group-hover:opacity-100"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                    </button>
+                  </div>
                 ))}
                 {products.length === 0 && (
                   <p className="px-4 py-3 text-xs text-zinc-600">No product recordings yet.</p>
@@ -273,17 +301,27 @@ export default function MergeExportPage() {
                       return (
                         <div
                           key={task.key}
-                          className={`relative flex h-10 items-center justify-between px-4 transition-colors hover:bg-zinc-900${border}${isNew ? ' cursor-pointer' : ''}`}
+                          className={`group relative flex h-10 items-center justify-between px-4 transition-colors hover:bg-zinc-900${border}${isNew ? ' cursor-pointer' : ''}`}
                           onClick={isNew ? () => markSeen(task.renderId!) : undefined}
                         >
                           <p className="min-w-0 truncate text-sm text-zinc-400">{task.brand}</p>
-                          {task.error ? (
-                            <span className="ml-3 shrink-0 text-xs text-red-500">{task.error}</span>
-                          ) : currentStep ? (
-                            <span className="ml-3 shrink-0 text-xs text-zinc-600">{currentStep.label}</span>
-                          ) : isNew ? (
-                            <span className="ml-3 shrink-0 text-xs text-zinc-500">new</span>
-                          ) : null}
+                          <span className="ml-3 flex shrink-0 items-center gap-2">
+                            {task.error ? (
+                              <span className="text-xs text-red-500">{task.error}</span>
+                            ) : currentStep ? (
+                              <span className="text-xs text-zinc-600">{currentStep.label}</span>
+                            ) : isNew ? (
+                              <span className="text-xs text-zinc-500">new</span>
+                            ) : null}
+                            {task.renderId && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: task.renderId!, name: task.brand, kind: 'render' }) }}
+                                className="text-zinc-600 opacity-0 transition-opacity hover:text-red-500 group-hover:opacity-100"
+                              >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                              </button>
+                            )}
+                          </span>
                           {!task.renderId && !task.error && (
                             <div className="absolute bottom-0 left-0 right-0 flex h-[2px] gap-[2px]">
                               {task.steps.map((step) => (
@@ -305,11 +343,19 @@ export default function MergeExportPage() {
                     return (
                       <div
                         key={r.id}
-                        className={`flex h-10 items-center justify-between px-4 transition-colors hover:bg-zinc-900${border}${isNew ? ' cursor-pointer' : ''}`}
+                        className={`group flex h-10 items-center justify-between px-4 transition-colors hover:bg-zinc-900${border}${isNew ? ' cursor-pointer' : ''}`}
                         onClick={isNew ? () => markSeen(r.id) : undefined}
                       >
                         <p className="min-w-0 truncate text-sm text-zinc-400">{r.brand ?? r.id.slice(0, 8)}</p>
-                        {isNew && <span className="ml-3 shrink-0 text-xs text-zinc-500">new</span>}
+                        <span className="ml-3 flex shrink-0 items-center gap-2">
+                          {isNew && <span className="text-xs text-zinc-500">new</span>}
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: r.id, name: r.brand ?? r.id.slice(0, 8), kind: 'render' }) }}
+                            className="text-zinc-600 opacity-0 transition-opacity hover:text-red-500 group-hover:opacity-100"
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                          </button>
+                        </span>
                       </div>
                     )
                   })
@@ -318,6 +364,14 @@ export default function MergeExportPage() {
             </div>
         </div>
       </div>
+
+      {deleteTarget && (
+        <DeleteModal
+          name={deleteTarget.name}
+          onConfirm={handleDelete}
+          onClose={() => setDeleteTarget(null)}
+        />
+      )}
 
       {showGenerateModal && (
         <Modal title="Generate New Video" onClose={() => { setShowGenerateModal(false); setModalMerchants(new Set()); setModalProduct(''); }}>

@@ -121,8 +121,11 @@ export default function MergeExportPage() {
   }
 
   function openRecordingPreview(recording: Recording, title: string) {
+    const name = recording.type === 'merchant'
+      ? `merchant-intro-${recording.merchant_id ?? recording.id.slice(0, 8)}`
+      : `product-recording-${recording.product_name ?? recording.id.slice(0, 8)}`
     // Pass the R2 key directly — PreviewModal streams via /api/stream?key=...
-    setPreviewTarget({ title, videoUrl: recording.preview_url })
+    setPreviewTarget({ title, videoUrl: recording.preview_url, downloadName: name })
   }
 
   async function runTask(merchantRecordingId: string, productRecordingId: string) {

@@ -10,6 +10,8 @@ import { eventsToKeyframes } from "@/lib/render/keyframes";
 import { createReplayAction } from "@/lib/render/actions";
 import { produceSessionVideo } from "@/lib/render/produce";
 import { mergeVideoFiles } from "@/lib/render/merge";
+import { readFile } from "node:fs/promises";
+import { uploadToR2 } from "@/lib/storage/r2";
 import { TARGET_URL, MERCHANT_TARGET_URL, DEFAULT_FPS, VIDEO_WIDTH, VIDEO_HEIGHT, RENDER_ZOOM } from "@/app/config";
 
 export const runtime = "nodejs";
@@ -221,6 +223,8 @@ async function runMergePipeline(
       await copyFile(merchantRec.webcamPath, webcamDest);
     }
 
+    const merchantSettleHint = merchantKeyframes.length > 0 ? { x: merchantKeyframes[0].x, y: merchantKeyframes[0].y } : undefined;
+
     const merchantResult = await produceSessionVideo({
       url: merchantUrl,
       presenter,
@@ -233,6 +237,7 @@ async function runMergePipeline(
       fps: DEFAULT_FPS,
       durationMs: merchantDuration,
       actions: [merchantAction],
+      settleHint: merchantSettleHint,
       onRenderProgress: (rendered, total) => {
         updateStep(jobId, 0, Math.round((rendered / total) * 100));
       },
@@ -265,6 +270,8 @@ async function runMergePipeline(
       await copyFile(productRec.webcamPath, webcamDest);
     }
 
+    const productSettleHint = productKeyframes.length > 0 ? { x: productKeyframes[0].x, y: productKeyframes[0].y } : undefined;
+
     const productResult = await produceSessionVideo({
       url: productUrl,
       presenter,
@@ -277,6 +284,7 @@ async function runMergePipeline(
       fps: DEFAULT_FPS,
       durationMs: productDuration,
       actions: [productAction],
+      settleHint: productSettleHint,
       onRenderProgress: (rendered, total) => {
         updateStep(jobId, 2, Math.round((rendered / total) * 100));
       },
@@ -296,7 +304,7 @@ async function runMergePipeline(
     const merchantVideoPath = path.join(publicDir, merchantResult.finalUrl);
     const productVideoPath = path.join(publicDir, productResult.finalUrl);
 
-    const { mergedUrl } = await mergeVideoFiles(
+    const { mergedPath, mergedUrl } = await mergeVideoFiles(
       merchantVideoPath,
       productVideoPath,
       renderingsDir,
@@ -305,14 +313,19 @@ async function runMergePipeline(
     );
     completeStep(jobId, 4);
 
-    // Save to DB
+    // Upload merged video to R2
+    const r2Key = `users/${presenter}/${outputSessionName}/renderings/${path.basename(mergedPath)}`;
+    const fileBuffer = await readFile(mergedPath);
+    await uploadToR2(r2Key, fileBuffer, "video/mp4");
+
+    // Save to DB with R2 key
     const { data: renderRow } = await supabase
       .from("vlad_renders")
       .insert({
         merchant_recording_id: merchant.id,
         product_recording_id: product.id,
         brand,
-        video_url: mergedUrl,
+        video_url: r2Key,
         status: "done",
         progress: 100,
         seen: false,
@@ -323,7 +336,7 @@ async function runMergePipeline(
     const job = mergeJobs.get(jobId);
     if (job) {
       job.status = "done";
-      job.videoUrl = mergedUrl;
+      job.videoUrl = r2Key;
       job.renderId = renderRow?.id;
     }
   } catch (err) {

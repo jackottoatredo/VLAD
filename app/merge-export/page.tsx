@@ -52,7 +52,7 @@ export default function MergeExportPage() {
   const [modalProduct, setModalProduct] = useState('')
   const [activeTasks, setActiveTasks] = useState<ActiveTask[]>([])
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string; kind: 'recording' | 'render' } | null>(null)
-  const [previewTarget, setPreviewTarget] = useState<{ title: string; videoUrl?: string | null; renderId?: string } | null>(null)
+  const [previewTarget, setPreviewTarget] = useState<{ title: string; videoUrl?: string | null; renderId?: string; downloadName?: string } | null>(null)
 
   async function handleDelete() {
     if (!deleteTarget) return
@@ -336,7 +336,7 @@ export default function MergeExportPage() {
                             {task.renderId && (
                               <span className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                                 <button
-                                  onClick={(e) => { e.stopPropagation(); setPreviewTarget({ title: `Export: ${task.brand}`, videoUrl: renders.find((r) => r.id === task.renderId)?.video_url, renderId: task.renderId }) }}
+                                  onClick={(e) => { e.stopPropagation(); setPreviewTarget({ title: `Export: ${task.brand}`, videoUrl: renders.find((r) => r.id === task.renderId)?.video_url, renderId: task.renderId, downloadName: task.brand }) }}
                                   className="text-zinc-600 hover:text-zinc-200"
                                 >
                                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
@@ -379,7 +379,7 @@ export default function MergeExportPage() {
                           {isNew && <span className="text-xs text-zinc-500">new</span>}
                           <span className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                             <button
-                              onClick={(e) => { e.stopPropagation(); setPreviewTarget({ title: `Export: ${r.brand ?? r.id.slice(0, 8)}`, videoUrl: r.video_url, renderId: r.id }) }}
+                              onClick={(e) => { e.stopPropagation(); setPreviewTarget({ title: `Export: ${r.brand ?? r.id.slice(0, 8)}`, videoUrl: r.video_url, renderId: r.id, downloadName: r.brand ?? r.id.slice(0, 8) }) }}
                               className="text-zinc-600 hover:text-zinc-200"
                             >
                               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
@@ -405,6 +405,7 @@ export default function MergeExportPage() {
         <PreviewModal
           title={previewTarget.title}
           videoUrl={previewTarget.videoUrl}
+          downloadName={previewTarget.downloadName}
           onClose={() => setPreviewTarget(null)}
           onDelete={previewTarget.renderId ? () => {
             setDeleteTarget({ id: previewTarget.renderId!, name: previewTarget.title, kind: 'render' })

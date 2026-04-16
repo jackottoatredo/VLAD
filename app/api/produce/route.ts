@@ -101,6 +101,7 @@ export async function POST(request: Request) {
   const keyframes = eventsToKeyframes(mouseData.events as Parameters<typeof eventsToKeyframes>[0]);
   const durationMs = keyframes.length > 0 ? keyframes[keyframes.length - 1].t : 1000;
   const replayAction = createReplayAction(keyframes, durationMs);
+  const settleHint = keyframes.length > 0 ? { x: keyframes[0].x, y: keyframes[0].y } : undefined;
 
   const webcamSettings: WebcamSettings = {
     webcamMode: typeof body.webcamMode === "string" && ["video", "audio", "off"].includes(body.webcamMode)
@@ -153,6 +154,7 @@ export async function POST(request: Request) {
     fps: DEFAULT_FPS,
     durationMs,
     actions: [replayAction],
+    settleHint,
     onRenderProgress: (rendered, total) => updateJobProgress(jobId, rendered, total),
     onRenderComplete: () => startCompositing(jobId),
     onComposeProgress: (s, total) => updateCompositingProgress(jobId, s, total),

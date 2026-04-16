@@ -26,6 +26,8 @@ export type ProduceOptions = {
   webcamSettings?: WebcamSettings;
   trimStartSec?: number;
   trimEndSec?: number;
+  /** First cursor position — forwarded to renderUrlToMp4 for the settle wiggle. */
+  settleHint?: { x: number; y: number };
 
   // Warm-start: skip expensive stages by providing cached outputs
   startFromStep?: 1 | 2 | 3;
@@ -115,6 +117,7 @@ export async function produceSessionVideo(options: ProduceOptions): Promise<Prod
       durationMs: options.durationMs,
       actions: options.actions,
       onProgress: options.onRenderProgress,
+      settleHint: options.settleHint,
     });
     renderUrl = renderResult.videoUrl;
     renderPath = renderResult.outputPath;

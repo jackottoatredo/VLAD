@@ -17,6 +17,11 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Missing key." }, { status: 400 });
   }
 
-  const url = await getPresignedUrl(key, 604800); // 7 day expiry (R2 max)
-  return NextResponse.json({ url });
+  try {
+    const url = await getPresignedUrl(key, 604800); // 7 day expiry (R2 max)
+    return NextResponse.json({ url });
+  } catch (err) {
+    console.error("Presign failed for key:", key, err);
+    return NextResponse.json({ error: "Failed to generate presigned URL." }, { status: 500 });
+  }
 }

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { signOut, useSession } from "next-auth/react";
 
 const links = [
   { href: "/", label: "Home" },
@@ -13,6 +14,7 @@ const links = [
 export default function HamburgerMenu() {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
+  const { data: session } = useSession();
 
   return (
     <div className="fixed top-4 left-4 z-50 flex items-center gap-2">
@@ -53,6 +55,21 @@ export default function HamburgerMenu() {
                 {label}
               </Link>
             ))}
+
+            {session && (
+              <>
+                <div className="mx-3 my-1 border-t border-zinc-200 dark:border-zinc-800" />
+                <div className="px-4 py-1.5 text-xs text-zinc-400 truncate">
+                  {session.user?.email}
+                </div>
+                <button
+                  onClick={() => { setOpen(false); signOut(); }}
+                  className="block w-full px-4 py-2 text-left text-sm text-zinc-600 transition-colors hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-900"
+                >
+                  Sign out
+                </button>
+              </>
+            )}
           </nav>
         </>
       )}

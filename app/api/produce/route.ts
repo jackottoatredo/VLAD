@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
+import { requireSession, sanitizePresenter } from "@/lib/apiAuth";
 import { TARGET_URL, DEFAULT_FPS, VIDEO_WIDTH, VIDEO_HEIGHT, RENDER_ZOOM } from "@/app/config";
 import { eventsToKeyframes } from "@/lib/render/keyframes";
 import { createReplayAction } from "@/lib/render/actions";
@@ -29,7 +30,6 @@ import {
 export const runtime = "nodejs";
 
 type RequestBody = {
-  presenter?: unknown;
   product?: unknown;
   merchantId?: unknown;
   url?: unknown;
@@ -41,15 +41,16 @@ type RequestBody = {
 };
 
 export async function POST(request: Request) {
+  const session = await requireSession();
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   let body: RequestBody;
   try {
     body = (await request.json()) as RequestBody;
   } catch {
     return NextResponse.json({ error: "Invalid JSON." }, { status: 400 });
-  }
-
-  if (typeof body.presenter !== "string" || !body.presenter.trim()) {
-    return NextResponse.json({ error: "Missing presenter." }, { status: 400 });
   }
 
   // Derive identifier from product or merchantId
@@ -68,7 +69,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Missing url." }, { status: 400 });
   }
 
-  const presenter = body.presenter.replace(/[^a-z0-9_\-]/gi, "_");
+  const presenter = sanitizePresenter(session.email);
   const safeId = identifier.replace(/[^a-z0-9_\-]/gi, "_");
   const url = body.url.trim();
   const dirName = `${presenter}_${safeId}`;

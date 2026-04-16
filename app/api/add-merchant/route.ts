@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/db/supabase";
+import { requireSession } from "@/lib/apiAuth";
 
 export const runtime = "nodejs";
 
@@ -20,6 +21,11 @@ function toSlug(name: string): string {
 }
 
 export async function POST(request: Request) {
+  const session = await requireSession();
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   let body: unknown;
   try {
     body = await request.json();

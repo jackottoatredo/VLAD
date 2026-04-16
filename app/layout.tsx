@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { UserContextProvider } from "./contexts/UserContext";
 import HamburgerMenu from "./components/HamburgerMenu";
+import AuthProvider from "./components/AuthProvider";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -30,8 +31,10 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-black">
-        <HamburgerMenu />
-        <UserContextProvider>{children}</UserContextProvider>
+        <AuthProvider>
+          <HamburgerMenu />
+          <UserContextProvider>{children}</UserContextProvider>
+        </AuthProvider>
       </body>
     </html>
   );

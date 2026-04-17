@@ -41,11 +41,11 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
         const res = await fetch(`/api/render-progress/${jobId}`)
         const job = (await res.json()) as {
           status: string; rendered?: number; composited?: number; total?: number;
-          videoUrl?: string; message?: string;
+          videoUrl?: string; videoR2Key?: string; message?: string;
         }
         if (job.status === 'done' && job.videoUrl) {
           jobIdRef.current = null
-          flow.setPostprocessVideoUrl(job.videoUrl)
+          flow.setPostprocessVideoUrl(job.videoUrl, job.videoR2Key)
           setVideoUrl(job.videoUrl)
           setLoading(null)
         } else if (job.status === 'error') {
@@ -102,9 +102,9 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
           trimStartSec, trimEndSec,
         }),
       })
-      const data = (await res.json()) as { jobId?: string; videoUrl?: string; error?: string }
+      const data = (await res.json()) as { jobId?: string; videoUrl?: string; videoR2Key?: string; error?: string }
       if (data.videoUrl) {
-        flow.setPostprocessVideoUrl(data.videoUrl)
+        flow.setPostprocessVideoUrl(data.videoUrl, data.videoR2Key)
         setVideoUrl(data.videoUrl)
         setLoading(null)
         return

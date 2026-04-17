@@ -21,6 +21,7 @@ type MerchantFlowState = {
   trimStartSec: number;
   trimEndSec: number;
   postprocessVideoUrl: string | null;
+  postprocessVideoR2Key: string | null;
   savedToLibrary: boolean;
 };
 
@@ -29,7 +30,7 @@ type MerchantFlowContextValue = MerchantFlowState & {
   setMerchantId: (id: string) => void;
   setWebcamSettings: (settings: WebcamSettings) => void;
   setTrim: (startSec: number, endSec: number) => void;
-  setPostprocessVideoUrl: (url: string | null) => void;
+  setPostprocessVideoUrl: (url: string | null, r2Key?: string | null) => void;
   clearResults: () => void;
   markSaved: () => void;
   reset: () => void;
@@ -45,6 +46,7 @@ function initialState(): MerchantFlowState {
     trimStartSec: 0,
     trimEndSec: 0,
     postprocessVideoUrl: null,
+    postprocessVideoR2Key: null,
     savedToLibrary: false,
   };
 }
@@ -86,7 +88,7 @@ export function MerchantFlowContextProvider({ children }: { children: ReactNode 
   const setWebcamSettings = useCallback((settings: WebcamSettings) => {
     setState((prev) => ({
       ...prev, webcamSettings: settings,
-      postprocessVideoUrl: null, savedToLibrary: false,
+      postprocessVideoUrl: null, postprocessVideoR2Key: null, savedToLibrary: false,
     }));
   }, []);
 
@@ -97,14 +99,14 @@ export function MerchantFlowContextProvider({ children }: { children: ReactNode 
     }));
   }, []);
 
-  const setPostprocessVideoUrl = useCallback((url: string | null) => {
-    setState((prev) => ({ ...prev, postprocessVideoUrl: url }));
+  const setPostprocessVideoUrl = useCallback((url: string | null, r2Key?: string | null) => {
+    setState((prev) => ({ ...prev, postprocessVideoUrl: url, postprocessVideoR2Key: r2Key ?? prev.postprocessVideoR2Key }));
   }, []);
 
   const clearResults = useCallback(() => {
     setState((prev) => ({
       ...prev, trimStartSec: 0, trimEndSec: 0,
-      postprocessVideoUrl: null, savedToLibrary: false,
+      postprocessVideoUrl: null, postprocessVideoR2Key: null, savedToLibrary: false,
     }));
   }, []);
 

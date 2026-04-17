@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { renderUrlToMp4, resolvedFfmpegPath } from "@/lib/render/render";
 import { compositeSessionVideo } from "@/lib/compose/compose";
 import { type RenderAction } from "@/lib/render/actions";
 import { type WebcamSettings } from "@/types/webcam";
+import { uploadToR2 } from "@/lib/storage/r2";
 
 const FFMPEG_BIN = resolvedFfmpegPath ?? "ffmpeg";
 
@@ -26,46 +28,42 @@ export type ProduceOptions = {
   webcamSettings?: WebcamSettings;
   trimStartSec?: number;
   trimEndSec?: number;
-  /** First cursor position — forwarded to renderUrlToMp4 for the settle wiggle. */
   settleHint?: { x: number; y: number };
 
-  // Warm-start: skip expensive stages by providing cached outputs
+  // Webcam file — absolute temp path (downloaded from R2 by caller). Null if no webcam.
+  webcamPath?: string | null;
+
+  // Warm-start: skip expensive stages by providing cached R2 keys
   startFromStep?: 1 | 2 | 3;
-  existingRenderPath?: string;        // absolute filesystem path — required if startFromStep >= 2
-  existingRenderUrl?: string;         // public URL — required if startFromStep >= 2
-  existingRenderDurationMs?: number;  // required if startFromStep >= 2
-  existingCompositePath?: string;     // absolute filesystem path — required if startFromStep >= 3
-  existingCompositeUrl?: string;      // public URL — required if startFromStep >= 3
+  existingRenderR2Key?: string;
+  existingRenderOutputPath?: string;   // local temp path — required if startFromStep >= 2
+  existingRenderDurationMs?: number;
+  existingCompositeR2Key?: string;
+  existingCompositeOutputPath?: string; // local temp path — required if startFromStep >= 3
 };
 
 export type ProduceResult = {
-  renderUrl: string;
-  renderPath: string;
+  renderR2Key: string;
   renderDurationMs: number;
-  compositeUrl: string;
-  compositePath: string;
-  trimmedUrl: string | null;
-  finalUrl: string;
+  compositeR2Key: string;
+  trimmedR2Key: string | null;
+  finalR2Key: string;
 };
 
 async function trimVideoFile(
   composedPath: string,
+  presenter: string,
   sessionName: string,
   trimStartSec: number | undefined,
   trimEndSec: number | undefined,
-): Promise<{ trimmedUrl: string; trimmedPath: string } | null> {
+): Promise<{ trimmedR2Key: string; trimmedPath: string } | null> {
   const hasTrim = (trimStartSec != null && trimStartSec > 0) ||
                   (trimEndSec != null && trimEndSec > 0);
   if (!hasTrim) return null;
 
   const trimmedName = `${sessionName}-trimmed-${Date.now()}-${randomUUID().slice(0, 8)}.mp4`;
-  const renderingsDir = path.dirname(composedPath);
-  const trimmedPath = path.join(renderingsDir, trimmedName);
-
-  // Derive public URL from composedPath
-  const publicDir = path.join(process.cwd(), "public");
-  const relativeDir = path.relative(publicDir, renderingsDir);
-  const trimmedUrl = `/${relativeDir}/${trimmedName}`.replace(/\\/g, "/");
+  const trimmedPath = path.join(path.dirname(composedPath), trimmedName);
+  const r2Key = `trims/${presenter}/${sessionName}/${trimmedName}`;
 
   const args = [
     ...(trimStartSec != null && trimStartSec > 0
@@ -92,15 +90,19 @@ async function trimVideoFile(
     proc.on("error", reject);
   });
 
-  return { trimmedUrl, trimmedPath };
+  // Upload trimmed video to R2
+  const buffer = await readFile(trimmedPath);
+  await uploadToR2(r2Key, buffer, "video/mp4");
+
+  return { trimmedR2Key: r2Key, trimmedPath };
 }
 
 export async function produceSessionVideo(options: ProduceOptions): Promise<ProduceResult> {
   const step = options.startFromStep ?? 1;
 
   // ---- Step 1: Playwright render ----
-  let renderUrl: string;
-  let renderPath: string;
+  let renderR2Key: string;
+  let renderOutputPath: string;
   let renderDurationMs: number;
 
   if (step <= 1) {
@@ -119,51 +121,51 @@ export async function produceSessionVideo(options: ProduceOptions): Promise<Prod
       onProgress: options.onRenderProgress,
       settleHint: options.settleHint,
     });
-    renderUrl = renderResult.videoUrl;
-    renderPath = renderResult.outputPath;
+    renderR2Key = renderResult.videoUrl; // now an R2 key
+    renderOutputPath = renderResult.outputPath;
     renderDurationMs = renderResult.totalDurationMs;
     options.onRenderComplete?.();
   } else {
-    renderUrl = options.existingRenderUrl!;
-    renderPath = options.existingRenderPath!;
+    renderR2Key = options.existingRenderR2Key!;
+    renderOutputPath = options.existingRenderOutputPath!;
     renderDurationMs = options.existingRenderDurationMs!;
   }
 
   // ---- Step 2: Webcam composite ----
-  let compositeUrl: string;
-  let compositePath: string;
+  let compositeR2Key: string;
+  let compositeOutputPath: string;
 
   if (step <= 2) {
     const composeResult = await compositeSessionVideo({
       presenter: options.presenter,
       sessionName: options.sessionName,
-      screenVideoPath: renderPath,
-      screenVideoUrl: renderUrl,
+      screenVideoPath: renderOutputPath,
+      screenVideoR2Key: renderR2Key,
       durationMs: renderDurationMs,
       onProgress: options.onComposeProgress ?? (() => {}),
       webcamSettings: options.webcamSettings,
+      webcamPath: options.webcamPath,
     });
-    compositeUrl = composeResult.videoUrl;
-    compositePath = path.join(process.cwd(), "public", composeResult.videoUrl);
+    compositeR2Key = composeResult.r2Key;
+    compositeOutputPath = composeResult.outputPath;
   } else {
-    compositeUrl = options.existingCompositeUrl!;
-    compositePath = options.existingCompositePath!;
+    compositeR2Key = options.existingCompositeR2Key!;
+    compositeOutputPath = options.existingCompositeOutputPath!;
   }
 
   // ---- Step 3: Trim ----
   const trimResult = await trimVideoFile(
-    compositePath, options.sessionName, options.trimStartSec, options.trimEndSec,
+    compositeOutputPath, options.presenter, options.sessionName,
+    options.trimStartSec, options.trimEndSec,
   );
 
-  const finalUrl = trimResult?.trimmedUrl ?? compositeUrl;
+  const finalR2Key = trimResult?.trimmedR2Key ?? compositeR2Key;
 
   return {
-    renderUrl,
-    renderPath,
+    renderR2Key,
     renderDurationMs,
-    compositeUrl,
-    compositePath,
-    trimmedUrl: trimResult?.trimmedUrl ?? null,
-    finalUrl,
+    compositeR2Key,
+    trimmedR2Key: trimResult?.trimmedR2Key ?? null,
+    finalR2Key,
   };
 }

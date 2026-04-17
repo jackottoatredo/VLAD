@@ -17,7 +17,7 @@ export async function mergeVideoFiles(
   outputDir: string,
   outputName: string,
   onProgress?: (pct: number) => void,
-): Promise<{ mergedPath: string; mergedUrl: string }> {
+): Promise<{ mergedPath: string }> {
   const fileName = `${outputName}-merged-${Date.now()}-${randomUUID().slice(0, 8)}.mp4`;
   const mergedPath = path.join(outputDir, fileName);
 
@@ -72,9 +72,5 @@ export async function mergeVideoFiles(
     proc.on("error", reject);
   });
 
-  // Derive public URL from the output path
-  const publicDir = path.join(process.cwd(), "public");
-  const mergedUrl = `/${path.relative(publicDir, mergedPath).replace(/\\/g, "/")}`;
-
-  return { mergedPath, mergedUrl };
+  return { mergedPath };
 }

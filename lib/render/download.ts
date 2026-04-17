@@ -19,8 +19,7 @@ async function downloadFromR2(key: string, destPath: string): Promise<void> {
   if (!res.Body) throw new Error(`Empty body for R2 key: ${key}`);
 
   const chunks: Uint8Array[] = [];
-  // @ts-expect-error — Body is a ReadableStream in Node
-  for await (const chunk of res.Body) {
+  for await (const chunk of res.Body as AsyncIterable<Uint8Array>) {
     chunks.push(chunk as Uint8Array);
   }
 

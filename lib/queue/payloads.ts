@@ -31,20 +31,20 @@ export type ProduceJobPayload = {
 
   // Webcam
   webcamSettings: WebcamSettings;
+  /** R2 key for webcam video — worker downloads this (null if no webcam) */
+  webcamR2Key?: string | null;
 
   // Trim
   trimStartSec?: number;
   trimEndSec?: number;
 
-  // Warm-start / cache
+  // Warm-start / cache (R2 keys, not filesystem paths)
   startFromStep: 1 | 2 | 3;
-  existingRenderPath?: string;
-  existingRenderUrl?: string;
+  existingRenderR2Key?: string;
   existingRenderDurationMs?: number;
-  existingCompositePath?: string;
-  existingCompositeUrl?: string;
+  existingCompositeR2Key?: string;
 
-  // Manifest cache keys (worker updates manifest after completion)
+  // Cache keys (worker updates Redis cache after completion)
   urlHash: string;
   mouseHash: string;
   wcFingerprint: string;

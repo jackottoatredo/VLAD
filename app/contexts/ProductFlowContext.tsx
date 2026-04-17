@@ -21,6 +21,7 @@ type ProductFlowState = {
   trimStartSec: number;
   trimEndSec: number;
   postprocessVideoUrl: string | null;
+  postprocessVideoR2Key: string | null;
   brandVideoUrls: Record<string, string>;
   savedToLibrary: boolean;
 };
@@ -30,7 +31,7 @@ type ProductFlowContextValue = ProductFlowState & {
   setProduct: (product: string) => void;
   setWebcamSettings: (settings: WebcamSettings) => void;
   setTrim: (startSec: number, endSec: number) => void;
-  setPostprocessVideoUrl: (url: string | null) => void;
+  setPostprocessVideoUrl: (url: string | null, r2Key?: string | null) => void;
   setBrandVideoUrl: (brand: string, url: string) => void;
   clearResults: () => void;
   markSaved: () => void;
@@ -47,6 +48,7 @@ function initialState(): ProductFlowState {
     trimStartSec: 0,
     trimEndSec: 0,
     postprocessVideoUrl: null,
+    postprocessVideoR2Key: null,
     brandVideoUrls: {},
     savedToLibrary: false,
   };
@@ -90,7 +92,7 @@ export function ProductFlowContextProvider({ children }: { children: ReactNode }
   const setWebcamSettings = useCallback((settings: WebcamSettings) => {
     setState((prev) => ({
       ...prev, webcamSettings: settings,
-      postprocessVideoUrl: null, brandVideoUrls: {}, savedToLibrary: false,
+      postprocessVideoUrl: null, postprocessVideoR2Key: null, brandVideoUrls: {}, savedToLibrary: false,
     }));
   }, []);
 
@@ -101,8 +103,8 @@ export function ProductFlowContextProvider({ children }: { children: ReactNode }
     }));
   }, []);
 
-  const setPostprocessVideoUrl = useCallback((url: string | null) => {
-    setState((prev) => ({ ...prev, postprocessVideoUrl: url }));
+  const setPostprocessVideoUrl = useCallback((url: string | null, r2Key?: string | null) => {
+    setState((prev) => ({ ...prev, postprocessVideoUrl: url, postprocessVideoR2Key: r2Key ?? prev.postprocessVideoR2Key }));
   }, []);
 
   const setBrandVideoUrl = useCallback((brand: string, url: string) => {
@@ -114,7 +116,7 @@ export function ProductFlowContextProvider({ children }: { children: ReactNode }
   const clearResults = useCallback(() => {
     setState((prev) => ({
       ...prev, trimStartSec: 0, trimEndSec: 0,
-      postprocessVideoUrl: null, brandVideoUrls: {}, savedToLibrary: false,
+      postprocessVideoUrl: null, postprocessVideoR2Key: null, brandVideoUrls: {}, savedToLibrary: false,
     }));
   }, []);
 

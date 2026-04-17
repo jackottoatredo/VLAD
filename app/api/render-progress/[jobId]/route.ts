@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/apiAuth";
 import { jobsQueue } from "@/lib/queue/connection";
+import { getPresignedUrl } from "@/lib/storage/r2";
 import type { ProduceResult } from "@/lib/render/produce";
 
 export const runtime = "nodejs";
@@ -23,15 +24,11 @@ export async function GET(_request: Request, { params }: { params: Promise<{ job
   if (state === "completed") {
     const raw = job.returnvalue;
     const result = (typeof raw === "string" ? JSON.parse(raw) : raw) as ProduceResult;
+    const videoUrl = await getPresignedUrl(result.finalR2Key);
     return NextResponse.json({
       status: "done",
-      videoUrl: result.finalUrl,
-      renderUrl: result.renderUrl,
-      renderPath: result.renderPath,
-      renderDurationMs: result.renderDurationMs,
-      compositeUrl: result.compositeUrl,
-      compositePath: result.compositePath,
-      trimmedUrl: result.trimmedUrl,
+      videoUrl,
+      videoR2Key: result.finalR2Key,
     });
   }
 
@@ -42,12 +39,10 @@ export async function GET(_request: Request, { params }: { params: Promise<{ job
     });
   }
 
-  // Active or waiting — return progress
   const progress = job.progress;
   if (progress && typeof progress === "object" && "status" in (progress as Record<string, unknown>)) {
     return NextResponse.json(progress);
   }
 
-  // Job is queued but hasn't started yet
   return NextResponse.json({ status: "rendering", rendered: 0, total: 0 });
 }

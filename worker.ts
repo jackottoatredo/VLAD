@@ -1,6 +1,6 @@
 import { Worker, Job } from "bullmq";
 import { randomUUID } from "node:crypto";
-import { copyFile, mkdir, readFile, rm } from "node:fs/promises";
+import { mkdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { REDIS_CONNECTION, QUEUE_NAME } from "@/lib/queue/connection";
@@ -10,13 +10,9 @@ import { createReplayAction } from "@/lib/render/actions";
 import { produceSessionVideo, type ProduceResult } from "@/lib/render/produce";
 import { mergeVideoFiles } from "@/lib/render/merge";
 import { downloadRecording } from "@/lib/render/download";
-import { uploadToR2 } from "@/lib/storage/r2";
+import { uploadToR2, downloadFromR2 } from "@/lib/storage/r2";
 import { supabase } from "@/lib/db/supabase";
-import {
-  readManifest,
-  writeManifest,
-  updateManifestFromResult,
-} from "@/lib/manifest";
+import { updateRenderCache } from "@/lib/cache/render-cache";
 import { VIDEO_WIDTH, VIDEO_HEIGHT, RENDER_ZOOM, DEFAULT_FPS } from "@/app/config";
 
 // ---------------------------------------------------------------------------
@@ -28,48 +24,75 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceRe
 
   const replayAction = createReplayAction(d.keyframes, d.durationMs);
 
-  const result = await produceSessionVideo({
-    url: d.url,
-    presenter: d.presenter,
-    sessionName: d.dirName,
-    width: d.width,
-    height: d.height,
-    videoWidth: d.videoWidth,
-    videoHeight: d.videoHeight,
-    zoom: d.zoom,
-    fps: d.fps,
-    durationMs: d.durationMs,
-    actions: [replayAction],
-    settleHint: d.settleHint,
-    webcamSettings: d.webcamSettings,
-    trimStartSec: d.trimStartSec,
-    trimEndSec: d.trimEndSec,
-    startFromStep: d.startFromStep,
-    existingRenderPath: d.existingRenderPath,
-    existingRenderUrl: d.existingRenderUrl,
-    existingRenderDurationMs: d.existingRenderDurationMs,
-    existingCompositePath: d.existingCompositePath,
-    existingCompositeUrl: d.existingCompositeUrl,
+  // For warm-start steps >= 2, download cached render from R2 to a temp path
+  let existingRenderOutputPath: string | undefined;
+  let existingCompositeOutputPath: string | undefined;
+  const warmStartDir = path.join(tmpdir(), `vlad-warmstart-${job.id ?? randomUUID().slice(0, 8)}`);
 
-    onRenderProgress(rendered, total) {
-      job.updateProgress({ status: "rendering", rendered, total } satisfies ProduceProgress);
-    },
-    onRenderComplete() {
-      job.updateProgress({ status: "compositing", composited: 0, total: 0 } satisfies ProduceProgress);
-    },
-    onComposeProgress(composited, total) {
-      job.updateProgress({ status: "compositing", composited, total } satisfies ProduceProgress);
-    },
-  });
+  if (d.startFromStep >= 2 && d.existingRenderR2Key) {
+    existingRenderOutputPath = path.join(warmStartDir, "render.mp4");
+    await downloadFromR2(d.existingRenderR2Key, existingRenderOutputPath);
+  }
+  if (d.startFromStep >= 3 && d.existingCompositeR2Key) {
+    existingCompositeOutputPath = path.join(warmStartDir, "composite.mp4");
+    await downloadFromR2(d.existingCompositeR2Key, existingCompositeOutputPath);
+  }
 
-  // Update filesystem manifest cache
-  const current = await readManifest(d.presenter, d.safeId);
-  const updated = updateManifestFromResult(
-    current, d.urlHash, d.url, d.mouseHash, d.wcFingerprint, d.trimKeyStr, result,
-  );
-  await writeManifest(d.presenter, d.safeId, updated);
+  // Download webcam from R2 if available
+  let webcamPath: string | null = null;
+  if (d.webcamR2Key) {
+    webcamPath = path.join(warmStartDir, "webcam.webm");
+    await downloadFromR2(d.webcamR2Key, webcamPath);
+  }
 
-  return result;
+  try {
+    const result = await produceSessionVideo({
+      url: d.url,
+      presenter: d.presenter,
+      sessionName: d.dirName,
+      width: d.width,
+      height: d.height,
+      videoWidth: d.videoWidth,
+      videoHeight: d.videoHeight,
+      zoom: d.zoom,
+      fps: d.fps,
+      durationMs: d.durationMs,
+      actions: [replayAction],
+      settleHint: d.settleHint,
+      webcamSettings: d.webcamSettings,
+      webcamPath,
+      trimStartSec: d.trimStartSec,
+      trimEndSec: d.trimEndSec,
+      startFromStep: d.startFromStep,
+      existingRenderR2Key: d.existingRenderR2Key,
+      existingRenderOutputPath,
+      existingRenderDurationMs: d.existingRenderDurationMs,
+      existingCompositeR2Key: d.existingCompositeR2Key,
+      existingCompositeOutputPath,
+
+      onRenderProgress(rendered, total) {
+        job.updateProgress({ status: "rendering", rendered, total } satisfies ProduceProgress);
+      },
+      onRenderComplete() {
+        job.updateProgress({ status: "compositing", composited: 0, total: 0 } satisfies ProduceProgress);
+      },
+      onComposeProgress(composited, total) {
+        job.updateProgress({ status: "compositing", composited, total } satisfies ProduceProgress);
+      },
+    });
+
+    // Update Redis render cache
+    await updateRenderCache(d.presenter, d.safeId, d.urlHash, d.mouseHash, d.wcFingerprint, d.trimKeyStr, {
+      renderR2Key: result.renderR2Key,
+      renderDurationMs: result.renderDurationMs,
+      compositeR2Key: result.compositeR2Key,
+      trimmedR2Key: result.trimmedR2Key,
+    });
+
+    return result;
+  } finally {
+    rm(warmStartDir, { recursive: true, force: true }).catch(() => {});
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -112,12 +135,10 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
   const workDir = path.join(tmpdir(), `vlad-merge-${jobId}`);
   const merchantDir = path.join(workDir, "merchant");
   const productDir = path.join(workDir, "product");
+  const mergeOutputDir = path.join(workDir, "output");
   await mkdir(merchantDir, { recursive: true });
   await mkdir(productDir, { recursive: true });
-
-  const outputSessionName = d.outputSessionName;
-  const renderingsDir = path.join(process.cwd(), "public", "users", presenter, outputSessionName, "renderings");
-  await mkdir(renderingsDir, { recursive: true });
+  await mkdir(mergeOutputDir, { recursive: true });
 
   try {
     // Download both recordings from R2
@@ -128,16 +149,6 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
 
     // --- Merchant video ---
     const merchantAction = createReplayAction(d.merchant.keyframes, d.merchant.durationMs);
-
-    // Copy webcam file to expected location for compositing
-    if (merchantRec.webcamPath) {
-      const webcamDest = path.join(
-        process.cwd(), "public", "users", presenter, d.merchant.sessionName,
-        "recordings", `${d.merchant.sessionName}_webcam.webm`,
-      );
-      await mkdir(path.dirname(webcamDest), { recursive: true });
-      await copyFile(merchantRec.webcamPath, webcamDest);
-    }
 
     const merchantResult = await produceSessionVideo({
       url: d.merchant.url,
@@ -153,6 +164,7 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
       actions: [merchantAction],
       settleHint: d.merchant.settleHint,
       webcamSettings: d.merchant.webcamSettings,
+      webcamPath: merchantRec.webcamPath,
       trimStartSec: d.merchant.trimStartSec,
       trimEndSec: d.merchant.trimEndSec,
       onRenderProgress(rendered, total) {
@@ -168,15 +180,6 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
     // --- Product video ---
     const productAction = createReplayAction(d.product.keyframes, d.product.durationMs);
 
-    if (productRec.webcamPath) {
-      const webcamDest = path.join(
-        process.cwd(), "public", "users", presenter, d.product.sessionName,
-        "recordings", `${d.product.sessionName}_webcam.webm`,
-      );
-      await mkdir(path.dirname(webcamDest), { recursive: true });
-      await copyFile(productRec.webcamPath, webcamDest);
-    }
-
     const productResult = await produceSessionVideo({
       url: d.product.url,
       presenter,
@@ -191,6 +194,7 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
       actions: [productAction],
       settleHint: d.product.settleHint,
       webcamSettings: d.product.webcamSettings,
+      webcamPath: productRec.webcamPath,
       trimStartSec: d.product.trimStartSec,
       trimEndSec: d.product.trimEndSec,
       onRenderProgress(rendered, total) {
@@ -204,21 +208,25 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
     completeStep(3);
 
     // --- Merge ---
-    const publicDir = path.join(process.cwd(), "public");
-    const merchantVideoPath = path.join(publicDir, merchantResult.finalUrl);
-    const productVideoPath = path.join(publicDir, productResult.finalUrl);
+    // Download final videos from R2 (each produce call already uploaded its result)
+    const merchantFinalPath = path.join(mergeOutputDir, "merchant-final.mp4");
+    const productFinalPath = path.join(mergeOutputDir, "product-final.mp4");
+    await Promise.all([
+      downloadFromR2(merchantResult.finalR2Key, merchantFinalPath),
+      downloadFromR2(productResult.finalR2Key, productFinalPath),
+    ]);
 
     const { mergedPath } = await mergeVideoFiles(
-      merchantVideoPath,
-      productVideoPath,
-      renderingsDir,
+      merchantFinalPath,
+      productFinalPath,
+      mergeOutputDir,
       d.brand ?? `${d.merchantId}-${d.productName}`,
       (pct) => updateStep(4, pct),
     );
     completeStep(4);
 
     // Upload merged video to R2
-    const r2Key = `users/${presenter}/${outputSessionName}/renderings/${path.basename(mergedPath)}`;
+    const r2Key = `merges/${presenter}/${d.outputSessionName}/${path.basename(mergedPath)}`;
     const fileBuffer = await readFile(mergedPath);
     await uploadToR2(r2Key, fileBuffer, "video/mp4");
 
@@ -247,7 +255,6 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
 // Worker setup
 // ---------------------------------------------------------------------------
 
-// All tunable via .env.local — see comments for defaults
 const concurrency = Number(process.env.WORKER_CONCURRENCY ?? 1);
 const lockDuration = Number(process.env.WORKER_LOCK_DURATION_MS ?? 300_000);
 const stalledInterval = Number(process.env.WORKER_STALLED_INTERVAL_MS ?? 60_000);
@@ -281,7 +288,6 @@ worker.on("failed", (job, err) => {
 
 console.log(`[worker] Listening on queue "${QUEUE_NAME}" | concurrency=${concurrency} lockDuration=${lockDuration}ms stalledInterval=${stalledInterval}ms`);
 
-// Graceful shutdown
 async function shutdown() {
   console.log("[worker] Shutting down...");
   await worker.close();

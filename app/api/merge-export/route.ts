@@ -6,6 +6,7 @@ import { downloadRecording } from "@/lib/render/download";
 import { eventsToKeyframes } from "@/lib/render/keyframes";
 import { jobsQueue } from "@/lib/queue/connection";
 import type { MergeJobPayload, MergeRecordingPayload } from "@/lib/queue/payloads";
+import { getPresignedUrl } from "@/lib/storage/r2";
 import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -187,12 +188,13 @@ export async function GET(request: Request) {
   if (state === "completed") {
     const raw = job.returnvalue;
     const result = (typeof raw === "string" ? JSON.parse(raw) : raw) as { videoUrl: string; renderId: string | undefined };
+    const presignedUrl = await getPresignedUrl(result.videoUrl);
     return NextResponse.json({
       status: "done",
       currentStep: 4,
       stepProgress: [100, 100, 100, 100, 100],
       stepLabels: ["Rendering intro", "Compositing intro", "Rendering product", "Compositing product", "Merging"],
-      videoUrl: result.videoUrl,
+      videoUrl: presignedUrl,
       renderId: result.renderId,
     });
   }

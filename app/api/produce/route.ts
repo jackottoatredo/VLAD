@@ -2,19 +2,11 @@ import { NextResponse } from "next/server";
 import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { requireSession, sanitizePresenter } from "@/lib/apiAuth";
-import { TARGET_URL, DEFAULT_FPS, VIDEO_WIDTH, VIDEO_HEIGHT, RENDER_ZOOM } from "@/app/config";
+import { DEFAULT_FPS, VIDEO_WIDTH, VIDEO_HEIGHT, RENDER_ZOOM } from "@/app/config";
 import { eventsToKeyframes } from "@/lib/render/keyframes";
-import { createReplayAction } from "@/lib/render/actions";
-import { produceSessionVideo } from "@/lib/render/produce";
-import {
-  createJobAtStep,
-  updateJobProgress,
-  startCompositing,
-  updateCompositingProgress,
-  completeJob,
-  failJob,
-} from "@/lib/render/job-store";
 import { type WebcamSettings, DEFAULT_WEBCAM_SETTINGS } from "@/types/webcam";
+import { jobsQueue } from "@/lib/queue/connection";
+import type { ProduceJobPayload } from "@/lib/queue/payloads";
 import {
   mouseJsonPath,
   hashMouseJson,
@@ -22,9 +14,7 @@ import {
   webcamFingerprint,
   trimKey,
   readManifest,
-  writeManifest,
   findCachedArtifacts,
-  updateManifestFromResult,
 } from "@/lib/manifest";
 
 export const runtime = "nodejs";
@@ -100,7 +90,6 @@ export async function POST(request: Request) {
 
   const keyframes = eventsToKeyframes(mouseData.events as Parameters<typeof eventsToKeyframes>[0]);
   const durationMs = keyframes.length > 0 ? keyframes[keyframes.length - 1].t : 1000;
-  const replayAction = createReplayAction(keyframes, durationMs);
   const settleHint = keyframes.length > 0 ? { x: keyframes[0].x, y: keyframes[0].y } : undefined;
 
   const webcamSettings: WebcamSettings = {
@@ -139,13 +128,13 @@ export async function POST(request: Request) {
   }
 
   const step = cached.startFromStep;
-  const jobId = randomUUID().slice(0, 8);
-  createJobAtStep(jobId, step);
 
-  produceSessionVideo({
-    url,
+  const job = await jobsQueue.add("produce", {
+    type: "produce",
     presenter,
-    sessionName: dirName,
+    safeId,
+    dirName,
+    url,
     width: mouseData.virtualWidth,
     height: mouseData.virtualHeight,
     videoWidth: VIDEO_WIDTH,
@@ -153,11 +142,8 @@ export async function POST(request: Request) {
     zoom: RENDER_ZOOM,
     fps: DEFAULT_FPS,
     durationMs,
-    actions: [replayAction],
+    keyframes,
     settleHint,
-    onRenderProgress: (rendered, total) => updateJobProgress(jobId, rendered, total),
-    onRenderComplete: () => startCompositing(jobId),
-    onComposeProgress: (s, total) => updateCompositingProgress(jobId, s, total),
     webcamSettings,
     trimStartSec,
     trimEndSec,
@@ -167,18 +153,14 @@ export async function POST(request: Request) {
     existingRenderDurationMs: cached.renderDurationMs,
     existingCompositePath: cached.compositePath,
     existingCompositeUrl: cached.compositeUrl,
-  })
-    .then(async (result) => {
-      // Re-read manifest to avoid overwriting entries from concurrent requests
-      const current = await readManifest(presenter, safeId);
-      const updated = updateManifestFromResult(current, urlHash, url, mouseHash, wcFP, tKey, result);
-      await writeManifest(presenter, safeId, updated);
-      completeJob(jobId, result);
-    })
-    .catch((error: unknown) => {
-      console.error("Produce failed", error);
-      failJob(jobId, error instanceof Error ? error.message : "Render failed.");
-    });
+    urlHash,
+    mouseHash,
+    wcFingerprint: wcFP,
+    trimKeyStr: tKey,
+  } satisfies ProduceJobPayload, {
+    jobId: randomUUID().slice(0, 8),
+    priority: 1,
+  });
 
-  return NextResponse.json({ jobId });
+  return NextResponse.json({ jobId: job.id });
 }

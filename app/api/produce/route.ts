@@ -1,33 +1,31 @@
 import { NextResponse } from "next/server";
-import { readFile } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { requireSession, sanitizePresenter } from "@/lib/apiAuth";
-import { TARGET_URL, DEFAULT_FPS, VIDEO_WIDTH, VIDEO_HEIGHT, RENDER_ZOOM } from "@/app/config";
+import { DEFAULT_FPS, VIDEO_WIDTH, VIDEO_HEIGHT, RENDER_ZOOM } from "@/app/config";
 import { eventsToKeyframes } from "@/lib/render/keyframes";
-import { createReplayAction } from "@/lib/render/actions";
-import { produceSessionVideo } from "@/lib/render/produce";
-import {
-  createJobAtStep,
-  updateJobProgress,
-  startCompositing,
-  updateCompositingProgress,
-  completeJob,
-  failJob,
-} from "@/lib/render/job-store";
 import { type WebcamSettings, DEFAULT_WEBCAM_SETTINGS } from "@/types/webcam";
-import {
-  mouseJsonPath,
-  hashMouseJson,
-  hashUrl,
-  webcamFingerprint,
-  trimKey,
-  readManifest,
-  writeManifest,
-  findCachedArtifacts,
-  updateManifestFromResult,
-} from "@/lib/manifest";
+import { jobsQueue } from "@/lib/queue/connection";
+import type { ProduceJobPayload } from "@/lib/queue/payloads";
+import { downloadBufferFromR2, getPresignedUrl } from "@/lib/storage/r2";
+import { findCachedRender } from "@/lib/cache/render-cache";
 
 export const runtime = "nodejs";
+
+function hashUrl(url: string): string {
+  return createHash("sha256").update(url).digest("hex").slice(0, 16);
+}
+
+function hashBuffer(buf: Buffer): string {
+  return createHash("sha256").update(buf).digest("hex");
+}
+
+function webcamFingerprint(s: WebcamSettings): string {
+  return `${s.webcamMode}_${s.webcamVertical}_${s.webcamHorizontal}`;
+}
+
+function trimKey(startSec: number | undefined, endSec: number | undefined): string {
+  return `${(startSec ?? 0).toFixed(3)}_${(endSec ?? 0).toFixed(3)}`;
+}
 
 type RequestBody = {
   product?: unknown;
@@ -53,7 +51,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid JSON." }, { status: 400 });
   }
 
-  // Derive identifier from product or merchantId
   const identifier = typeof body.product === "string" && body.product.trim()
     ? body.product.trim()
     : typeof body.merchantId === "string" && body.merchantId.trim()
@@ -64,7 +61,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Missing product or merchantId." }, { status: 400 });
   }
 
-  // URL is required — the target page to render
   if (typeof body.url !== "string" || !body.url.trim()) {
     return NextResponse.json({ error: "Missing url." }, { status: 400 });
   }
@@ -74,18 +70,18 @@ export async function POST(request: Request) {
   const url = body.url.trim();
   const dirName = `${presenter}_${safeId}`;
 
-  // Read mouse events
-  const mousePath = mouseJsonPath(presenter, safeId);
-  let mouseRaw: string;
+  // Read mouse events from R2
+  const mouseR2Key = `sessions/${presenter}/${safeId}/mouse.json`;
+  let mouseBuffer: Buffer;
   try {
-    mouseRaw = await readFile(mousePath, "utf-8");
+    mouseBuffer = await downloadBufferFromR2(mouseR2Key);
   } catch {
     return NextResponse.json({ error: "No recording found for this presenter + product/merchant." }, { status: 404 });
   }
 
   let mouseData: { events?: unknown; virtualWidth?: unknown; virtualHeight?: unknown };
   try {
-    mouseData = JSON.parse(mouseRaw) as typeof mouseData;
+    mouseData = JSON.parse(mouseBuffer.toString("utf-8")) as typeof mouseData;
   } catch {
     return NextResponse.json({ error: "Recording file is corrupt." }, { status: 500 });
   }
@@ -100,7 +96,6 @@ export async function POST(request: Request) {
 
   const keyframes = eventsToKeyframes(mouseData.events as Parameters<typeof eventsToKeyframes>[0]);
   const durationMs = keyframes.length > 0 ? keyframes[keyframes.length - 1].t : 1000;
-  const replayAction = createReplayAction(keyframes, durationMs);
   const settleHint = keyframes.length > 0 ? { x: keyframes[0].x, y: keyframes[0].y } : undefined;
 
   const webcamSettings: WebcamSettings = {
@@ -119,33 +114,37 @@ export async function POST(request: Request) {
   const trimEndSec = typeof body.trimEndSec === "number" ? body.trimEndSec : undefined;
 
   // Compute cache keys
-  const mouseHash = await hashMouseJson(mousePath);
+  const mouseHash = hashBuffer(mouseBuffer);
   const urlHash = hashUrl(url);
   const wcFP = webcamFingerprint(webcamSettings);
   const tKey = trimKey(trimStartSec, trimEndSec);
 
-  // Check manifest for cached artifacts
-  const manifest = await readManifest(presenter, safeId);
-  const cached = findCachedArtifacts(manifest, urlHash, mouseHash, wcFP, tKey);
+  // Check Redis cache for cached artifacts
+  const cached = await findCachedRender(presenter, safeId, urlHash, mouseHash, wcFP, tKey);
 
-  // Fully cached — return instantly
-  if (cached.trimmedUrl) {
-    return NextResponse.json({ videoUrl: cached.trimmedUrl });
+  // Fully cached — presign and return
+  if (cached.trimmedR2Key) {
+    const presigned = await getPresignedUrl(cached.trimmedR2Key);
+    return NextResponse.json({ videoUrl: presigned, videoR2Key: cached.trimmedR2Key });
   }
 
-  // If step 3 and no trim needed (trimStart=0, trimEnd=0), the composite IS the final output
-  if (cached.startFromStep === 3 && cached.compositeUrl && (!trimStartSec || trimStartSec === 0) && (!trimEndSec || trimEndSec === 0)) {
-    return NextResponse.json({ videoUrl: cached.compositeUrl });
+  // Composite cached + no trim needed → return composite
+  if (cached.startFromStep === 3 && cached.compositeR2Key && (!trimStartSec || trimStartSec === 0) && (!trimEndSec || trimEndSec === 0)) {
+    const presigned = await getPresignedUrl(cached.compositeR2Key);
+    return NextResponse.json({ videoUrl: presigned, videoR2Key: cached.compositeR2Key });
   }
+
+  // Determine webcam R2 key (may not exist)
+  const webcamR2Key = `sessions/${presenter}/${safeId}/webcam.webm`;
 
   const step = cached.startFromStep;
-  const jobId = randomUUID().slice(0, 8);
-  createJobAtStep(jobId, step);
 
-  produceSessionVideo({
-    url,
+  const job = await jobsQueue.add("produce", {
+    type: "produce",
     presenter,
-    sessionName: dirName,
+    safeId,
+    dirName,
+    url,
     width: mouseData.virtualWidth,
     height: mouseData.virtualHeight,
     videoWidth: VIDEO_WIDTH,
@@ -153,32 +152,24 @@ export async function POST(request: Request) {
     zoom: RENDER_ZOOM,
     fps: DEFAULT_FPS,
     durationMs,
-    actions: [replayAction],
+    keyframes,
     settleHint,
-    onRenderProgress: (rendered, total) => updateJobProgress(jobId, rendered, total),
-    onRenderComplete: () => startCompositing(jobId),
-    onComposeProgress: (s, total) => updateCompositingProgress(jobId, s, total),
     webcamSettings,
+    webcamR2Key,
     trimStartSec,
     trimEndSec,
     startFromStep: step,
-    existingRenderPath: cached.renderPath,
-    existingRenderUrl: cached.renderUrl,
+    existingRenderR2Key: cached.renderR2Key,
     existingRenderDurationMs: cached.renderDurationMs,
-    existingCompositePath: cached.compositePath,
-    existingCompositeUrl: cached.compositeUrl,
-  })
-    .then(async (result) => {
-      // Re-read manifest to avoid overwriting entries from concurrent requests
-      const current = await readManifest(presenter, safeId);
-      const updated = updateManifestFromResult(current, urlHash, url, mouseHash, wcFP, tKey, result);
-      await writeManifest(presenter, safeId, updated);
-      completeJob(jobId, result);
-    })
-    .catch((error: unknown) => {
-      console.error("Produce failed", error);
-      failJob(jobId, error instanceof Error ? error.message : "Render failed.");
-    });
+    existingCompositeR2Key: cached.compositeR2Key,
+    urlHash,
+    mouseHash,
+    wcFingerprint: wcFP,
+    trimKeyStr: tKey,
+  } satisfies ProduceJobPayload, {
+    jobId: randomUUID().slice(0, 8),
+    priority: 1,
+  });
 
-  return NextResponse.json({ jobId });
+  return NextResponse.json({ jobId: job.id });
 }

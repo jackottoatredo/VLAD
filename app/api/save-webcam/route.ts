@@ -1,11 +1,8 @@
 import { NextResponse } from "next/server";
-import { mkdir, writeFile } from "node:fs/promises";
-import path from "node:path";
 import { requireSession, sanitizePresenter } from "@/lib/apiAuth";
+import { uploadToR2 } from "@/lib/storage/r2";
 
 export const runtime = "nodejs";
-
-const PUBLIC_DIR = path.join(process.cwd(), "public");
 
 export async function POST(request: Request) {
   const session = await requireSession();
@@ -30,14 +27,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Missing video data." }, { status: 400 });
   }
 
-  const safeName = sessionName.replace(/[^a-z0-9_\-]/gi, "_");
   const safePresenter = sanitizePresenter(session.email);
-  const recordingsDir = path.join(PUBLIC_DIR, "users", safePresenter, safeName, "recordings");
-
-  await mkdir(recordingsDir, { recursive: true });
+  const safeName = sessionName.replace(/[^a-z0-9_\-]/gi, "_");
+  const safeId = safeName.startsWith(`${safePresenter}_`)
+    ? safeName.slice(safePresenter.length + 1)
+    : safeName;
 
   const buffer = Buffer.from(await video.arrayBuffer());
-  await writeFile(path.join(recordingsDir, `${safeName}_webcam.webm`), buffer);
+  const r2Key = `sessions/${safePresenter}/${safeId}/webcam.webm`;
 
-  return NextResponse.json({ ok: true, path: `/users/${safePresenter}/${safeName}/recordings/${safeName}_webcam.webm` });
+  await uploadToR2(r2Key, buffer, "video/webm");
+
+  return NextResponse.json({ ok: true, r2Key });
 }

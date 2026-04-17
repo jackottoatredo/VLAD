@@ -1,15 +1,10 @@
 import { NextResponse } from "next/server";
-import { readFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
-import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { supabase } from "@/lib/db/supabase";
-import { uploadToR2 } from "@/lib/storage/r2";
+import { uploadToR2, downloadBufferFromR2 } from "@/lib/storage/r2";
 import { requireSession, sanitizePresenter } from "@/lib/apiAuth";
 
 export const runtime = "nodejs";
-
-const PUBLIC_DIR = path.join(process.cwd(), "public");
 
 type RequestBody = {
   session?: unknown;
@@ -17,8 +12,8 @@ type RequestBody = {
   productName?: unknown;
   merchantId?: unknown;
   metadata?: unknown;
-  /** Relative URL of the rendered preview video (e.g. /users/presenter/session/renderings/file.mp4) */
-  previewVideoUrl?: unknown;
+  /** R2 key of the rendered preview video (e.g. composites/presenter/session/file.mp4) */
+  previewVideoR2Key?: unknown;
 };
 
 export async function POST(request: Request) {
@@ -43,46 +38,56 @@ export async function POST(request: Request) {
 
   const safePresenter = sanitizePresenter(session.email);
   const safeSession = body.session.replace(/[^a-z0-9_\-]/gi, "_");
-  const recordingsDir = path.join(PUBLIC_DIR, "users", safePresenter, safeSession, "recordings");
+  const safeId = safeSession.startsWith(`${safePresenter}_`)
+    ? safeSession.slice(safePresenter.length + 1)
+    : safeSession;
 
-  const mouseJsonPath = path.join(recordingsDir, `${safeSession}_mouse.json`);
-  if (!existsSync(mouseJsonPath)) {
+  // Read mouse events from R2 (uploaded by save-session)
+  const mouseR2Key = `sessions/${safePresenter}/${safeId}/mouse.json`;
+  let mouseBuffer: Buffer;
+  try {
+    mouseBuffer = await downloadBufferFromR2(mouseR2Key);
+  } catch {
     return NextResponse.json({ error: "Session not found." }, { status: 404 });
   }
 
   const recordingId = randomUUID();
 
-  const mouseBuffer = await readFile(mouseJsonPath);
-
-  const webcamPath = path.join(recordingsDir, `${safeSession}_webcam.webm`);
-  const hasWebcam = existsSync(webcamPath);
-  const webcamBuffer = hasWebcam ? await readFile(webcamPath) : null;
+  // Check if webcam exists in R2
+  const webcamSessionKey = `sessions/${safePresenter}/${safeId}/webcam.webm`;
+  let webcamBuffer: Buffer | null = null;
+  try {
+    webcamBuffer = await downloadBufferFromR2(webcamSessionKey);
+  } catch {
+    // No webcam recorded — that's fine
+  }
 
   const metadata = body.metadata != null && typeof body.metadata === "object" ? body.metadata : {};
 
+  // Upload to permanent recording storage in R2
   const uploads: Promise<void>[] = [
     uploadToR2(`recordings/${recordingId}/mouse.json`, mouseBuffer, "application/json"),
   ];
   if (webcamBuffer) {
     uploads.push(
-      uploadToR2(`recordings/${recordingId}/webcam.webm`, webcamBuffer, "video/webm")
+      uploadToR2(`recordings/${recordingId}/webcam.webm`, webcamBuffer, "video/webm"),
     );
   }
 
-  // Upload preview video if provided
+  // Copy preview video to permanent storage if provided
   let previewKey: string | null = null;
-  if (typeof body.previewVideoUrl === "string" && body.previewVideoUrl.trim()) {
-    const previewPath = path.join(PUBLIC_DIR, body.previewVideoUrl);
-    if (existsSync(previewPath)) {
-      const previewBuffer = await readFile(previewPath);
+  if (typeof body.previewVideoR2Key === "string" && body.previewVideoR2Key.trim()) {
+    try {
+      const previewBuffer = await downloadBufferFromR2(body.previewVideoR2Key);
       previewKey = `recordings/${recordingId}/preview.mp4`;
       uploads.push(uploadToR2(previewKey, previewBuffer, "video/mp4"));
+    } catch {
+      // Preview not available — not critical
     }
   }
 
   await Promise.all(uploads);
 
-  // Use raw email as user_id (matches vlad_users.id)
   const { error } = await supabase.from("vlad_recordings").insert({
     id: recordingId,
     user_id: session.email,
@@ -90,7 +95,7 @@ export async function POST(request: Request) {
     product_name: body.type === "product" && typeof body.productName === "string" ? body.productName : null,
     merchant_id: body.type === "merchant" && typeof body.merchantId === "string" ? body.merchantId : null,
     mouse_events_url: `recordings/${recordingId}/mouse.json`,
-    webcam_url: hasWebcam ? `recordings/${recordingId}/webcam.webm` : null,
+    webcam_url: webcamBuffer ? `recordings/${recordingId}/webcam.webm` : null,
     preview_url: previewKey,
     metadata,
     status: "saved",

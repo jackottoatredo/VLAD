@@ -145,7 +145,7 @@ export default function PreviewStep({ navBack, navForward }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           presenter, session: `${presenter}_${product}`, type: 'product', productName: product,
-          previewVideoUrl: postprocessVideoUrl,
+          previewVideoR2Key: flow.postprocessVideoR2Key,
           metadata: {
             trimStartSec, trimEndSec,
             webcamMode: webcamSettings.webcamMode,

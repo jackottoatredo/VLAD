@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-import { mkdtemp, mkdir, readdir, rm, stat } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import ffmpeg from "fluent-ffmpeg";
@@ -8,6 +8,7 @@ import ffmpegPath from "ffmpeg-static";
 import { chromium, type Page } from "playwright";
 import { type CursorPosition, type RenderAction } from "@/lib/render/actions";
 import { installVirtualTimeClock, type VirtualTimeClock } from "@/lib/render/virtual-time";
+import { uploadToR2 } from "@/lib/storage/r2";
 
 export type RenderOptions = {
   url: string;
@@ -33,7 +34,6 @@ export type RenderResult = {
 };
 
 const CURSOR_ID = "__videobot_cursor__";
-const RENDER_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const CURSOR_FILE_PATH = path.join(process.cwd(), "public", "cursor.svg");
 const CURSOR_SIZE_PX = 32;
 const FFMPEG_FILENAME = process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg";
@@ -202,39 +202,14 @@ async function encodeVideo(
   });
 }
 
-async function cleanupOldRenders(dir: string, maxAgeMs: number): Promise<void> {
-  const now = Date.now();
-
-  try {
-    const entries = await readdir(dir, { withFileTypes: true });
-
-    await Promise.all(
-      entries
-        .filter((entry) => entry.isFile() && entry.name.endsWith(".mp4"))
-        .map(async (entry) => {
-          const filePath = path.join(dir, entry.name);
-          const fileStats = await stat(filePath);
-
-          if (now - fileStats.mtimeMs > maxAgeMs) {
-            await rm(filePath, { force: true });
-          }
-        })
-    );
-  } catch {
-    // Best effort cleanup only.
-  }
-}
-
 export async function renderUrlToMp4(options: RenderOptions): Promise<RenderResult> {
-  const renderingsDir = path.join(process.cwd(), "public", "users", options.presenter, options.sessionName, "renderings");
-  await mkdir(renderingsDir, { recursive: true });
-
   const tempDir = await mkdtemp(path.join(tmpdir(), "videobot-"));
   const framesDir = path.join(tempDir, "frames");
   await mkdir(framesDir, { recursive: true });
 
   const fileName = `${options.sessionName}-${Date.now()}-${randomUUID().slice(0, 8)}.mp4`;
-  const outputPath = path.join(renderingsDir, fileName);
+  const outputPath = path.join(tempDir, fileName);
+  const r2Key = `renders/${options.presenter}/${options.sessionName}/${fileName}`;
 
   const browser = await chromium.launch({
     headless: true,
@@ -280,15 +255,18 @@ export async function renderUrlToMp4(options: RenderOptions): Promise<RenderResu
       durationMs: totalDurationMs,
     });
 
-    void cleanupOldRenders(renderingsDir, RENDER_MAX_AGE_MS);
+    // Upload to R2
+    const videoBuffer = await readFile(outputPath);
+    await uploadToR2(r2Key, videoBuffer, "video/mp4");
 
     return {
-      videoUrl: `/users/${options.presenter}/${options.sessionName}/renderings/${fileName}`,
+      videoUrl: r2Key,
       outputPath,
       totalDurationMs,
     };
   } finally {
     await browser.close();
-    await rm(tempDir, { recursive: true, force: true });
+    // Clean up frames dir but keep outputPath — caller may need it for compose step
+    await rm(framesDir, { recursive: true, force: true });
   }
 }

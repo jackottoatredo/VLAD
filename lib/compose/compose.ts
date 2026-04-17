@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { resolvedFfmpegPath } from "@/lib/render/render";
+import { uploadToR2 } from "@/lib/storage/r2";
 import {
   WEBCAM_OVERLAY_DIAMETER,
   WEBCAM_OVERLAY_MARGIN,
@@ -23,29 +25,19 @@ const BORDER_B = 30;
 export type ComposeOptions = {
   presenter: string;
   sessionName: string;
-  screenVideoPath: string;   // absolute fs path to the Puppeteer MP4 — ffmpeg input 0
-  screenVideoUrl: string;    // public URL returned as-is when no webcam exists
+  screenVideoPath: string;   // absolute fs path to the Playwright MP4 — ffmpeg input 0
+  screenVideoR2Key: string;  // R2 key returned as-is when no webcam exists
   durationMs: number;        // render duration — used to compute progress without ffprobe
   onProgress: (step: number, total: number) => void;
   webcamSettings?: WebcamSettings;
+  /** Absolute path to webcam recording on disk (downloaded from R2 by caller). Null if no webcam. */
+  webcamPath?: string | null;
 };
 
 export type ComposeResult = {
-  videoUrl: string;
+  r2Key: string;
+  outputPath: string;
 };
-
-// Derives the absolute path to the webcam recording for this session.
-export function webcamVideoPath(presenter: string, sessionName: string): string {
-  return path.join(
-    process.cwd(),
-    "public",
-    "users",
-    presenter,
-    sessionName,
-    "recordings",
-    `${sessionName}_webcam.webm`
-  );
-}
 
 // Parse HH:MM:SS.ffffff timemark into seconds.
 function parseTimemark(mark: string): number {
@@ -197,26 +189,23 @@ function buildFilterComplex(vertical: WebcamVertical, horizontal: WebcamHorizont
 }
 
 export async function compositeSessionVideo(options: ComposeOptions): Promise<ComposeResult> {
-  const { presenter, sessionName, screenVideoPath, screenVideoUrl, durationMs, onProgress } = options;
+  const { presenter, sessionName, screenVideoPath, screenVideoR2Key, durationMs, onProgress } = options;
   const settings = options.webcamSettings ?? DEFAULT_WEBCAM_SETTINGS;
-  const webcamPath = webcamVideoPath(presenter, sessionName);
+  const webcamPath = options.webcamPath ?? null;
 
   // Off mode or no webcam file: return screen video as-is.
-  if (settings.webcamMode === 'off' || !existsSync(webcamPath)) {
+  if (settings.webcamMode === 'off' || !webcamPath || !existsSync(webcamPath)) {
     onProgress(10, 10);
-    return { videoUrl: screenVideoUrl };
+    return { r2Key: screenVideoR2Key, outputPath: screenVideoPath };
   }
 
   const durationSec = durationMs / 1000;
-  const renderingsDir = path.dirname(screenVideoPath);
+  const outputDir = path.dirname(screenVideoPath);
   const fileName = `${sessionName}-final-${Date.now()}-${randomUUID().slice(0, 8)}.mp4`;
-  const outputPath = path.join(renderingsDir, fileName);
-  const videoUrl = `/users/${presenter}/${sessionName}/renderings/${fileName}`;
+  const outputPath = path.join(outputDir, fileName);
+  const r2Key = `composites/${presenter}/${sessionName}/${fileName}`;
 
-  let args: string[];
-
-  // Both video and audio modes use the overlay filter (audio shows a mic icon badge).
-  args = [
+  const args = [
     "-i", screenVideoPath,
     "-i", webcamPath,
     "-filter_complex", buildFilterComplex(settings.webcamVertical, settings.webcamHorizontal, settings.webcamMode as 'video' | 'audio'),
@@ -246,7 +235,6 @@ export async function compositeSessionVideo(options: ComposeOptions): Promise<Co
       const lines = buf.split("\n");
       buf = lines.pop() ?? "";
       for (const line of lines) {
-        // -progress pipe:1 emits "out_time=HH:MM:SS.ffffff" each progress tick
         const match = line.match(/^out_time=(\d{2}:\d{2}:\d{2}\.\d+)/);
         if (match && durationSec > 0) {
           const elapsed = parseTimemark(match[1]);
@@ -272,7 +260,11 @@ export async function compositeSessionVideo(options: ComposeOptions): Promise<Co
     proc.on("error", reject);
   });
 
+  // Upload to R2
+  const videoBuffer = await readFile(outputPath);
+  await uploadToR2(r2Key, videoBuffer, "video/mp4");
+
   onProgress(100, 100);
-  return { videoUrl };
+  return { r2Key, outputPath };
 }
 

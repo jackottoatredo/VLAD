@@ -1,0 +1,6 @@
+node_modules
+.next
+public/users
+.env
+.env.local
+.claude

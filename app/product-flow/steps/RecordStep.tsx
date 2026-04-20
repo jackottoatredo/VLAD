@@ -1,11 +1,13 @@
 'use client'
 
 import PageLayout, { type NavButton } from '@/app/components/PageLayout'
+import Markdown from '@/app/components/Markdown'
 import RecordingFrame from '@/app/record/RecordingFrame'
 import WebcamOverlay from '@/app/record/WebcamOverlay'
 import WebcamControls from '@/app/components/WebcamControls'
 import { useUser } from '@/app/contexts/UserContext'
 import { useProductFlow } from '@/app/contexts/ProductFlowContext'
+import { productRecord } from '@/app/copy/instructions'
 
 const PRODUCTS = [
   { label: 'Returns & Claims', safe: 'returns-claims' },
@@ -39,9 +41,7 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
     <PageLayout
       navBack={navBack}
       navForward={navForward}
-      instructions={
-        <p>Select a product and start recording. Your mouse interactions and webcam will be captured.</p>
-      }
+      instructions={<Markdown>{productRecord}</Markdown>}
       settings={
         <div className="flex flex-col gap-3">
           <select

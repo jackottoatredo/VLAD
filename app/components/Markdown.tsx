@@ -1,0 +1,42 @@
+'use client'
+
+import ReactMarkdown from 'react-markdown'
+
+type Props = {
+  children: string
+  className?: string
+}
+
+export default function Markdown({ children, className = '' }: Props) {
+  return (
+    <div className={`space-y-2 text-sm text-zinc-600 dark:text-zinc-400 ${className}`}>
+      <ReactMarkdown
+        components={{
+          strong: ({ children }) => (
+            <strong className="font-semibold text-zinc-900 dark:text-zinc-100">{children}</strong>
+          ),
+          em: ({ children }) => <em className="italic">{children}</em>,
+          a: ({ href, children }) => (
+            <a
+              href={href}
+              className="text-zinc-900 underline underline-offset-2 hover:text-zinc-600 dark:text-zinc-200 dark:hover:text-zinc-400"
+              target={href?.startsWith('http') ? '_blank' : undefined}
+              rel={href?.startsWith('http') ? 'noreferrer' : undefined}
+            >
+              {children}
+            </a>
+          ),
+          ul: ({ children }) => <ul className="list-disc space-y-1 pl-4">{children}</ul>,
+          ol: ({ children }) => <ol className="list-decimal space-y-1 pl-4">{children}</ol>,
+          code: ({ children }) => (
+            <code className="rounded bg-zinc-100 px-1 py-0.5 font-mono text-xs text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200">
+              {children}
+            </code>
+          ),
+        }}
+      >
+        {children}
+      </ReactMarkdown>
+    </div>
+  )
+}

@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import PageLayout, { type NavButton } from '@/app/components/PageLayout'
+import Markdown from '@/app/components/Markdown'
 import MediaEditor from '@/app/components/MediaEditor'
 import { DEFAULT_FPS, MERCHANT_TARGET_URL } from '@/app/config'
 import { useUser } from '@/app/contexts/UserContext'
 import { useMerchantFlow } from '@/app/contexts/MerchantFlowContext'
+import { merchantPostprocess } from '@/app/copy/instructions'
 
 const POLL_MS = 500
 
@@ -148,13 +150,7 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
     <PageLayout
       navBack={navBack}
       navForward={navForward}
-      instructions={
-        <div className="space-y-2 text-sm text-zinc-600 dark:text-zinc-400">
-          <p>Review your merchant recording and trim any dead air from the start and end.</p>
-          <p>Drag the green handles to set in/out points, or use arrow keys for frame-by-frame precision.</p>
-          <p>Use the forward arrow to save to library.</p>
-        </div>
-      }
+      instructions={<Markdown>{merchantPostprocess}</Markdown>}
       settings={
         <div className="flex flex-col gap-3">
           <button

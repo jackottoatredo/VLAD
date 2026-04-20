@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import PageLayout, { type NavButton } from '@/app/components/PageLayout'
+import Markdown from '@/app/components/Markdown'
 import MediaEditor from '@/app/components/MediaEditor'
 import { DEFAULT_FPS, TARGET_URL } from '@/app/config'
 import { useUser } from '@/app/contexts/UserContext'
 import { useProductFlow } from '@/app/contexts/ProductFlowContext'
+import { productPostprocess } from '@/app/copy/instructions'
 
 const POLL_MS = 500
 
@@ -125,13 +127,7 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
     <PageLayout
       navBack={navBack}
       navForward={navForward}
-      instructions={
-        <div className="space-y-2 text-sm text-zinc-600 dark:text-zinc-400">
-          <p>Review your recording and trim any dead air from the start and end.</p>
-          <p>Drag the green handles to set in/out points, or use arrow keys for frame-by-frame precision.</p>
-          <p>Use the forward arrow to continue to brand previews.</p>
-        </div>
-      }
+      instructions={<Markdown>{productPostprocess}</Markdown>}
       settings={null}
     >
       <div className="flex flex-1 flex-col gap-4 overflow-hidden rounded-xl border border-zinc-300 p-4 dark:border-zinc-700">

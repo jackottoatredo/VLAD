@@ -2,10 +2,12 @@
 
 import { useEffect, useRef, useState } from 'react'
 import PageLayout, { type NavButton } from '@/app/components/PageLayout'
+import Markdown from '@/app/components/Markdown'
 import MediaPlayer from '@/app/components/MediaPlayer'
 import { TARGET_URL } from '@/app/config'
 import { useUser } from '@/app/contexts/UserContext'
 import { useProductFlow } from '@/app/contexts/ProductFlowContext'
+import { productPreview } from '@/app/copy/instructions'
 
 const BRANDS = ['allbirds.com', 'mammut.com', 'andcollar.com', 'adidas.com'] as const
 type Brand = (typeof BRANDS)[number]
@@ -167,7 +169,7 @@ export default function PreviewStep({ navBack, navForward }: Props) {
     <PageLayout
       navBack={navBack}
       navForward={navForward}
-      instructions={<p>Preview your recording rendered across multiple brands. Use the back arrow to adjust trim if needed.</p>}
+      instructions={<Markdown>{productPreview}</Markdown>}
       settings={
         <div className="flex flex-col gap-3">
           <button

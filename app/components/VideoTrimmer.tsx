@@ -202,59 +202,70 @@ export default function VideoTrimmer({ videoUrl, fps, onTrimChange, initialTrimS
 
       {/* Time display */}
       <div className="flex justify-between text-xs text-zinc-400 font-mono">
-        <span>In: {formatTime(trimStart)}</span>
+        <span>Start: {formatTime(trimStart)}</span>
         <span>{formatTime(playhead)}</span>
-        <span>Out: {formatTime(trimEnd)}</span>
+        <span>End: {formatTime(trimEnd)}</span>
       </div>
 
       {/* Timeline track */}
       <div
         ref={trackRef}
         data-track
-        className="relative h-6 w-full cursor-pointer select-none"
+        className="relative h-5 w-full cursor-pointer select-none bg-black"
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
       >
-        {/* Full bar — grey (cut/trimmed region) */}
-        <div className="absolute inset-x-0 top-[10px] h-[2px] bg-zinc-600" />
+        {/* Full video bounds — grey outline */}
+        <div className="pointer-events-none absolute inset-0 rounded-md border border-zinc-600" />
 
-        {/* Active region — white (kept region) */}
+        {/* Clip region (kept) — spans between the inner edges of the two handles */}
         <div
-          className="absolute top-[10px] h-[2px] bg-white"
-          style={{ left: `${pct(trimStart)}%`, width: `${pct(trimEnd) - pct(trimStart)}%` }}
+          className="pointer-events-none absolute top-0 bottom-0 border-y border-[#FF4405] bg-[#932500]"
+          style={{
+            left: `calc(${pct(trimStart)}% + 8px)`,
+            width: `calc(${pct(trimEnd) - pct(trimStart)}% - 16px)`,
+          }}
         />
 
-        {/* Start handle — black square, white border, rounded */}
+        {/* Start handle — overlaps the left edge of the clip */}
         <div
           data-handle="start"
           tabIndex={0}
           onKeyDown={(e) => handleKeyDown(e, 'start')}
-          className="absolute top-[3px] h-4 w-3 -ml-1.5 rounded-sm border border-white bg-black cursor-ew-resize outline-none focus:ring-1 focus:ring-white/50"
+          className="absolute top-0 bottom-0 flex w-2 items-center justify-center rounded-l-md bg-[#FF4405] cursor-ew-resize outline-none focus:ring-1 focus:ring-white/50"
           style={{ left: `${pct(trimStart)}%` }}
-        />
+        >
+          <span className="pointer-events-none block h-[calc(100%-8px)] w-0.5 rounded-full bg-[#932500]" />
+        </div>
 
-        {/* End handle — black square, white border, rounded */}
+        {/* End handle — overlaps the right edge of the clip */}
         <div
           data-handle="end"
           tabIndex={0}
           onKeyDown={(e) => handleKeyDown(e, 'end')}
-          className="absolute top-[3px] h-4 w-3 -ml-1.5 rounded-sm border border-white bg-black cursor-ew-resize outline-none focus:ring-1 focus:ring-white/50"
-          style={{ left: `${pct(trimEnd)}%` }}
-        />
+          className="absolute top-0 bottom-0 flex w-2 items-center justify-center rounded-r-md bg-[#FF4405] cursor-ew-resize outline-none focus:ring-1 focus:ring-white/50"
+          style={{ left: `${pct(trimEnd)}%`, transform: 'translateX(-100%)' }}
+        >
+          <span className="pointer-events-none block h-[calc(100%-8px)] w-0.5 rounded-full bg-[#932500]" />
+        </div>
 
-        {/* Playhead — white circle */}
+        {/* Playhead — line drawn on top of handles, with white circle bump */}
         <div
-          data-handle="playhead"
-          tabIndex={0}
-          onKeyDown={(e) => handleKeyDown(e, 'playhead')}
-          className="absolute top-[6px] h-[10px] w-[10px] -ml-[5px] rounded-full bg-white cursor-grab outline-none focus:ring-1 focus:ring-white/50"
+          className="pointer-events-none absolute top-0 bottom-0 w-[2px] -ml-px bg-white"
           style={{ left: `${pct(playhead)}%` }}
-        />
+        >
+          <div
+            data-handle="playhead"
+            tabIndex={0}
+            onKeyDown={(e) => handleKeyDown(e, 'playhead')}
+            className="pointer-events-auto absolute left-1/2 -top-[2.5px] h-[5px] w-[5px] -translate-x-1/2 rounded-full bg-white cursor-grab outline-none focus:ring-1 focus:ring-white/50"
+          />
+        </div>
       </div>
 
       {/* Transport controls */}
-      <div className="flex items-center justify-center gap-3">
+      <div className="flex items-center justify-center gap-1 -mt-1.5">
         {/* Jump to start */}
         <button
           onClick={jumpToStart}
@@ -270,7 +281,7 @@ export default function VideoTrimmer({ videoUrl, fps, onTrimChange, initialTrimS
         {/* Play / Pause */}
         <button
           onClick={togglePlay}
-          className="flex h-8 w-8 items-center justify-center rounded-full border border-zinc-600 text-zinc-300 hover:text-white hover:border-zinc-400 transition-colors"
+          className="flex h-8 w-8 items-center justify-center text-zinc-300 hover:text-white transition-colors"
           title={isPlaying ? 'Pause' : 'Play'}
         >
           {isPlaying ? (

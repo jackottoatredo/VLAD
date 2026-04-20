@@ -11,6 +11,7 @@ import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { TARGET_URL, MERCHANT_TARGET_URL } from "@/app/config";
+import { type WebcamSettings, DEFAULT_WEBCAM_SETTINGS } from "@/types/webcam";
 
 export const runtime = "nodejs";
 
@@ -221,10 +222,16 @@ export async function GET(request: Request) {
   });
 }
 
-function extractWebcamSettings(meta: Record<string, unknown>) {
+function extractWebcamSettings(meta: Record<string, unknown>): WebcamSettings {
   return {
-    webcamMode: (typeof meta.webcamMode === "string" ? meta.webcamMode : "off") as "video" | "audio" | "off",
-    webcamVertical: (typeof meta.webcamVertical === "string" ? meta.webcamVertical : "bottom") as "top" | "bottom",
-    webcamHorizontal: (typeof meta.webcamHorizontal === "string" ? meta.webcamHorizontal : "right") as "left" | "right",
+    webcamMode: typeof meta.webcamMode === "string" && ["video", "audio", "off"].includes(meta.webcamMode)
+      ? meta.webcamMode as WebcamSettings["webcamMode"]
+      : DEFAULT_WEBCAM_SETTINGS.webcamMode,
+    webcamVertical: typeof meta.webcamVertical === "string" && ["top", "bottom"].includes(meta.webcamVertical)
+      ? meta.webcamVertical as WebcamSettings["webcamVertical"]
+      : DEFAULT_WEBCAM_SETTINGS.webcamVertical,
+    webcamHorizontal: typeof meta.webcamHorizontal === "string" && ["left", "right"].includes(meta.webcamHorizontal)
+      ? meta.webcamHorizontal as WebcamSettings["webcamHorizontal"]
+      : DEFAULT_WEBCAM_SETTINGS.webcamHorizontal,
   };
 }

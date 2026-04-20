@@ -6,8 +6,7 @@ const CACHE_TTL_SECONDS = Number(process.env.RENDER_CACHE_TTL ?? 86400); // 24 h
 // Shared IORedis instance for cache operations (separate from BullMQ's internal connections)
 const g = globalThis as unknown as { __cacheRedis?: Redis };
 const redis = (g.__cacheRedis ??= new Redis({
-  host: REDIS_CONNECTION.host,
-  port: REDIS_CONNECTION.port,
+  ...(REDIS_CONNECTION as Record<string, unknown>),
   maxRetriesPerRequest: null,
   lazyConnect: true,
 }));

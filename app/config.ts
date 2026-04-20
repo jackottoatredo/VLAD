@@ -1,6 +1,6 @@
 // export const TARGET_URL = "http://localhost:1111/";
-export const TARGET_URL = "http://search.redo.com/record/"
-export const MERCHANT_TARGET_URL = "http://search.redo.com/record"
+export const TARGET_URL = "https://search.redo.com/record/"
+export const MERCHANT_TARGET_URL = "https://search.redo.com/record"
 export const VIRTUAL_WIDTH = 1920;
 export const VIRTUAL_HEIGHT = 1080;
 export const VIDEO_WIDTH = 1920;

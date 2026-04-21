@@ -45,25 +45,25 @@ export default function MultiSelect({ options, selected, onChange, placeholder =
       <button
         type="button"
         onClick={() => setOpen((p) => !p)}
-        className="flex w-full items-center justify-between rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-left text-sm outline-none focus:border-zinc-500"
+        className="flex w-full items-center justify-between rounded-lg border border-border bg-background px-3 py-2 text-left text-sm outline-none focus:border-muted"
       >
-        <span className={selected.size === 0 ? 'text-zinc-500' : 'text-zinc-200'}>{label}</span>
-        <span className="text-xs text-zinc-500">{open ? '▲' : '▼'}</span>
+        <span className={selected.size === 0 ? 'text-muted' : 'text-foreground'}>{label}</span>
+        <span className="text-xs text-muted">{open ? '▲' : '▼'}</span>
       </button>
 
       {open && (
-        <div className="absolute z-10 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-900 py-1">
+        <div className="absolute z-10 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border border-border bg-surface py-1 shadow-md">
           {options.map((o) => (
             <button
               key={o.value}
               type="button"
               onClick={() => toggle(o.value)}
-              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-zinc-300 transition-colors hover:bg-zinc-800"
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-muted transition-colors hover:bg-background hover:text-foreground"
             >
               <span className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border ${
                 selected.has(o.value)
-                  ? 'border-zinc-400 bg-zinc-400 text-zinc-900'
-                  : 'border-zinc-600'
+                  ? 'border-foreground bg-foreground text-background'
+                  : 'border-border'
               }`}>
                 {selected.has(o.value) && <span className="text-[10px] leading-none">✓</span>}
               </span>

@@ -37,12 +37,12 @@ export default function PreviewModal({ title, videoUrl, downloadName, onClose, o
 
   return (
     <Modal title={title} onClose={onClose} size="lg">
-      <div className="aspect-video w-full overflow-hidden rounded-lg bg-zinc-800">
+      <div className="aspect-video w-full overflow-hidden rounded-lg bg-background">
         {streamUrl ? (
           <video src={streamUrl} controls className="h-full w-full object-contain" />
         ) : (
           <div className="flex h-full w-full items-center justify-center">
-            <p className="text-sm text-zinc-500">Media preview coming soon</p>
+            <p className="text-sm text-muted">Media preview coming soon</p>
           </div>
         )}
       </div>
@@ -50,7 +50,7 @@ export default function PreviewModal({ title, videoUrl, downloadName, onClose, o
         {videoUrl && (
           <button
             onClick={handleCopy}
-            className={`transition-colors ${copied ? 'text-green-500' : 'text-zinc-500 hover:text-zinc-200'}`}
+            className={`transition-colors ${copied ? 'text-green-500' : 'text-muted hover:text-foreground'}`}
           >
             {copied ? (
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
@@ -63,7 +63,7 @@ export default function PreviewModal({ title, videoUrl, downloadName, onClose, o
           <a
             href={downloadUrl}
             download={downloadName ? `${downloadName}.mp4` : true}
-            className="text-zinc-500 transition-colors hover:text-zinc-200"
+            className="text-muted transition-colors hover:text-foreground"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           </a>
@@ -71,7 +71,7 @@ export default function PreviewModal({ title, videoUrl, downloadName, onClose, o
         {onDelete && (
           <button
             onClick={onDelete}
-            className="text-zinc-500 transition-colors hover:text-red-500"
+            className="text-muted transition-colors hover:text-red-500"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
           </button>

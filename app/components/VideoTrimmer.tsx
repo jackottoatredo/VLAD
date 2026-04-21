@@ -195,7 +195,7 @@ export default function VideoTrimmer({ videoUrl, fps, onTrimChange, initialTrimS
   return (
     <div className="flex flex-col gap-3">
       {/* Video display */}
-      <div className="w-full overflow-hidden rounded-lg bg-black">
+      <div className="w-full overflow-hidden rounded-lg bg-background">
         <video
           ref={videoRef}
           src={videoUrl}
@@ -205,7 +205,7 @@ export default function VideoTrimmer({ videoUrl, fps, onTrimChange, initialTrimS
       </div>
 
       {/* Time display */}
-      <div className="flex justify-between text-xs text-zinc-400 font-mono">
+      <div className="flex justify-between text-xs text-muted font-mono">
         <span>Start: {formatTime(trimStart)}</span>
         <span>{formatTime(playhead)}</span>
         <span>End: {formatTime(trimEnd)}</span>
@@ -215,17 +215,17 @@ export default function VideoTrimmer({ videoUrl, fps, onTrimChange, initialTrimS
       <div
         ref={trackRef}
         data-track
-        className="relative h-5 w-full cursor-pointer select-none bg-black"
+        className="relative h-5 w-full cursor-pointer select-none bg-background"
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
       >
         {/* Full video bounds — grey outline */}
-        <div className="pointer-events-none absolute inset-0 rounded-md border border-zinc-600" />
+        <div className="pointer-events-none absolute inset-0 rounded-md border border-border" />
 
         {/* Clip region (kept) — spans between the inner edges of the two handles */}
         <div
-          className="pointer-events-none absolute top-0 bottom-0 border-y border-[#FF4405] bg-[#932500]"
+          className="pointer-events-none absolute top-0 bottom-0 border-y border-accent bg-accent-soft"
           style={{
             left: `calc(${pct(trimStart)}% + 8px)`,
             width: `calc(${pct(trimEnd) - pct(trimStart)}% - 16px)`,
@@ -237,10 +237,10 @@ export default function VideoTrimmer({ videoUrl, fps, onTrimChange, initialTrimS
           data-handle="start"
           tabIndex={0}
           onKeyDown={(e) => handleKeyDown(e, 'start')}
-          className="absolute top-0 bottom-0 flex w-2 items-center justify-center rounded-l-md bg-[#FF4405] cursor-ew-resize outline-none focus:ring-1 focus:ring-white/50"
+          className="absolute top-0 bottom-0 flex w-2 items-center justify-center rounded-l-md bg-accent cursor-ew-resize outline-none focus:ring-1 focus:ring-foreground/50"
           style={{ left: `${pct(trimStart)}%` }}
         >
-          <span className="pointer-events-none block h-[calc(100%-8px)] w-0.5 rounded-full bg-[#932500]" />
+          <span className="pointer-events-none block h-[calc(100%-8px)] w-0.5 rounded-full bg-background/60" />
         </div>
 
         {/* End handle — overlaps the right edge of the clip */}
@@ -248,22 +248,22 @@ export default function VideoTrimmer({ videoUrl, fps, onTrimChange, initialTrimS
           data-handle="end"
           tabIndex={0}
           onKeyDown={(e) => handleKeyDown(e, 'end')}
-          className="absolute top-0 bottom-0 flex w-2 items-center justify-center rounded-r-md bg-[#FF4405] cursor-ew-resize outline-none focus:ring-1 focus:ring-white/50"
+          className="absolute top-0 bottom-0 flex w-2 items-center justify-center rounded-r-md bg-accent cursor-ew-resize outline-none focus:ring-1 focus:ring-foreground/50"
           style={{ left: `${pct(trimEnd)}%`, transform: 'translateX(-100%)' }}
         >
-          <span className="pointer-events-none block h-[calc(100%-8px)] w-0.5 rounded-full bg-[#932500]" />
+          <span className="pointer-events-none block h-[calc(100%-8px)] w-0.5 rounded-full bg-background/60" />
         </div>
 
-        {/* Playhead — line drawn on top of handles, with white circle bump */}
+        {/* Playhead — line drawn on top of handles, with circle bump */}
         <div
-          className="pointer-events-none absolute top-0 bottom-0 w-[2px] -ml-px bg-white"
+          className="pointer-events-none absolute top-0 bottom-0 w-[2px] -ml-px bg-foreground"
           style={{ left: `${pct(playhead)}%` }}
         >
           <div
             data-handle="playhead"
             tabIndex={0}
             onKeyDown={(e) => handleKeyDown(e, 'playhead')}
-            className="pointer-events-auto absolute left-1/2 -top-[2.5px] h-[5px] w-[5px] -translate-x-1/2 rounded-full bg-white cursor-grab outline-none focus:ring-1 focus:ring-white/50"
+            className="pointer-events-auto absolute left-1/2 -top-[2.5px] h-[5px] w-[5px] -translate-x-1/2 rounded-full bg-foreground cursor-grab outline-none focus:ring-1 focus:ring-foreground/50"
           />
         </div>
       </div>
@@ -273,7 +273,7 @@ export default function VideoTrimmer({ videoUrl, fps, onTrimChange, initialTrimS
         {/* Jump to start */}
         <button
           onClick={jumpToStart}
-          className="flex h-7 w-7 items-center justify-center rounded text-zinc-400 hover:text-white transition-colors"
+          className="flex h-7 w-7 items-center justify-center rounded text-muted hover:text-foreground transition-colors"
           title="Jump to start"
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
@@ -285,7 +285,7 @@ export default function VideoTrimmer({ videoUrl, fps, onTrimChange, initialTrimS
         {/* Play / Pause */}
         <button
           onClick={togglePlay}
-          className="flex h-8 w-8 items-center justify-center text-zinc-300 hover:text-white transition-colors"
+          className="flex h-8 w-8 items-center justify-center text-muted hover:text-foreground transition-colors"
           title={isPlaying ? 'Pause' : 'Play'}
         >
           {isPlaying ? (
@@ -303,7 +303,7 @@ export default function VideoTrimmer({ videoUrl, fps, onTrimChange, initialTrimS
         {/* Jump to end */}
         <button
           onClick={jumpToEnd}
-          className="flex h-7 w-7 items-center justify-center rounded text-zinc-400 hover:text-white transition-colors"
+          className="flex h-7 w-7 items-center justify-center rounded text-muted hover:text-foreground transition-colors"
           title="Jump to end"
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">

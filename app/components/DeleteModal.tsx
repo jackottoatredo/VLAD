@@ -11,13 +11,13 @@ type Props = {
 export default function DeleteModal({ name, onConfirm, onClose }: Props) {
   return (
     <Modal title="Confirm Delete" onClose={onClose}>
-      <p className="text-sm text-zinc-400">
-        Are you sure you want to delete <span className="text-zinc-200">{name}</span>?
+      <p className="text-sm text-muted">
+        Are you sure you want to delete <span className="text-foreground">{name}</span>?
       </p>
       <div className="mt-4 flex gap-3">
         <button
           onClick={onClose}
-          className="flex-1 rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-400 transition-colors hover:border-zinc-500 hover:text-zinc-200"
+          className="flex-1 rounded-lg border border-border px-4 py-2 text-sm text-muted transition-colors hover:border-muted hover:text-foreground"
         >
           Cancel
         </button>

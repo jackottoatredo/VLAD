@@ -175,18 +175,18 @@ export default function PreviewStep({ navBack, navForward }: Props) {
           <button
             onClick={handlePlayAll}
             disabled={!allDone}
-            className="w-full rounded-md bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+            className="w-full rounded-md bg-foreground px-4 py-1.5 text-sm font-medium text-background shadow-sm hover:opacity-80 disabled:opacity-50"
           >
             Play All
           </button>
           <button
             onClick={handleSave}
             disabled={!allDone || saveStatus === 'saving' || saveStatus === 'saved'}
-            className="w-full rounded-md border border-zinc-300 bg-white px-4 py-1.5 text-sm font-medium text-zinc-700 shadow-sm hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            className="w-full rounded-md border border-border bg-surface px-4 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-background disabled:opacity-50"
           >
             {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? 'Saved' : 'Save'}
           </button>
-          {saveStatus === 'error' && <p className="text-xs text-red-600 dark:text-red-400">{saveError}</p>}
+          {saveStatus === 'error' && <p className="text-xs text-red-500">{saveError}</p>}
         </div>
       }
     >
@@ -194,8 +194,8 @@ export default function PreviewStep({ navBack, navForward }: Props) {
         {BRANDS.map((brand) => {
           const bj = brandJobs[brand]
           return (
-            <div key={brand} className="flex flex-col rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+            <div key={brand} className="flex flex-col rounded-2xl border border-border bg-surface p-4 shadow-md">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">
                 {brand}
               </p>
               <div className="flex flex-1 items-center justify-center">

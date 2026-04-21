@@ -7,6 +7,7 @@ import { compositeSessionVideo } from "@/lib/compose/compose";
 import { type RenderAction } from "@/lib/render/actions";
 import { type WebcamSettings } from "@/types/webcam";
 import { uploadToR2 } from "@/lib/storage/r2";
+import { VIRTUAL_PREVIEW_SCALE_FACTOR, PREVIEW_DOWNSCALE_FACTOR } from "@/app/config";
 
 const FFMPEG_BIN = resolvedFfmpegPath ?? "ffmpeg";
 
@@ -40,6 +41,10 @@ export type ProduceOptions = {
   existingRenderDurationMs?: number;
   existingCompositeR2Key?: string;
   existingCompositeOutputPath?: string; // local temp path — required if startFromStep >= 3
+
+  // Quality tier — preview reduces render DPR, applies ffmpeg downscale, and shrinks
+  // the webcam overlay proportionally so it still fits the smaller screen video.
+  preview?: boolean;
 };
 
 export type ProduceResult = {
@@ -120,6 +125,7 @@ export async function produceSessionVideo(options: ProduceOptions): Promise<Prod
       actions: options.actions,
       onProgress: options.onRenderProgress,
       settleHint: options.settleHint,
+      preview: options.preview,
     });
     renderR2Key = renderResult.videoUrl; // now an R2 key
     renderOutputPath = renderResult.outputPath;
@@ -136,6 +142,12 @@ export async function produceSessionVideo(options: ProduceOptions): Promise<Prod
   let compositeOutputPath: string;
 
   if (step <= 2) {
+    // In preview mode the screen video is ~1/4 × 1/4 of virtual pixels; shrink the
+    // webcam badge by the same factor so it sits correctly and doesn't clip.
+    const overlayScaleFactor = options.preview
+      ? VIRTUAL_PREVIEW_SCALE_FACTOR / PREVIEW_DOWNSCALE_FACTOR
+      : 1;
+
     const composeResult = await compositeSessionVideo({
       presenter: options.presenter,
       sessionName: options.sessionName,
@@ -145,6 +157,7 @@ export async function produceSessionVideo(options: ProduceOptions): Promise<Prod
       onProgress: options.onComposeProgress ?? (() => {}),
       webcamSettings: options.webcamSettings,
       webcamPath: options.webcamPath,
+      overlayScaleFactor,
     });
     compositeR2Key = composeResult.r2Key;
     compositeOutputPath = composeResult.outputPath;

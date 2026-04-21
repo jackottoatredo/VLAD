@@ -100,6 +100,7 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
           webcamVertical: webcamSettings.webcamVertical,
           webcamHorizontal: webcamSettings.webcamHorizontal,
           trimStartSec, trimEndSec,
+          preview: true,
         }),
       })
       const data = (await res.json()) as { jobId?: string; videoUrl?: string; videoR2Key?: string; error?: string }
@@ -174,6 +175,7 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
           onTrimChange={handleTrimChange}
           initialTrimStart={trimStartSec}
           initialTrimEnd={trimEndSec}
+          quality="preview"
         />
       </div>
     </PageLayout>

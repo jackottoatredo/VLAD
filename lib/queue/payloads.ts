@@ -49,6 +49,9 @@ export type ProduceJobPayload = {
   mouseHash: string;
   wcFingerprint: string;
   trimKeyStr: string;
+
+  // Preview quality tier (true → reduced DPR + FFmpeg downscale). Separate cache from full.
+  preview: boolean;
 };
 
 /** Per-recording data for merge jobs, prepared by the API route. */

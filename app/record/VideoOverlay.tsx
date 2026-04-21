@@ -10,7 +10,7 @@ import {
 import { useFrameScale } from '@/app/record/RecordingFrame'
 
 type Props = {
-  videoRef: React.RefObject<HTMLVideoElement | null>
+  videoRef: React.Ref<HTMLVideoElement>
   vertical: WebcamVertical
   horizontal: WebcamHorizontal
   mirror?: boolean

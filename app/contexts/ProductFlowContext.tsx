@@ -23,6 +23,9 @@ type ProductFlowState = {
   postprocessVideoUrl: string | null;
   postprocessVideoR2Key: string | null;
   brandVideoUrls: Record<string, string>;
+  // In-flight BullMQ job IDs for eager preview renders. Cleared as URLs resolve.
+  postprocessJobId: string | null;
+  brandJobIds: Record<string, string>;
   savedToLibrary: boolean;
 };
 
@@ -33,6 +36,9 @@ type ProductFlowContextValue = ProductFlowState & {
   setTrim: (startSec: number, endSec: number) => void;
   setPostprocessVideoUrl: (url: string | null, r2Key?: string | null) => void;
   setBrandVideoUrl: (brand: string, url: string) => void;
+  setPostprocessJobId: (jobId: string | null) => void;
+  setBrandJobId: (brand: string, jobId: string | null) => void;
+  getActiveJobIds: () => string[];
   clearResults: () => void;
   markSaved: () => void;
   reset: () => void;
@@ -50,6 +56,8 @@ function initialState(): ProductFlowState {
     postprocessVideoUrl: null,
     postprocessVideoR2Key: null,
     brandVideoUrls: {},
+    postprocessJobId: null,
+    brandJobIds: {},
     savedToLibrary: false,
   };
 }
@@ -59,7 +67,9 @@ function loadState(): ProductFlowState {
   try {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return initialState();
-    return JSON.parse(raw) as ProductFlowState;
+    // Merge onto a fresh initialState so fields added to the state shape after this
+    // blob was persisted (e.g. postprocessJobId, brandJobIds) are present as defaults.
+    return { ...initialState(), ...(JSON.parse(raw) as Partial<ProductFlowState>) };
   } catch {
     return initialState();
   }
@@ -92,7 +102,9 @@ export function ProductFlowContextProvider({ children }: { children: ReactNode }
   const setWebcamSettings = useCallback((settings: WebcamSettings) => {
     setState((prev) => ({
       ...prev, webcamSettings: settings,
-      postprocessVideoUrl: null, postprocessVideoR2Key: null, brandVideoUrls: {}, savedToLibrary: false,
+      postprocessVideoUrl: null, postprocessVideoR2Key: null, brandVideoUrls: {},
+      postprocessJobId: null, brandJobIds: {},
+      savedToLibrary: false,
     }));
   }, []);
 
@@ -113,10 +125,35 @@ export function ProductFlowContextProvider({ children }: { children: ReactNode }
     }));
   }, []);
 
+  const setPostprocessJobId = useCallback((jobId: string | null) => {
+    setState((prev) => ({ ...prev, postprocessJobId: jobId }));
+  }, []);
+
+  const setBrandJobId = useCallback((brand: string, jobId: string | null) => {
+    setState((prev) => {
+      const next = { ...prev.brandJobIds };
+      if (jobId) next[brand] = jobId;
+      else delete next[brand];
+      return { ...prev, brandJobIds: next };
+    });
+  }, []);
+
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const getActiveJobIds = useCallback(() => {
+    const s = stateRef.current;
+    const ids: string[] = [];
+    if (s.postprocessJobId) ids.push(s.postprocessJobId);
+    for (const v of Object.values(s.brandJobIds)) if (v) ids.push(v);
+    return ids;
+  }, []);
+
   const clearResults = useCallback(() => {
     setState((prev) => ({
       ...prev, trimStartSec: 0, trimEndSec: 0,
-      postprocessVideoUrl: null, postprocessVideoR2Key: null, brandVideoUrls: {}, savedToLibrary: false,
+      postprocessVideoUrl: null, postprocessVideoR2Key: null, brandVideoUrls: {},
+      postprocessJobId: null, brandJobIds: {},
+      savedToLibrary: false,
     }));
   }, []);
 
@@ -135,9 +172,11 @@ export function ProductFlowContextProvider({ children }: { children: ReactNode }
     () => ({
       ...state,
       setStep, setProduct, setWebcamSettings, setTrim,
-      setPostprocessVideoUrl, setBrandVideoUrl, clearResults, markSaved, reset,
+      setPostprocessVideoUrl, setBrandVideoUrl,
+      setPostprocessJobId, setBrandJobId, getActiveJobIds,
+      clearResults, markSaved, reset,
     }),
-    [state, setStep, setProduct, setWebcamSettings, setTrim, setPostprocessVideoUrl, setBrandVideoUrl, clearResults, markSaved, reset],
+    [state, setStep, setProduct, setWebcamSettings, setTrim, setPostprocessVideoUrl, setBrandVideoUrl, setPostprocessJobId, setBrandJobId, getActiveJobIds, clearResults, markSaved, reset],
   );
 
   return <ProductFlowContext.Provider value={value}>{children}</ProductFlowContext.Provider>;

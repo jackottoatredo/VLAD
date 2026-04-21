@@ -32,6 +32,9 @@ export type ComposeOptions = {
   webcamSettings?: WebcamSettings;
   /** Absolute path to webcam recording on disk (downloaded from R2 by caller). Null if no webcam. */
   webcamPath?: string | null;
+  /** Multiplier applied to overlay virtual-pixel dimensions — matches the screen video's
+   *  downscale so the badge stays proportional to the video edges. Defaults to 1. */
+  overlayScaleFactor?: number;
 };
 
 export type ComposeResult = {
@@ -113,11 +116,12 @@ function micIconAlpha(D: number): string {
  * instead of `[0:v]`.  This allows prepending a crop+scale step that feeds
  * its output into the badge overlay (e.g. for postprocess compositing).
  */
-function buildFilterComplex(vertical: WebcamVertical, horizontal: WebcamHorizontal, mode: 'video' | 'audio' = 'video', baseLabel?: string): string {
-  const D   = WEBCAM_OVERLAY_DIAMETER;
-  const B   = WEBCAM_BORDER_THICKNESS;
-  const SR  = WEBCAM_SHADOW_RADIUS;
-  const PAD = WEBCAM_OVERLAY_MARGIN;
+function buildFilterComplex(vertical: WebcamVertical, horizontal: WebcamHorizontal, mode: 'video' | 'audio' = 'video', baseLabel?: string, overlayScaleFactor: number = 1): string {
+  const s   = overlayScaleFactor;
+  const D   = Math.max(2, Math.round(WEBCAM_OVERLAY_DIAMETER  * s));
+  const B   = Math.max(1, Math.round(WEBCAM_BORDER_THICKNESS  * s));
+  const SR  = Math.max(1, Math.round(WEBCAM_SHADOW_RADIUS     * s));
+  const PAD = Math.max(1, Math.round(WEBCAM_OVERLAY_MARGIN    * s));
 
   const plateSize    = D + 2 * B;                           //  128 — orange plate diameter
   const shadowSigma  = Math.round(SR / 3);                  //    4 — gaussian blur sigma
@@ -208,7 +212,7 @@ export async function compositeSessionVideo(options: ComposeOptions): Promise<Co
   const args = [
     "-i", screenVideoPath,
     "-i", webcamPath,
-    "-filter_complex", buildFilterComplex(settings.webcamVertical, settings.webcamHorizontal, settings.webcamMode as 'video' | 'audio'),
+    "-filter_complex", buildFilterComplex(settings.webcamVertical, settings.webcamHorizontal, settings.webcamMode as 'video' | 'audio', undefined, options.overlayScaleFactor ?? 1),
     "-map", "[out]",
     "-map", "1:a",
     "-c:v", "libx264",

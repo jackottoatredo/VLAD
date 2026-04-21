@@ -17,22 +17,37 @@ type RelayEvent = {
 
 type UseRecordingOpts = {
   webcamMode: WebcamMode;
-  onSaved?: () => void;
 };
 
-export function useRecording({ webcamMode, onSaved }: UseRecordingOpts) {
+type PendingRecording = {
+  dn: string;
+  presenter: string;
+  recordedAt: string;
+  events: RelayEvent[];
+  webcamBlob: Blob | null;
+};
+
+export function useRecording({ webcamMode }: UseRecordingOpts) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
-  const webcamVideoRef = useRef<HTMLVideoElement | null>(null);
+  const videoElRef = useRef<HTMLVideoElement | null>(null);
   const eventsRef = useRef<RelayEvent[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingKey, setRecordingKey] = useState(0);
   const [countdown, setCountdown] = useState<number | null>(null);
+  // 'idle'      → nothing in flight
+  // 'uploading' → stop() called, mouse.json + webcam.webm being POSTed to R2
+  // 'ready'     → uploads done, awaiting user confirmation (Record Again vs Continue)
+  const [uploadStatus, setUploadStatus] = useState<"idle" | "uploading" | "ready">("idle");
   const countdownTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   // Snapshot refs for async save
   const dirNameRef = useRef("");
   const presenterRef = useRef("");
   const recordingStartedAt = useRef("");
+
+  // Captured recording held in memory after stop() until the user confirms via commit()
+  // or discards via start() (Record Again).
+  const pendingRef = useRef<PendingRecording | null>(null);
 
   // Webcam
   const streamRef = useRef<MediaStream | null>(null);
@@ -56,14 +71,18 @@ export function useRecording({ webcamMode, onSaved }: UseRecordingOpts) {
     if (webcamMode === "off") {
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
-      if (webcamVideoRef.current) webcamVideoRef.current.srcObject = null;
+      if (videoElRef.current) videoElRef.current.srcObject = null;
       return;
     }
     navigator.mediaDevices
       .getUserMedia({ video: true, audio: true })
       .then((stream) => {
         streamRef.current = stream;
-        if (webcamVideoRef.current) webcamVideoRef.current.srcObject = stream;
+        const el = videoElRef.current;
+        if (el) {
+          el.srcObject = stream;
+          el.play().catch(() => {});
+        }
       })
       .catch(() => {});
     return () => {
@@ -71,12 +90,25 @@ export function useRecording({ webcamMode, onSaved }: UseRecordingOpts) {
     };
   }, [webcamMode]);
 
+  // Ref callback: re-binds srcObject every time the <video> element mounts.
+  // Fixes blank webcam when returning to the record step — useRecording lives
+  // at the wizard level so the stream persists, but the video element is
+  // recreated on each RecordStep mount.
+  const webcamVideoRef = useCallback((el: HTMLVideoElement | null) => {
+    videoElRef.current = el;
+    if (el && streamRef.current) {
+      el.srcObject = streamRef.current;
+      el.play().catch(() => {});
+    }
+  }, []);
+
   const beginRecording = useCallback((presenter: string, identifier: string) => {
     const dn = `${presenter}_${identifier}`;
     dirNameRef.current = dn;
     presenterRef.current = presenter;
     recordingStartedAt.current = new Date().toISOString();
     eventsRef.current = [{ eventType: "recording-start", x: 0, y: 0, buttons: 0, timestamp: performance.now() }];
+    setUploadStatus("idle");
     setIsRecording(true);
 
     if (streamRef.current) {
@@ -98,6 +130,11 @@ export function useRecording({ webcamMode, onSaved }: UseRecordingOpts) {
 
   const start = useCallback((presenter: string, identifier: string) => {
     clearCountdown();
+    // Clear the confirmation guard immediately so "Record Again" doesn't leave the
+    // overlay visible during the 3s countdown. Also discard any prior take — its
+    // mouse events + webcam blob haven't been uploaded yet, so they die here.
+    setUploadStatus("idle");
+    pendingRef.current = null;
     setRecordingKey((k) => k + 1); // refresh iframe immediately
     setCountdown(3);
     const timeouts = [
@@ -117,37 +154,65 @@ export function useRecording({ webcamMode, onSaved }: UseRecordingOpts) {
     const dn = dirNameRef.current;
     const presenter = presenterRef.current;
 
-    const mousePromise = fetch("/api/save-session", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        session: dn,
-        presenter,
-        recordedAt: recordingStartedAt.current,
-        virtualWidth: IFRAME_WIDTH,
-        virtualHeight: IFRAME_HEIGHT,
-        events: eventsRef.current,
-      }),
-    });
-
-    const webcamPromise = new Promise<void>((resolve) => {
+    // Finalize the webcam blob from whatever MediaRecorder buffered, but don't upload.
+    const webcamBlob = await new Promise<Blob | null>((resolve) => {
       const mr = mediaRecorderRef.current;
-      if (!mr || mr.state === "inactive") { resolve(); return; }
-      mr.onstop = async () => {
-        const blob = new Blob(webcamChunksRef.current, { type: "video/webm" });
-        const fd = new FormData();
-        fd.append("session", dn);
-        fd.append("presenter", presenter);
-        fd.append("video", blob, `${dn}_webcam.webm`);
-        await fetch("/api/save-webcam", { method: "POST", body: fd }).catch(() => {});
-        resolve();
+      if (!mr || mr.state === "inactive") { resolve(null); return; }
+      mr.onstop = () => {
+        resolve(new Blob(webcamChunksRef.current, { type: "video/webm" }));
       };
       mr.stop();
     });
 
-    await Promise.all([mousePromise, webcamPromise]);
-    onSaved?.();
-  }, [onSaved, clearCountdown]);
+    pendingRef.current = {
+      dn,
+      presenter,
+      recordedAt: recordingStartedAt.current,
+      events: eventsRef.current,
+      webcamBlob,
+    };
+    setUploadStatus("ready");
+  }, [clearCountdown]);
+
+  // Upload the pending recording to R2. Caller awaits this before doing anything that
+  // depends on the session blobs being in storage (e.g. enqueueing produce jobs).
+  const commit = useCallback(async (): Promise<boolean> => {
+    const pending = pendingRef.current;
+    if (!pending) return false;
+    setUploadStatus("uploading");
+    try {
+      const mousePromise = fetch("/api/save-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session: pending.dn,
+          presenter: pending.presenter,
+          recordedAt: pending.recordedAt,
+          virtualWidth: IFRAME_WIDTH,
+          virtualHeight: IFRAME_HEIGHT,
+          events: pending.events,
+        }),
+      });
+
+      const webcamPromise: Promise<unknown> = pending.webcamBlob
+        ? (() => {
+            const fd = new FormData();
+            fd.append("session", pending.dn);
+            fd.append("presenter", pending.presenter);
+            fd.append("video", pending.webcamBlob, `${pending.dn}_webcam.webm`);
+            return fetch("/api/save-webcam", { method: "POST", body: fd });
+          })()
+        : Promise.resolve();
+
+      await Promise.all([mousePromise, webcamPromise]);
+      pendingRef.current = null;
+      return true;
+    } catch (err) {
+      console.error("[useRecording] commit failed", err);
+      setUploadStatus("ready");
+      return false;
+    }
+  }, []);
 
   return {
     iframeRef,
@@ -155,7 +220,9 @@ export function useRecording({ webcamMode, onSaved }: UseRecordingOpts) {
     isRecording,
     countdown,
     recordingKey,
+    uploadStatus,
     start,
     stop,
+    commit,
   };
 }

@@ -5,9 +5,11 @@ import Markdown from '@/app/components/Markdown'
 import RecordingFrame from '@/app/record/RecordingFrame'
 import WebcamOverlay from '@/app/record/WebcamOverlay'
 import WebcamControls from '@/app/components/WebcamControls'
+import RecordConfirmOverlay from '@/app/components/RecordConfirmOverlay'
 import { useUser } from '@/app/contexts/UserContext'
 import { useProductFlow } from '@/app/contexts/ProductFlowContext'
 import { productRecord } from '@/app/copy/instructions'
+import { EAGER_PREVIEW_RENDERING, PREVIEW_BRANDS, TARGET_URL } from '@/app/config'
 
 const PRODUCTS = [
   { label: 'Returns & Claims', safe: 'returns-claims' },
@@ -32,10 +34,74 @@ type Props = {
 
 export default function RecordStep({ recording, navBack, navForward }: Props) {
   const { presenter } = useUser()
-  const { product, webcamSettings, setProduct, setWebcamSettings } = useProductFlow()
+  const flow = useProductFlow()
+  const { product, webcamSettings, setProduct, setWebcamSettings } = flow
 
   const isCountingDown = recording.countdown != null
   const canStart = !!presenter && !!product && !recording.isRecording && !isCountingDown
+
+  async function cancelActiveJobs() {
+    const ids = flow.getActiveJobIds()
+    if (ids.length === 0) return
+    // Best-effort: fire-and-forget. job.remove() only cancels queued jobs; running jobs
+    // will complete naturally and their results populate cache (harmless).
+    fetch('/api/cancel-jobs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jobIds: ids }),
+    }).catch(() => { /* ignore */ })
+  }
+
+  async function handleRecordAgain() {
+    if (!presenter || !product) return
+    await cancelActiveJobs()
+    flow.clearResults()
+    recording.start(presenter, product)
+  }
+
+  async function handleContinue() {
+    if (!presenter || !product) return
+    const ok = await recording.commit()
+    if (!ok) return
+    // Recording is now persisted to R2. Clear any stale previews from a prior take
+    // before seeding new jobIds, otherwise clearResults would wipe them right back out.
+    flow.clearResults()
+    if (EAGER_PREVIEW_RENDERING) {
+      const brandlessUrl = `${TARGET_URL}?product=${encodeURIComponent(product)}`
+      const common = {
+        presenter, product,
+        webcamMode: webcamSettings.webcamMode,
+        webcamVertical: webcamSettings.webcamVertical,
+        webcamHorizontal: webcamSettings.webcamHorizontal,
+        preview: true as const,
+      }
+
+      const postRender = (url: string, priority: number) =>
+        fetch('/api/produce', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...common, url, priority }),
+        })
+          .then((r) => r.json() as Promise<{ jobId?: string; videoUrl?: string; videoR2Key?: string; error?: string }>)
+          .catch(() => ({} as { jobId?: string; videoUrl?: string; videoR2Key?: string; error?: string }))
+
+      const [brandless, ...branded] = await Promise.all([
+        postRender(brandlessUrl, 1),
+        ...PREVIEW_BRANDS.map((b) => postRender(`${brandlessUrl}&brand=${encodeURIComponent(b)}`, 2)),
+      ])
+
+      if (brandless.videoUrl) flow.setPostprocessVideoUrl(brandless.videoUrl, brandless.videoR2Key)
+      else if (brandless.jobId) flow.setPostprocessJobId(brandless.jobId)
+
+      PREVIEW_BRANDS.forEach((brand, i) => {
+        const res = branded[i]
+        if (res?.videoUrl) flow.setBrandVideoUrl(brand, res.videoUrl)
+        else if (res?.jobId) flow.setBrandJobId(brand, res.jobId)
+      })
+    }
+
+    flow.setStep(1)
+  }
 
   return (
     <PageLayout
@@ -83,7 +149,7 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
         </div>
       }
     >
-      <div className="flex flex-1 items-center justify-center overflow-hidden rounded-2xl border border-border bg-surface p-[10px] shadow-md">
+      <div className="relative flex flex-1 items-center justify-center overflow-hidden rounded-2xl border border-border bg-surface p-[10px] shadow-md">
         <RecordingFrame
           iframeRef={recording.iframeRef}
           product={product}
@@ -93,6 +159,11 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
         >
           <WebcamOverlay webcamSettings={webcamSettings} videoRef={recording.webcamVideoRef} mirror />
         </RecordingFrame>
+        <RecordConfirmOverlay
+          uploadStatus={recording.uploadStatus}
+          onRecordAgain={handleRecordAgain}
+          onContinue={handleContinue}
+        />
       </div>
     </PageLayout>
   )

@@ -11,5 +11,5 @@ export type WebcamSettings = {
 export const DEFAULT_WEBCAM_SETTINGS: WebcamSettings = {
   webcamMode: 'video',
   webcamVertical: 'bottom',
-  webcamHorizontal: 'right',
+  webcamHorizontal: 'left',
 }

@@ -8,15 +8,26 @@ type MediaEditorProps = MediaPlayerProps & {
   onTrimChange?: (startSec: number, endSec: number) => void
   initialTrimStart?: number
   initialTrimEnd?: number
+  quality?: 'preview' | 'full'
 }
 
 export type { MediaEditorProps }
+
+function QualityPill({ quality }: { quality?: 'preview' | 'full' }) {
+  if (quality !== 'preview') return null
+  return (
+    <span className="pointer-events-none absolute top-2 right-2 z-10 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-white">
+      Preview Quality
+    </span>
+  )
+}
 
 export default function MediaEditor({
   fps = 30,
   onTrimChange,
   initialTrimStart,
   initialTrimEnd,
+  quality,
   ...playerProps
 }: MediaEditorProps) {
   const { videoUrl, error, loading } = playerProps
@@ -24,13 +35,16 @@ export default function MediaEditor({
 
   if (isReady) {
     return (
-      <VideoTrimmer
-        videoUrl={videoUrl}
-        fps={fps}
-        onTrimChange={onTrimChange ?? (() => {})}
-        initialTrimStart={initialTrimStart}
-        initialTrimEnd={initialTrimEnd}
-      />
+      <div className="relative">
+        <QualityPill quality={quality} />
+        <VideoTrimmer
+          videoUrl={videoUrl}
+          fps={fps}
+          onTrimChange={onTrimChange ?? (() => {})}
+          initialTrimStart={initialTrimStart}
+          initialTrimEnd={initialTrimEnd}
+        />
+      </div>
     )
   }
 
@@ -38,7 +52,10 @@ export default function MediaEditor({
   return (
     <div className="flex flex-col gap-3">
       {/* Video area — same aspect ratio container with loading state inside */}
-      <MediaPlayer {...playerProps} />
+      <div className="relative">
+        <QualityPill quality={quality} />
+        <MediaPlayer {...playerProps} />
+      </div>
 
       {/* Disabled time display */}
       <div className="flex justify-between text-xs text-muted font-mono">

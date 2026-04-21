@@ -63,6 +63,7 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceRe
       webcamPath,
       trimStartSec: d.trimStartSec,
       trimEndSec: d.trimEndSec,
+      preview: d.preview,
       startFromStep: d.startFromStep,
       existingRenderR2Key: d.existingRenderR2Key,
       existingRenderOutputPath,
@@ -82,7 +83,7 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceRe
     });
 
     // Update Redis render cache
-    await updateRenderCache(d.presenter, d.safeId, d.urlHash, d.mouseHash, d.wcFingerprint, d.trimKeyStr, {
+    await updateRenderCache(d.presenter, d.safeId, d.urlHash, d.mouseHash, d.wcFingerprint, d.trimKeyStr, d.preview ? "preview" : "full", {
       renderR2Key: result.renderR2Key,
       renderDurationMs: result.renderDurationMs,
       compositeR2Key: result.compositeR2Key,

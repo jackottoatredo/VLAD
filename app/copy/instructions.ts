@@ -9,39 +9,88 @@ Generate personalized outreach at scale following three easy steps:
 `
 
 export const productRecord = `
-Select a **product** and start recording. Your mouse interactions and webcam will be captured.
+
+Select a **product** and click **start recording**. 
+
+**The webpage is interactive -->**
+
+Your mouse, keyboard, webcam and audio will be recorded.
+
+**❌ Do not say or click anything merchant specific** this recording will be duplicated for many merchants.
+
+---
+
+***tip:*** _spend <1 second on the welcome page, merchant intros will take place there._
+
+***tip:*** _refresh or relaunch vlad if you do not see your webcam. Make sure you click allow when prompted._
 `
 
 export const productPostprocess = `
-Review your recording and **trim** any dead air from the start and end.
+***Why Rendering?***
 
-Drag the green handles to set in/out points, or use the arrow keys for *frame-by-frame* precision.
+VLAD reproduces your website interaction in a virtual browser. This is how we can inject merchant specific content.
 
-Use the forward arrow to continue to brand previews.
+---
+
+**Review the Rendering** to make sure the website behaves the same as what you recorded. 
+
+*Small timing errors can sometimes occur*.
+
+Use the **Clipping Tool** to trim the beginning and end of your video
+
+---
+
+***tip:*** _leave a very short pause (<0.5 sec) before audio begins so that transition from intro into this recording is natural._
+
+***tip:*** _Make sure the webcam is visible on frame 1. webcam is sometimes a few frames late._ 
 `
 
 export const productPreview = `
-Preview your recording rendered across multiple brands. Use the **back arrow** to adjust trim if needed.
+**Review Example Merchant Customizations:**
+- Do the renderings follow the same flow?
+- Does the audio make sense in all contexts?
+- Does the audio align with the rendering?
+
+If yes, click **save**
 `
 
 export const merchantRecord = `
-Record a merchant customization walkthrough. Select a **merchant** and start recording.
+
+Select or add a **merchant** and click **start recording**. 
+
+**The webpage is interactive -->**
+
+Your mouse, keyboard, webcam and audio will be recorded.
+
+**✔ Be merchant specific** make your customers feel special 🧡
+
+---
+
+***tip:*** _Review the product recording onto which this intro is prepended to keep the flow natural._
+
+***tip:*** _Make sure the intro ends on the same page that your product recording begins. Easiest to stay on the welcome page._
+
+***tip:*** _If the merchant content is wrong or a bit ugly you can edit that [here](https://search-redo-internal-replit.replit.app/previews)_
 `
 
 export const merchantPostprocess = `
-Review your merchant recording and **trim** any dead air from the start and end.
 
-Drag the green handles to set in/out points, or use the arrow keys for *frame-by-frame* precision.
+**Review the Rendering** to make sure the website behaves the same as what you recorded. 
 
-Use the forward arrow to save to library.
+Use the **Clipping Tool** to trim the beginning and end of your video
+
+---
+
+***tip:*** _leave little to no pause (<0.2 sec) after ends that the transition from this recording into the product recording is natural._
+
+***tip:*** _Make sure the webcam is visible on frame 1. webcam is sometimes a few frames late._ 
 `
 
 export const mergeExport = `
-Combine a **merchant intro** with a **product recording** to produce a final branded demo.
+Review and Manage all your recordings.
 
-- Select one or more merchant intros in the left column.
-- Select a product recording in the middle column.
-- Click the **+** above *Exports* to queue renders — one per selected merchant.
-
-Completed exports are available to preview, download, or delete from the right column.
+To start a rendering task hit **+** in the **Rendering Tasks** Panel
+- Select **one or more** intros, and **one** product recording.
+- VLAD will combine the two with merchant specific content throughout the video.
+- Go ahead and record some more, come back and download them when they are done.
 `

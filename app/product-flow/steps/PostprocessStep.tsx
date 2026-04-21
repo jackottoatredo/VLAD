@@ -21,12 +21,15 @@ type Props = {
 export default function PostprocessStep({ navBack, navForward }: Props) {
   const { presenter } = useUser()
   const flow = useProductFlow()
-  const { product, webcamSettings, trimStartSec, trimEndSec, postprocessVideoUrl } = flow
+  const { product, webcamSettings, trimStartSec, trimEndSec, postprocessVideoUrl, postprocessJobId } = flow
 
   const [videoUrl, setVideoUrl] = useState<string | null>(postprocessVideoUrl)
-  const [loading, setLoading] = useState<LoadingStage[] | null>(null)
+  const initialLoading: LoadingStage[] | null = postprocessJobId && !postprocessVideoUrl
+    ? [{ label: 'Rendering', progress: 0 }, { label: 'Compositing', progress: 0 }]
+    : null
+  const [loading, setLoading] = useState<LoadingStage[] | null>(initialLoading)
   const [error, setError] = useState<string | null>(null)
-  const jobIdRef = useRef<string | null>(null)
+  const jobIdRef = useRef<string | null>(postprocessJobId)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const didAutoRender = useRef(false)
 
@@ -47,11 +50,13 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
         }
         if (job.status === 'done' && job.videoUrl) {
           jobIdRef.current = null
+          flow.setPostprocessJobId(null)
           flow.setPostprocessVideoUrl(job.videoUrl, job.videoR2Key)
           setVideoUrl(job.videoUrl)
           setLoading(null)
         } else if (job.status === 'error') {
           jobIdRef.current = null
+          flow.setPostprocessJobId(null)
           setError(job.message ?? 'Processing failed.')
           setLoading(null)
         } else if (job.status === 'rendering') {
@@ -72,13 +77,19 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [flow])
 
-  // Auto-render on mount if no cached video
+  // Auto-render on mount if no cached video. If eager enqueue already seeded a jobId,
+  // skip firing a fresh /api/produce — the poller above will pick up jobIdRef from the
+  // initial render.
   useEffect(() => {
     if (didAutoRender.current || postprocessVideoUrl || !presenter || !product) return
+    if (postprocessJobId) {
+      didAutoRender.current = true
+      return
+    }
     didAutoRender.current = true
     startRender()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [presenter, product, postprocessVideoUrl])
+  }, [presenter, product, postprocessVideoUrl, postprocessJobId])
 
   async function startRender() {
     if (!presenter || !product) return
@@ -102,6 +113,7 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
           webcamVertical: webcamSettings.webcamVertical,
           webcamHorizontal: webcamSettings.webcamHorizontal,
           trimStartSec, trimEndSec,
+          preview: true,
         }),
       })
       const data = (await res.json()) as { jobId?: string; videoUrl?: string; videoR2Key?: string; error?: string }
@@ -140,6 +152,7 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
           onTrimChange={handleTrimChange}
           initialTrimStart={trimStartSec}
           initialTrimEnd={trimEndSec}
+          quality="preview"
         />
       </div>
     </PageLayout>

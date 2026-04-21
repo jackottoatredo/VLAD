@@ -17,3 +17,18 @@ export const WEBCAM_SHADOW_RADIUS     = 12;   // drop-shadow blur radius (contro
 export const WEBCAM_BORDER_COLOR      = "rgb(233, 77, 30)"; // CSS color string
 export const WEBCAM_BORDER_COLOR_HEX  = "E94D1E";          // FFmpeg hex (no 0x prefix)
 export const WEBCAM_RECORDER_TIMESLICE_MS = 100; // MediaRecorder chunk interval
+
+// Preview render quality. MUST stay > 0.5 — Chromium clamps deviceScaleFactor there.
+export const VIRTUAL_PREVIEW_SCALE_FACTOR = 0.5;
+// FFmpeg post-render downscale divisor for preview output (integer >= 1).
+export const PREVIEW_DOWNSCALE_FACTOR = 2;
+
+// Product flow only: on "Continue to Post", eagerly enqueue the brandless render
+// (priority 1) alongside the 3 branded preview renders (priority 2). Requires adequate
+// WORKER_CONCURRENCY.
+export const EAGER_PREVIEW_RENDERING = true;
+
+// Brands shown on the product-flow Preview page (slots 1–3). Slot 4 is the brandless
+// render reused from the postprocess step.
+export const PREVIEW_BRANDS = ['allbirds.com', 'mammut.com', 'andcollar.com'] as const;
+export type PreviewBrand = (typeof PREVIEW_BRANDS)[number];

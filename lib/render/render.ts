@@ -9,6 +9,7 @@ import { chromium, type Page } from "playwright";
 import { type CursorPosition, type RenderAction } from "@/lib/render/actions";
 import { installVirtualTimeClock, type VirtualTimeClock } from "@/lib/render/virtual-time";
 import { uploadToR2 } from "@/lib/storage/r2";
+import { VIRTUAL_PREVIEW_SCALE_FACTOR, PREVIEW_DOWNSCALE_FACTOR } from "@/app/config";
 
 export type RenderOptions = {
   url: string;
@@ -25,6 +26,8 @@ export type RenderOptions = {
   onProgress?: (rendered: number, total: number) => void;
   /** First cursor position — used to wiggle the mouse during the settle phase so the page initialises. */
   settleHint?: { x: number; y: number };
+  /** If true, render at reduced DPR and apply ffmpeg downscale — used for the fast preview tier. */
+  preview?: boolean;
 };
 
 export type RenderResult = {
@@ -187,15 +190,25 @@ async function encodeVideo(
     throw new Error("Could not locate ffmpeg binary. Ensure ffmpeg-static is installed.");
   }
 
+  const outputOpts = [
+    "-c:v libx264",
+    "-pix_fmt yuv420p",
+    "-movflags +faststart",
+    `-t ${options.durationMs / 1000}`,
+  ];
+  if (options.preview) {
+    // Even-divisible scale to keep libx264 happy with yuv420p, then speed up encode.
+    outputOpts.push(
+      `-vf scale=trunc(iw/${PREVIEW_DOWNSCALE_FACTOR}/2)*2:trunc(ih/${PREVIEW_DOWNSCALE_FACTOR}/2)*2`,
+      "-preset veryfast",
+      "-crf 28",
+    );
+  }
+
   await new Promise<void>((resolve, reject) => {
     ffmpeg(path.join(framesDir, "frame_%04d.jpeg"))
       .inputFPS(options.fps)
-      .outputOptions([
-        "-c:v libx264",
-        "-pix_fmt yuv420p",
-        "-movflags +faststart",
-        `-t ${options.durationMs / 1000}`,
-      ])
+      .outputOptions(outputOpts)
       .on("end", () => resolve())
       .on("error", (error: Error) => reject(error))
       .save(outputPath);
@@ -220,10 +233,13 @@ export async function renderUrlToMp4(options: RenderOptions): Promise<RenderResu
     const vw = options.videoWidth ?? options.width;
     const vh = options.videoHeight ?? options.height;
     const zoom = options.zoom ?? 1;
+    // Viewport (CSS pixels) stays at vw/zoom regardless of preview mode — same layout,
+    // same breakpoints. Only deviceScaleFactor shrinks so the raster comes out smaller.
+    const dpr = options.preview ? zoom * VIRTUAL_PREVIEW_SCALE_FACTOR : zoom;
 
     const context = await browser.newContext({
       viewport: { width: Math.round(vw / zoom), height: Math.round(vh / zoom) },
-      deviceScaleFactor: zoom,
+      deviceScaleFactor: dpr,
     });
     const page = await context.newPage();
 

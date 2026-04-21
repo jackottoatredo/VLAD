@@ -18,16 +18,15 @@ export default function ProductFlowWizard() {
   const flow = useProductFlow()
   const recording = useRecording({
     webcamMode: flow.webcamSettings.webcamMode,
-    onSaved: () => {
-      flow.clearResults()
-      maxStepRef.current = 2
-      flow.setStep(1)
-    },
   })
 
   // Track the highest step the user has reached (so they can go back and forward within visited steps)
   const maxStepRef = useRef(flow.step)
   if (flow.step > maxStepRef.current) maxStepRef.current = flow.step
+  // Once the user has confirmed a recording (reached Postprocess), both Postprocess
+  // and Preview are always reachable — free navigation between them even while eager
+  // preview jobs are still rendering.
+  if (flow.step >= 1 && maxStepRef.current < 2) maxStepRef.current = 2
 
   const goTo = (s: number) => {
     if (s >= 0 && s <= maxStepRef.current) flow.setStep(s as ProductFlowStep)

@@ -17,11 +17,6 @@ export default function MerchantFlowWizard() {
   const flow = useMerchantFlow()
   const recording = useRecording({
     webcamMode: flow.webcamSettings.webcamMode,
-    onSaved: () => {
-      flow.clearResults()
-      maxStepRef.current = 1
-      flow.setStep(1)
-    },
   })
 
   const maxStepRef = useRef(flow.step)

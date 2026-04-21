@@ -6,6 +6,7 @@ import Markdown from '@/app/components/Markdown'
 import RecordingFrame from '@/app/record/RecordingFrame'
 import WebcamOverlay from '@/app/record/WebcamOverlay'
 import WebcamControls from '@/app/components/WebcamControls'
+import RecordConfirmOverlay from '@/app/components/RecordConfirmOverlay'
 import { useUser, type Merchant } from '@/app/contexts/UserContext'
 import { useMerchantFlow } from '@/app/contexts/MerchantFlowContext'
 import { MERCHANT_TARGET_URL } from '@/app/config'
@@ -19,7 +20,21 @@ type Props = {
 
 export default function RecordStep({ recording, navBack, navForward }: Props) {
   const { presenter, merchants, addMerchant } = useUser()
-  const { merchantId, webcamSettings, setMerchantId, setWebcamSettings } = useMerchantFlow()
+  const flow = useMerchantFlow()
+  const { merchantId, webcamSettings, setMerchantId, setWebcamSettings } = flow
+
+  function handleRecordAgain() {
+    if (!presenter || !merchantId) return
+    recording.start(presenter, merchantId)
+  }
+
+  async function handleContinue() {
+    if (!presenter || !merchantId) return
+    const ok = await recording.commit()
+    if (!ok) return
+    flow.clearResults()
+    flow.setStep(1)
+  }
 
   const selectedMerchant = merchants.find((m) => m.id === merchantId)
   const brand = selectedMerchant?.url ?? ''
@@ -97,7 +112,7 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
           </div>
         }
       >
-        <div className="flex flex-1 items-center justify-center overflow-hidden rounded-2xl border border-border bg-surface p-[10px] shadow-md">
+        <div className="relative flex flex-1 items-center justify-center overflow-hidden rounded-2xl border border-border bg-surface p-[10px] shadow-md">
           <RecordingFrame
             iframeRef={recording.iframeRef}
             product={brand}
@@ -109,6 +124,11 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
           >
             <WebcamOverlay webcamSettings={webcamSettings} videoRef={recording.webcamVideoRef} mirror />
           </RecordingFrame>
+          <RecordConfirmOverlay
+            uploadStatus={recording.uploadStatus}
+            onRecordAgain={handleRecordAgain}
+            onContinue={handleContinue}
+          />
         </div>
       </PageLayout>
 

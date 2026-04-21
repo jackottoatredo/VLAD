@@ -5,7 +5,7 @@ import AudioOverlay from '@/app/record/AudioOverlay'
 
 type Props = {
   webcamSettings: WebcamSettings
-  videoRef: React.RefObject<HTMLVideoElement | null>
+  videoRef: React.Ref<HTMLVideoElement>
   mirror?: boolean
 }
 

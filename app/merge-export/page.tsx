@@ -210,6 +210,7 @@ export default function MergeExportPage() {
                   <div
                     key={r.id}
                     onClick={() => toggleMerchant(r.id)}
+                    onDoubleClick={() => openRecordingPreview(r, `Merchant Intro: ${r.merchant_id ?? r.id.slice(0, 8)}`)}
                     className={`group flex h-10 w-full cursor-pointer items-center justify-between border-b border-border px-4 text-sm transition-colors ${
                       selectedMerchants.has(r.id)
                         ? 'bg-background text-foreground'
@@ -257,6 +258,7 @@ export default function MergeExportPage() {
                   <div
                     key={r.id}
                     onClick={() => setSelectedProduct(r.id === selectedProduct ? null : r.id)}
+                    onDoubleClick={() => openRecordingPreview(r, `Product Recording: ${r.product_name ?? r.id.slice(0, 8)}`)}
                     className={`group flex h-10 w-full cursor-pointer items-center justify-between border-b border-border px-4 text-sm transition-colors ${
                       selectedProduct === r.id
                         ? 'bg-background text-foreground'

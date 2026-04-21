@@ -62,7 +62,7 @@ export default function RecordingFrame({ iframeRef, product, recordingKey, targe
       />
       {countdown != null && (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/50">
-          <span className="text-[12rem] font-black leading-none text-foreground drop-shadow-lg select-none">
+          <span className="text-[12rem] font-black leading-none text-accent drop-shadow-lg select-none">
             {countdown}
           </span>
         </div>

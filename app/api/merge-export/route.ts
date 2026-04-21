@@ -5,7 +5,7 @@ import { requireSession, sanitizePresenter } from "@/lib/apiAuth";
 import { downloadRecording } from "@/lib/render/download";
 import { eventsToKeyframes } from "@/lib/render/keyframes";
 import { jobsQueue } from "@/lib/queue/connection";
-import type { MergeJobPayload, MergeRecordingPayload } from "@/lib/queue/payloads";
+import { DEFAULT_MERGE_JOB_SETTINGS, type MergeJobPayload, type MergeRecordingPayload } from "@/lib/queue/payloads";
 import { getPresignedUrl } from "@/lib/storage/r2";
 import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -105,12 +105,12 @@ export async function POST(request: Request) {
     const merchantWebcam = extractWebcamSettings(merchantMeta);
 
     // Prepare product payload
-    const productMeta = product.metadata ?? {};
+    const productMeta = (product.metadata ?? {}) as Record<string, unknown>;
     const productKeyframes = eventsToKeyframes(productRec.mouseData.events as Parameters<typeof eventsToKeyframes>[0]);
     const productDuration = productKeyframes.length > 0 ? productKeyframes[productKeyframes.length - 1].t : 1000;
     const productUrl = `${TARGET_URL}?product=${encodeURIComponent(product.product_name ?? "")}&brand=${encodeURIComponent(merchantBrandUrl)}`;
     const productSessionName = `merge_${jobId}_product`;
-    const productWebcam = extractWebcamSettings(productMeta as Record<string, unknown>);
+    const productWebcam = extractWebcamSettings(productMeta);
 
     const merchantPayload: MergeRecordingPayload = {
       url: merchantUrl,
@@ -136,8 +136,8 @@ export async function POST(request: Request) {
       settleHint: productKeyframes.length > 0 ? { x: productKeyframes[0].x, y: productKeyframes[0].y } : undefined,
       webcamSettings: productWebcam,
       durationMs: productDuration,
-      trimStartSec: typeof (productMeta as Record<string, unknown>).trimStartSec === "number" ? (productMeta as Record<string, unknown>).trimStartSec as number : undefined,
-      trimEndSec: typeof (productMeta as Record<string, unknown>).trimEndSec === "number" ? (productMeta as Record<string, unknown>).trimEndSec as number : undefined,
+      trimStartSec: typeof productMeta.trimStartSec === "number" ? productMeta.trimStartSec : undefined,
+      trimEndSec: typeof productMeta.trimEndSec === "number" ? productMeta.trimEndSec : undefined,
       mouseEventsR2Key: product.mouse_events_url,
       webcamR2Key: product.webcam_url,
     };
@@ -153,6 +153,7 @@ export async function POST(request: Request) {
       productName: product.product_name,
       merchant: merchantPayload,
       product: productPayload,
+      settings: { ...DEFAULT_MERGE_JOB_SETTINGS },
     } satisfies MergeJobPayload, {
       jobId,
       priority: 5,

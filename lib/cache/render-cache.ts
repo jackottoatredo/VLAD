@@ -11,8 +11,10 @@ const redis = (g.__cacheRedis ??= new Redis({
   lazyConnect: true,
 }));
 
-function cacheKey(presenter: string, safeId: string, urlHash: string): string {
-  return `cache:${presenter}:${safeId}:${urlHash}`;
+export type QualityTier = "preview" | "full";
+
+function cacheKey(presenter: string, safeId: string, urlHash: string, tier: QualityTier): string {
+  return `cache:${presenter}:${safeId}:${urlHash}:${tier}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -38,8 +40,9 @@ export async function findCachedRender(
   mouseHash: string,
   wcFingerprint: string,
   trimKey: string,
+  tier: QualityTier,
 ): Promise<CachedRender> {
-  const key = cacheKey(presenter, safeId, urlHash);
+  const key = cacheKey(presenter, safeId, urlHash, tier);
   const data = await redis.hgetall(key);
 
   // No cache entry, or mouse events changed → full render
@@ -91,9 +94,10 @@ export async function updateRenderCache(
   mouseHash: string,
   wcFingerprint: string,
   trimKey: string,
+  tier: QualityTier,
   result: RenderCacheResult,
 ): Promise<void> {
-  const key = cacheKey(presenter, safeId, urlHash);
+  const key = cacheKey(presenter, safeId, urlHash, tier);
 
   const fields: Record<string, string> = {
     mouseHash,
@@ -123,5 +127,8 @@ export async function invalidateRenderCache(
   safeId: string,
   urlHash: string,
 ): Promise<void> {
-  await redis.del(cacheKey(presenter, safeId, urlHash));
+  await redis.del(
+    cacheKey(presenter, safeId, urlHash, "preview"),
+    cacheKey(presenter, safeId, urlHash, "full"),
+  );
 }

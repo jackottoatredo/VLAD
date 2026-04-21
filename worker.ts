@@ -63,6 +63,7 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceRe
       webcamPath,
       trimStartSec: d.trimStartSec,
       trimEndSec: d.trimEndSec,
+      preview: d.preview,
       startFromStep: d.startFromStep,
       existingRenderR2Key: d.existingRenderR2Key,
       existingRenderOutputPath,
@@ -82,7 +83,7 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceRe
     });
 
     // Update Redis render cache
-    await updateRenderCache(d.presenter, d.safeId, d.urlHash, d.mouseHash, d.wcFingerprint, d.trimKeyStr, {
+    await updateRenderCache(d.presenter, d.safeId, d.urlHash, d.mouseHash, d.wcFingerprint, d.trimKeyStr, d.preview ? "preview" : "full", {
       renderR2Key: result.renderR2Key,
       renderDurationMs: result.renderDurationMs,
       compositeR2Key: result.compositeR2Key,
@@ -147,6 +148,13 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
       downloadRecording(d.product.mouseEventsR2Key, d.product.webcamR2Key, productDir),
     ]);
 
+    // Resolve intro (merchant) webcam settings — optionally inherit from product
+    // so both halves of the concatenated video share the same badge corner/mode.
+    // The intro still uses its OWN webcam footage (or none).
+    const merchantWebcamSettings = d.settings.introInheritsProductWebcam
+      ? d.product.webcamSettings
+      : d.merchant.webcamSettings;
+
     // --- Merchant video ---
     const merchantAction = createReplayAction(d.merchant.keyframes, d.merchant.durationMs);
 
@@ -163,7 +171,7 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
       durationMs: d.merchant.durationMs,
       actions: [merchantAction],
       settleHint: d.merchant.settleHint,
-      webcamSettings: d.merchant.webcamSettings,
+      webcamSettings: merchantWebcamSettings,
       webcamPath: merchantRec.webcamPath,
       trimStartSec: d.merchant.trimStartSec,
       trimEndSec: d.merchant.trimEndSec,

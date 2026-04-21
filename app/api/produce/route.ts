@@ -36,6 +36,8 @@ type RequestBody = {
   webcamHorizontal?: unknown;
   trimStartSec?: unknown;
   trimEndSec?: unknown;
+  preview?: unknown;
+  priority?: unknown;
 };
 
 export async function POST(request: Request) {
@@ -112,6 +114,12 @@ export async function POST(request: Request) {
 
   const trimStartSec = typeof body.trimStartSec === "number" ? body.trimStartSec : undefined;
   const trimEndSec = typeof body.trimEndSec === "number" ? body.trimEndSec : undefined;
+  const preview = body.preview === true;
+  const tier = preview ? "preview" : "full";
+  const priority =
+    typeof body.priority === "number" && Number.isFinite(body.priority)
+      ? Math.max(1, Math.min(10, Math.round(body.priority)))
+      : 1;
 
   // Compute cache keys
   const mouseHash = hashBuffer(mouseBuffer);
@@ -120,7 +128,7 @@ export async function POST(request: Request) {
   const tKey = trimKey(trimStartSec, trimEndSec);
 
   // Check Redis cache for cached artifacts
-  const cached = await findCachedRender(presenter, safeId, urlHash, mouseHash, wcFP, tKey);
+  const cached = await findCachedRender(presenter, safeId, urlHash, mouseHash, wcFP, tKey, tier);
 
   // Fully cached — presign and return
   if (cached.trimmedR2Key) {
@@ -166,9 +174,10 @@ export async function POST(request: Request) {
     mouseHash,
     wcFingerprint: wcFP,
     trimKeyStr: tKey,
+    preview,
   } satisfies ProduceJobPayload, {
     jobId: randomUUID().slice(0, 8),
-    priority: 1,
+    priority,
   });
 
   return NextResponse.json({ jobId: job.id });

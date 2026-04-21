@@ -56,7 +56,7 @@ function loadState(): MerchantFlowState {
   try {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return initialState();
-    return JSON.parse(raw) as MerchantFlowState;
+    return { ...initialState(), ...(JSON.parse(raw) as Partial<MerchantFlowState>) };
   } catch {
     return initialState();
   }

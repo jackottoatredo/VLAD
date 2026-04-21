@@ -1,15 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { resolvedFfmpegPath } from "@/lib/render/render";
 
 const FFMPEG_BIN = resolvedFfmpegPath ?? "ffmpeg";
 
 /**
- * Concatenate two MP4 videos into a single MP4 using ffmpeg's concat demuxer.
+ * Concatenate two MP4 videos into a single MP4 using ffmpeg's concat filter.
  *
- * Returns the absolute path and public URL of the merged file.
+ * We use the concat FILTER (not the concat demuxer) so format differences
+ * between the two halves — e.g. render.ts's default libx264 encode vs
+ * compose.ts's re-encode, or one half with webcam audio vs the other with
+ * synthesized silence — are resolved by decode-and-re-encode instead of
+ * rejected for mismatched SPS/PPS.
  */
 export async function mergeVideoFiles(
   video1Path: string,
@@ -21,16 +24,20 @@ export async function mergeVideoFiles(
   const fileName = `${outputName}-merged-${Date.now()}-${randomUUID().slice(0, 8)}.mp4`;
   const mergedPath = path.join(outputDir, fileName);
 
-  // Build a concat list file
-  const listPath = path.join(outputDir, `concat-${Date.now()}.txt`);
-  const listContent = `file '${video1Path}'\nfile '${video2Path}'\n`;
-  await writeFile(listPath, listContent, "utf-8");
-
   const args = [
-    "-f", "concat",
-    "-safe", "0",
-    "-i", listPath,
-    "-c", "copy",
+    "-i", video1Path,
+    "-i", video2Path,
+    "-filter_complex",
+    "[0:v:0][0:a:0][1:v:0][1:a:0]concat=n=2:v=1:a=1[outv][outa]",
+    "-map", "[outv]",
+    "-map", "[outa]",
+    "-c:v", "libx264",
+    "-preset", "veryfast",
+    "-crf", "20",
+    "-pix_fmt", "yuv420p",
+    "-c:a", "aac",
+    "-ar", "48000",
+    "-ac", "2",
     "-movflags", "+faststart",
     "-progress", "pipe:1",
     "-y",

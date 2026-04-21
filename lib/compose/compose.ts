@@ -26,7 +26,6 @@ export type ComposeOptions = {
   presenter: string;
   sessionName: string;
   screenVideoPath: string;   // absolute fs path to the Playwright MP4 — ffmpeg input 0
-  screenVideoR2Key: string;  // R2 key returned as-is when no webcam exists
   durationMs: number;        // render duration — used to compute progress without ffprobe
   onProgress: (step: number, total: number) => void;
   webcamSettings?: WebcamSettings;
@@ -193,15 +192,10 @@ function buildFilterComplex(vertical: WebcamVertical, horizontal: WebcamHorizont
 }
 
 export async function compositeSessionVideo(options: ComposeOptions): Promise<ComposeResult> {
-  const { presenter, sessionName, screenVideoPath, screenVideoR2Key, durationMs, onProgress } = options;
+  const { presenter, sessionName, screenVideoPath, durationMs, onProgress } = options;
   const settings = options.webcamSettings ?? DEFAULT_WEBCAM_SETTINGS;
   const webcamPath = options.webcamPath ?? null;
-
-  // Off mode or no webcam file: return screen video as-is.
-  if (settings.webcamMode === 'off' || !webcamPath || !existsSync(webcamPath)) {
-    onProgress(10, 10);
-    return { r2Key: screenVideoR2Key, outputPath: screenVideoPath };
-  }
+  const hasWebcam = settings.webcamMode !== 'off' && !!webcamPath && existsSync(webcamPath);
 
   const durationSec = durationMs / 1000;
   const outputDir = path.dirname(screenVideoPath);
@@ -209,21 +203,48 @@ export async function compositeSessionVideo(options: ComposeOptions): Promise<Co
   const outputPath = path.join(outputDir, fileName);
   const r2Key = `composites/${presenter}/${sessionName}/${fileName}`;
 
-  const args = [
-    "-i", screenVideoPath,
-    "-i", webcamPath,
-    "-filter_complex", buildFilterComplex(settings.webcamVertical, settings.webcamHorizontal, settings.webcamMode as 'video' | 'audio', undefined, options.overlayScaleFactor ?? 1),
-    "-map", "[out]",
-    "-map", "1:a",
-    "-c:v", "libx264",
-    "-c:a", "aac",
-    "-pix_fmt", "yuv420p",
-    "-movflags", "+faststart",
-    "-shortest",
-    "-progress", "pipe:1",
-    "-y",
-    outputPath,
-  ];
+  // Two branches produce a file with identical stream parameters (libx264 yuv420p +
+  // aac 48kHz stereo). Even the "no webcam" path synthesizes silent audio so the
+  // downstream concat-demuxer merge can use `-c copy` without one half having an
+  // audio track and the other not.
+  const args: string[] = hasWebcam
+    ? [
+        "-i", screenVideoPath,
+        "-i", webcamPath!,
+        "-filter_complex", buildFilterComplex(settings.webcamVertical, settings.webcamHorizontal, settings.webcamMode as 'video' | 'audio', undefined, options.overlayScaleFactor ?? 1),
+        "-map", "[out]",
+        "-map", "1:a",
+        "-c:v", "libx264",
+        "-preset", "veryfast",
+        "-crf", "20",
+        "-pix_fmt", "yuv420p",
+        "-c:a", "aac",
+        "-ar", "48000",
+        "-ac", "2",
+        "-movflags", "+faststart",
+        "-shortest",
+        "-progress", "pipe:1",
+        "-y",
+        outputPath,
+      ]
+    : [
+        "-i", screenVideoPath,
+        "-f", "lavfi",
+        "-i", "anullsrc=channel_layout=stereo:sample_rate=48000",
+        "-map", "0:v",
+        "-map", "1:a",
+        // Screen video is already libx264 yuv420p from render.ts — copy avoids
+        // a second encode pass. Only the silent audio is encoded.
+        "-c:v", "copy",
+        "-c:a", "aac",
+        "-ar", "48000",
+        "-ac", "2",
+        "-t", String(durationSec),
+        "-movflags", "+faststart",
+        "-progress", "pipe:1",
+        "-y",
+        outputPath,
+      ];
 
   await new Promise<void>((resolve, reject) => {
     const proc = spawn(FFMPEG_BIN, args);

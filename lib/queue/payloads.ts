@@ -54,6 +54,25 @@ export type ProduceJobPayload = {
   preview: boolean;
 };
 
+/**
+ * Job-level settings for a merge-export. Distinct from per-recording data
+ * so that "how the two halves relate" lives in one place.
+ *
+ * Currently hidden from the UI — defaults applied server-side.
+ */
+export type MergeJobSettings = {
+  /**
+   * When true, the intro (merchant) render uses the product recording's
+   * webcam settings (mode + corner) instead of its own. Keeps the two
+   * halves visually consistent after concat. Default: true.
+   */
+  introInheritsProductWebcam: boolean;
+};
+
+export const DEFAULT_MERGE_JOB_SETTINGS: MergeJobSettings = {
+  introInheritsProductWebcam: true,
+};
+
 /** Per-recording data for merge jobs, prepared by the API route. */
 export type MergeRecordingPayload = {
   /** Full URL to render (includes query params) */
@@ -93,6 +112,9 @@ export type MergeJobPayload = {
 
   merchant: MergeRecordingPayload;
   product: MergeRecordingPayload;
+
+  /** Job-level settings (inheritance, future knobs). Populated server-side with defaults. */
+  settings: MergeJobSettings;
 };
 
 export type JobPayload = ProduceJobPayload | MergeJobPayload;

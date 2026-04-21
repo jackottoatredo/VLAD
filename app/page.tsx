@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useSession, signOut } from 'next-auth/react'
 import { emailToName } from '@/lib/nameUtils'
 import Markdown from '@/app/components/Markdown'
+import Infographic from '@/app/components/Infographic'
 import { home as homeInstructions } from '@/app/copy/instructions'
 
 export default function Home() {
@@ -42,6 +43,8 @@ export default function Home() {
             </div>
           )}
         </div>
+
+        <Infographic className="mx-auto w-full max-w-md text-foreground" />
 
         <Markdown>{homeInstructions}</Markdown>
 

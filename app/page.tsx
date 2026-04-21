@@ -51,7 +51,7 @@ export default function Home() {
             className="flex flex-col gap-2 rounded-xl border border-zinc-200 bg-zinc-50 p-5 transition hover:border-zinc-400 hover:shadow-sm dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600"
           >
             <h3 className="font-medium text-zinc-900 dark:text-zinc-100">Record a Product</h3>
-            <p className="text-xs text-zinc-500">Record a reusable product demo and preview merchant customizations.</p>
+            <p className="text-xs text-zinc-500">Create a reusable product demo and preview merchant customizations.</p>
           </Link>
           <Link
             href="/merchant-flow"

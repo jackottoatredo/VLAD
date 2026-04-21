@@ -150,12 +150,14 @@ export default function VideoTrimmer({ videoUrl, fps, onTrimChange, initialTrimS
     if (dragTarget === 'start') {
       const newStart = clamp(time, 0, trimEnd - frameStep)
       setTrimStart(newStart)
-      if (playhead < newStart) seekTo(newStart)
+      setPlayhead(newStart)
+      if (videoRef.current) videoRef.current.currentTime = newStart
       onTrimChange(newStart, trimEnd)
     } else if (dragTarget === 'end') {
       const newEnd = clamp(time, trimStart + frameStep, duration)
       setTrimEnd(newEnd)
-      if (playhead > newEnd) seekTo(newEnd)
+      setPlayhead(newEnd)
+      if (videoRef.current) videoRef.current.currentTime = newEnd
       onTrimChange(trimStart, newEnd)
     } else if (dragTarget === 'playhead') {
       seekTo(time)
@@ -176,12 +178,14 @@ export default function VideoTrimmer({ videoUrl, fps, onTrimChange, initialTrimS
     if (which === 'start') {
       const newStart = clamp(trimStart + delta, 0, trimEnd - frameStep)
       setTrimStart(newStart)
-      if (playhead < newStart) seekTo(newStart)
+      setPlayhead(newStart)
+      if (videoRef.current) videoRef.current.currentTime = newStart
       onTrimChange(newStart, trimEnd)
     } else if (which === 'end') {
       const newEnd = clamp(trimEnd + delta, trimStart + frameStep, duration)
       setTrimEnd(newEnd)
-      if (playhead > newEnd) seekTo(newEnd)
+      setPlayhead(newEnd)
+      if (videoRef.current) videoRef.current.currentTime = newEnd
       onTrimChange(trimStart, newEnd)
     } else {
       seekTo(playhead + delta)

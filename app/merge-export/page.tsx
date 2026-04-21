@@ -180,14 +180,20 @@ export default function MergeExportPage() {
 
   return (
     <div className="flex min-h-screen w-full items-center justify-center bg-black font-sans" style={{ padding: '0 150px' }}>
-      <div className="relative w-full" style={{ aspectRatio: '3/2' }}>
-        <div className="absolute inset-0 flex flex-col gap-[10px]">
-          <div className="flex flex-1 min-h-0 overflow-y-auto rounded-xl border border-zinc-700 bg-zinc-950 p-4">
-            <Markdown className="text-zinc-400">{mergeExportInstructions}</Markdown>
-          </div>
-          <div className="flex min-h-0 flex-[4] gap-[10px]">
+      <div className="relative w-full" style={{ aspectRatio: '15/8' }}>
+        <div className="absolute inset-0 flex gap-[10px]">
+            {/* Instructions */}
+            <div className="flex min-h-0 w-1/4 flex-col gap-2 overflow-hidden rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">
+              <p className="shrink-0 text-xs font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+                Instructions
+              </p>
+              <div className="flex-1 overflow-y-auto">
+                <Markdown>{mergeExportInstructions}</Markdown>
+              </div>
+            </div>
+
             {/* Column A — Merchant Recordings */}
-            <div className="flex w-1/3 flex-col overflow-hidden rounded-xl border border-zinc-700">
+            <div className="flex w-1/4 flex-col overflow-hidden rounded-xl border border-zinc-700">
               <div className="flex items-center justify-between border-b border-zinc-700 bg-zinc-800 px-4 py-3">
                 <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
                   Merchant Intros
@@ -234,7 +240,7 @@ export default function MergeExportPage() {
             </div>
 
             {/* Column B — Product Recordings */}
-            <div className="flex w-1/3 flex-col overflow-hidden rounded-xl border border-zinc-700">
+            <div className="flex w-1/4 flex-col overflow-hidden rounded-xl border border-zinc-700">
               <div className="flex items-center justify-between border-b border-zinc-700 bg-zinc-800 px-4 py-3">
                 <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
                   Product Recordings
@@ -281,10 +287,10 @@ export default function MergeExportPage() {
             </div>
 
             {/* Column C — Renders */}
-            <div className="flex w-1/3 flex-col overflow-hidden rounded-xl border border-zinc-700">
+            <div className="flex w-1/4 flex-col overflow-hidden rounded-xl border border-zinc-700">
               <div className="flex items-center justify-between border-b border-zinc-700 bg-zinc-800 px-4 py-3">
                 <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
-                  Exports
+                  Rendering Tasks
                 </h2>
                 <button
                   onClick={() => setShowGenerateModal(true)}
@@ -425,7 +431,6 @@ export default function MergeExportPage() {
                 })()}
               </div>
             </div>
-          </div>
         </div>
       </div>
 

@@ -21,18 +21,18 @@ export default function HamburgerMenu() {
     <div className="fixed top-4 left-4 z-50 flex items-center gap-2">
       <Link
         href="/"
-        className="text-lg font-bold tracking-tight text-zinc-900 dark:text-zinc-50"
+        className="text-lg font-bold tracking-tight text-foreground"
       >
         VLAD
       </Link>
       <button
         onClick={() => setOpen((prev) => !prev)}
         aria-label="Toggle menu"
-        className="flex h-9 w-9 flex-col items-center justify-center gap-1.5 rounded-lg border border-black/10 bg-white shadow-sm dark:border-white/15 dark:bg-zinc-950"
+        className="flex h-9 w-9 flex-col items-center justify-center gap-1.5 rounded-lg border border-border bg-surface shadow-sm"
       >
-        <span className="block h-0.5 w-5 bg-zinc-800 dark:bg-zinc-200" />
-        <span className="block h-0.5 w-5 bg-zinc-800 dark:bg-zinc-200" />
-        <span className="block h-0.5 w-5 bg-zinc-800 dark:bg-zinc-200" />
+        <span className="block h-0.5 w-5 bg-foreground" />
+        <span className="block h-0.5 w-5 bg-foreground" />
+        <span className="block h-0.5 w-5 bg-foreground" />
       </button>
 
       {open && (
@@ -41,16 +41,16 @@ export default function HamburgerMenu() {
             className="fixed inset-0"
             onClick={() => setOpen(false)}
           />
-          <nav className="absolute left-0 top-11 min-w-36 rounded-xl border border-black/10 bg-white py-1 shadow-md dark:border-white/15 dark:bg-zinc-950">
+          <nav className="absolute left-0 top-11 min-w-36 rounded-xl border border-border bg-surface py-1 shadow-md">
             {links.map(({ href, label }) => (
               <Link
                 key={href}
                 href={href}
                 onClick={() => setOpen(false)}
-                className={`block px-4 py-2 text-sm transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-900 ${
+                className={`block px-4 py-2 text-sm transition-colors hover:bg-background ${
                   pathname === href
-                    ? "font-medium text-black dark:text-zinc-50"
-                    : "text-zinc-600 dark:text-zinc-400"
+                    ? "font-medium text-foreground"
+                    : "text-muted"
                 }`}
               >
                 {label}
@@ -59,13 +59,13 @@ export default function HamburgerMenu() {
 
             {session && (
               <>
-                <div className="mx-3 my-1 border-t border-zinc-200 dark:border-zinc-800" />
-                <div className="px-4 py-1.5 text-xs text-zinc-400 truncate">
+                <div className="mx-3 my-1 border-t border-border" />
+                <div className="px-4 py-1.5 text-xs text-muted truncate">
                   {session.user?.email}
                 </div>
                 <button
                   onClick={() => { setOpen(false); signOut(); }}
-                  className="block w-full px-4 py-2 text-left text-sm text-zinc-600 transition-colors hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-900"
+                  className="block w-full px-4 py-2 text-left text-sm text-muted transition-colors hover:bg-background hover:text-foreground"
                 >
                   Sign out
                 </button>

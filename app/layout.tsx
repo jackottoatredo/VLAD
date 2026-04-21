@@ -3,6 +3,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { UserContextProvider } from "./contexts/UserContext";
 import HamburgerMenu from "./components/HamburgerMenu";
 import AuthProvider from "./components/AuthProvider";
+import ThemeProvider from "./components/ThemeProvider";
+import ThemeToggle from "./components/ThemeToggle";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -28,13 +30,17 @@ export default function RootLayout({
   return (
     <html
       lang="en"
+      suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-black">
-        <AuthProvider>
-          <HamburgerMenu />
-          <UserContextProvider>{children}</UserContextProvider>
-        </AuthProvider>
+      <body className="min-h-full flex flex-col bg-background text-foreground">
+        <ThemeProvider>
+          <AuthProvider>
+            <HamburgerMenu />
+            <ThemeToggle />
+            <UserContextProvider>{children}</UserContextProvider>
+          </AuthProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

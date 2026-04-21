@@ -130,7 +130,7 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
       instructions={<Markdown>{productPostprocess}</Markdown>}
       settings={null}
     >
-      <div className="flex flex-1 flex-col gap-4 overflow-hidden rounded-xl border border-zinc-300 p-4 dark:border-zinc-700">
+      <div className="flex flex-1 flex-col gap-4 overflow-hidden rounded-2xl border border-border bg-surface p-4 shadow-md">
         <MediaEditor
           videoUrl={videoUrl}
           loading={loading ? { stages: loading } : undefined}

@@ -28,7 +28,7 @@ export default function MediaPlayer({
   const showEmpty = !showError && !showLoading && !showVideo
 
   return (
-    <div className="relative w-full aspect-video rounded-lg bg-zinc-100 dark:bg-zinc-800 overflow-hidden">
+    <div className="relative w-full aspect-video rounded-lg bg-background overflow-hidden">
 
       {showError && (
         <div className="flex h-full w-full items-center justify-center p-4">
@@ -40,13 +40,13 @@ export default function MediaPlayer({
         <div className="flex h-full w-full flex-col items-center justify-end gap-3 px-8 pb-6">
           {loading.stages.map((stage) => (
             <div key={stage.label} className="w-full space-y-1">
-              <div className="flex justify-between text-xs text-zinc-500 dark:text-zinc-400">
+              <div className="flex justify-between text-xs text-muted">
                 <span>{stage.label}</span>
                 <span>{Math.round(stage.progress)}%</span>
               </div>
-              <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700">
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-border">
                 <div
-                  className="h-full rounded-full bg-zinc-900 transition-all duration-500 dark:bg-zinc-100"
+                  className="h-full rounded-full bg-foreground transition-all duration-500"
                   style={{ width: `${Math.round(stage.progress)}%` }}
                 />
               </div>
@@ -61,11 +61,11 @@ export default function MediaPlayer({
 
       {showEmpty && (
         <div className="flex h-full w-full flex-col items-center justify-center gap-3">
-          <p className="text-sm text-zinc-500">{emptyMessage}</p>
+          <p className="text-sm text-muted">{emptyMessage}</p>
           {emptyAction && (
             <button
               onClick={emptyAction.onClick}
-              className="rounded-md bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+              className="rounded-md bg-foreground px-4 py-1.5 text-sm font-medium text-background shadow-sm hover:opacity-80"
             >
               {emptyAction.label}
             </button>

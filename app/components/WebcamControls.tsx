@@ -19,7 +19,7 @@ const VERTICALS: WebcamVertical[] = ['top', 'bottom']
 const HORIZONTALS: WebcamHorizontal[] = ['left', 'right']
 
 const SELECT_CLASS =
-  'flex-1 rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 shadow-sm outline-none focus:border-zinc-500 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100'
+  'flex-1 rounded-md border border-border bg-surface px-2 py-1 text-xs text-foreground shadow-sm outline-none focus:border-muted disabled:opacity-50'
 
 export default function WebcamControls({ settings, onChange, disabled }: Props) {
   const [useDefaults, setUseDefaults] = useState(true)
@@ -36,22 +36,22 @@ export default function WebcamControls({ settings, onChange, disabled }: Props) 
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
-        <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Webcam</p>
-        <label className="flex items-center gap-1.5 text-xs italic text-zinc-400 dark:text-zinc-500 select-none">
+        <p className="text-xs font-medium text-muted">Webcam</p>
+        <label className="flex items-center gap-1.5 text-xs italic text-muted opacity-80 select-none">
           <span>use defaults</span>
           <input
             type="checkbox"
             checked={useDefaults}
             onChange={toggleDefaults}
             disabled={disabled}
-            className="h-3.5 w-3.5 accent-zinc-900 dark:accent-zinc-100"
+            className="h-3.5 w-3.5 accent-foreground"
           />
         </label>
       </div>
 
       {!useDefaults && (
         <>
-          <div className="flex rounded-md border border-zinc-300 dark:border-zinc-700 overflow-hidden">
+          <div className="flex rounded-md border border-border overflow-hidden">
             {MODES.map((opt) => (
               <button
                 key={opt.value}
@@ -59,8 +59,8 @@ export default function WebcamControls({ settings, onChange, disabled }: Props) 
                 disabled={disabled}
                 className={`flex-1 px-2 py-1 text-xs font-medium transition-colors disabled:opacity-50 ${
                   settings.webcamMode === opt.value
-                    ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
-                    : 'bg-white text-zinc-600 hover:bg-zinc-50 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800'
+                    ? 'bg-foreground text-background'
+                    : 'bg-surface text-muted hover:bg-background'
                 }`}
               >
                 {opt.label}

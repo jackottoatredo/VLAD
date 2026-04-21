@@ -156,15 +156,15 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
           <button
             onClick={handleSave}
             disabled={!videoUrl || saveStatus === 'saving' || saveStatus === 'saved'}
-            className="w-full rounded-md border border-zinc-300 bg-white px-4 py-1.5 text-sm font-medium text-zinc-700 shadow-sm hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            className="w-full rounded-md border border-border bg-surface px-4 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-background disabled:opacity-50"
           >
             {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? 'Saved' : 'Save'}
           </button>
-          {saveStatus === 'error' && <p className="text-xs text-red-600 dark:text-red-400">{saveError}</p>}
+          {saveStatus === 'error' && <p className="text-xs text-red-500">{saveError}</p>}
         </div>
       }
     >
-      <div className="flex flex-1 flex-col gap-4 overflow-hidden rounded-xl border border-zinc-300 p-4 dark:border-zinc-700">
+      <div className="flex flex-1 flex-col gap-4 overflow-hidden rounded-2xl border border-border bg-surface p-4 shadow-md">
         <MediaEditor
           videoUrl={videoUrl}
           loading={loading ? { stages: loading } : undefined}

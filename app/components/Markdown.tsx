@@ -9,17 +9,17 @@ type Props = {
 
 export default function Markdown({ children, className = '' }: Props) {
   return (
-    <div className={`space-y-2 text-sm text-zinc-600 dark:text-zinc-400 ${className}`}>
+    <div className={`space-y-2 text-sm text-muted ${className}`}>
       <ReactMarkdown
         components={{
           strong: ({ children }) => (
-            <strong className="font-semibold text-zinc-900 dark:text-zinc-100">{children}</strong>
+            <strong className="font-semibold text-foreground">{children}</strong>
           ),
           em: ({ children }) => <em className="italic">{children}</em>,
           a: ({ href, children }) => (
             <a
               href={href}
-              className="text-zinc-900 underline underline-offset-2 hover:text-zinc-600 dark:text-zinc-200 dark:hover:text-zinc-400"
+              className="text-foreground underline underline-offset-2 hover:text-muted"
               target={href?.startsWith('http') ? '_blank' : undefined}
               rel={href?.startsWith('http') ? 'noreferrer' : undefined}
             >
@@ -29,7 +29,7 @@ export default function Markdown({ children, className = '' }: Props) {
           ul: ({ children }) => <ul className="list-disc space-y-1 pl-4">{children}</ul>,
           ol: ({ children }) => <ol className="list-decimal space-y-1 pl-4">{children}</ol>,
           code: ({ children }) => (
-            <code className="rounded bg-zinc-100 px-1 py-0.5 font-mono text-xs text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200">
+            <code className="rounded bg-background px-1 py-0.5 font-mono text-xs text-foreground">
               {children}
             </code>
           ),

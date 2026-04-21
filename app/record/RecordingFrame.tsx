@@ -61,8 +61,8 @@ export default function RecordingFrame({ iframeRef, product, recordingKey, targe
         sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-top-navigation"
       />
       {countdown != null && (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-zinc-900/50">
-          <span className="text-[12rem] font-black leading-none text-orange-500 drop-shadow-lg select-none">
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/50">
+          <span className="text-[12rem] font-black leading-none text-foreground drop-shadow-lg select-none">
             {countdown}
           </span>
         </div>

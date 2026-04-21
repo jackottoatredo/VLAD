@@ -41,21 +41,21 @@ export default function MediaEditor({
       <MediaPlayer {...playerProps} />
 
       {/* Disabled time display */}
-      <div className="flex justify-between text-xs text-zinc-600 font-mono">
+      <div className="flex justify-between text-xs text-muted font-mono">
         <span>Start: 0:00.0</span>
         <span>0:00.0</span>
         <span>End: 0:00.0</span>
       </div>
 
       {/* Disabled timeline track */}
-      <div className="relative h-5 w-full select-none bg-black opacity-40">
-        <div className="absolute inset-0 rounded-md border border-zinc-600" />
-        <div className="absolute top-0 bottom-0 border-y border-[#FF4405] bg-[#932500]" style={{ left: '8px', right: '8px' }} />
-        <div className="absolute top-0 bottom-0 flex w-2 items-center justify-center rounded-l-md bg-[#FF4405]" style={{ left: '0%' }}>
-          <span className="block h-[calc(100%-8px)] w-0.5 rounded-full bg-[#932500]" />
+      <div className="relative h-5 w-full select-none bg-background opacity-40">
+        <div className="absolute inset-0 rounded-md border border-border" />
+        <div className="absolute top-0 bottom-0 border-y border-accent bg-accent-soft" style={{ left: '8px', right: '8px' }} />
+        <div className="absolute top-0 bottom-0 flex w-2 items-center justify-center rounded-l-md bg-accent" style={{ left: '0%' }}>
+          <span className="block h-[calc(100%-8px)] w-0.5 rounded-full bg-background/60" />
         </div>
-        <div className="absolute top-0 bottom-0 flex w-2 items-center justify-center rounded-r-md bg-[#FF4405]" style={{ left: '100%', transform: 'translateX(-100%)' }}>
-          <span className="block h-[calc(100%-8px)] w-0.5 rounded-full bg-[#932500]" />
+        <div className="absolute top-0 bottom-0 flex w-2 items-center justify-center rounded-r-md bg-accent" style={{ left: '100%', transform: 'translateX(-100%)' }}>
+          <span className="block h-[calc(100%-8px)] w-0.5 rounded-full bg-background/60" />
         </div>
       </div>
 
@@ -63,7 +63,7 @@ export default function MediaEditor({
       <div className="flex items-center justify-center gap-1 -mt-1.5">
         <button
           disabled
-          className="flex h-7 w-7 items-center justify-center rounded text-zinc-700 cursor-not-allowed"
+          className="flex h-7 w-7 items-center justify-center rounded text-muted opacity-60 cursor-not-allowed"
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
             <rect x="1" y="2" width="2" height="10" />
@@ -72,7 +72,7 @@ export default function MediaEditor({
         </button>
         <button
           disabled
-          className="flex h-8 w-8 items-center justify-center text-zinc-600 cursor-not-allowed"
+          className="flex h-8 w-8 items-center justify-center text-muted opacity-60 cursor-not-allowed"
         >
           <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
             <path d="M2 0 L12 6 L2 12 Z" />
@@ -80,7 +80,7 @@ export default function MediaEditor({
         </button>
         <button
           disabled
-          className="flex h-7 w-7 items-center justify-center rounded text-zinc-700 cursor-not-allowed"
+          className="flex h-7 w-7 items-center justify-center rounded text-muted opacity-60 cursor-not-allowed"
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
             <path d="M2 2 L9 7 L2 12 Z" />

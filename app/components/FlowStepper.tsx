@@ -21,7 +21,7 @@ export default function FlowStepper({ steps, currentStep, maxReachableStep, onSt
         return (
           <div key={label} className="flex items-center gap-2">
             {i > 0 && (
-              <div className={`h-px w-6 ${i <= maxReachable ? 'bg-zinc-900 dark:bg-zinc-100' : 'bg-zinc-300 dark:bg-zinc-700'}`} />
+              <div className={`h-px w-6 ${i <= maxReachable ? 'bg-accent' : 'bg-border'}`} />
             )}
             <button
               type="button"
@@ -31,22 +31,20 @@ export default function FlowStepper({ steps, currentStep, maxReachableStep, onSt
             >
               <div
                 className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-medium ${
-                  isActive
-                    ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
-                    : isDone
-                    ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
+                  isActive || isDone
+                    ? 'bg-accent text-white'
                     : isFuture
-                    ? 'bg-zinc-200 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-600'
-                    : 'bg-zinc-200 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-500'
+                    ? 'bg-border text-muted opacity-60'
+                    : 'bg-border text-muted'
                 }`}
               >
                 {isDone ? '✓' : i + 1}
               </div>
               <span
                 className={`text-xs ${
-                  isActive ? 'font-medium text-zinc-900 dark:text-zinc-100'
-                  : isFuture ? 'text-zinc-400 dark:text-zinc-600'
-                  : 'text-zinc-500'
+                  isActive ? 'font-medium text-foreground'
+                  : isFuture ? 'text-muted opacity-60'
+                  : 'text-muted'
                 }`}
               >
                 {label}

@@ -1,11 +1,13 @@
 'use client'
 
 import PageLayout, { type NavButton } from '@/app/components/PageLayout'
+import Markdown from '@/app/components/Markdown'
 import RecordingFrame from '@/app/record/RecordingFrame'
 import WebcamOverlay from '@/app/record/WebcamOverlay'
 import WebcamControls from '@/app/components/WebcamControls'
 import { useUser } from '@/app/contexts/UserContext'
 import { useProductFlow } from '@/app/contexts/ProductFlowContext'
+import { productRecord } from '@/app/copy/instructions'
 
 const PRODUCTS = [
   { label: 'Returns & Claims', safe: 'returns-claims' },
@@ -39,22 +41,25 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
     <PageLayout
       navBack={navBack}
       navForward={navForward}
-      instructions={
-        <p>Select a product and start recording. Your mouse interactions and webcam will be captured.</p>
-      }
+      instructions={<Markdown>{productRecord}</Markdown>}
       settings={
         <div className="flex flex-col gap-3">
-          <select
-            value={product}
-            onChange={(e) => setProduct(e.target.value)}
-            disabled={recording.isRecording}
-            className="w-full rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 shadow-sm outline-none focus:border-zinc-500 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-          >
-            <option value="">Select product…</option>
-            {PRODUCTS.map((p) => (
-              <option key={p.safe} value={p.safe}>{p.label}</option>
-            ))}
-          </select>
+          <div className="flex flex-col gap-2">
+            <p className="text-xs font-medium text-muted">Product</p>
+            <select
+              value={product}
+              onChange={(e) => setProduct(e.target.value)}
+              disabled={recording.isRecording}
+              className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground shadow-sm outline-none focus:border-muted disabled:opacity-50"
+            >
+              <option value="">Select product…</option>
+              {PRODUCTS.map((p) => (
+                <option key={p.safe} value={p.safe}>{p.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <hr className="border-border" />
 
           <WebcamControls
             settings={webcamSettings}
@@ -62,13 +67,15 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
             disabled={recording.isRecording}
           />
 
+          <hr className="border-border" />
+
           <button
             onClick={recording.isRecording ? recording.stop : () => recording.start(presenter, product)}
             disabled={isCountingDown || (!recording.isRecording && !canStart)}
-            className={`w-full rounded-md px-4 py-1.5 text-sm font-medium shadow-sm disabled:opacity-40 disabled:cursor-not-allowed text-white ${
+            className={`w-full rounded-md px-4 py-1.5 text-sm font-medium shadow-sm disabled:opacity-40 disabled:cursor-not-allowed ${
               recording.isRecording
-                ? 'bg-red-600 hover:bg-red-700'
-                : 'bg-zinc-900 hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300'
+                ? 'bg-red-600 text-white hover:bg-red-700'
+                : 'bg-foreground text-background hover:opacity-80'
             }`}
           >
             {isCountingDown ? 'Starting…' : recording.isRecording ? 'Stop Recording' : 'Start Recording'}
@@ -76,7 +83,7 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
         </div>
       }
     >
-      <div className="flex flex-1 items-center justify-center overflow-hidden rounded-xl border border-zinc-300 p-[10px] dark:border-zinc-700">
+      <div className="flex flex-1 items-center justify-center overflow-hidden rounded-2xl border border-border bg-surface p-[10px] shadow-md">
         <RecordingFrame
           iframeRef={recording.iframeRef}
           product={product}

@@ -2,12 +2,14 @@
 
 import { useState } from 'react'
 import PageLayout, { type NavButton } from '@/app/components/PageLayout'
+import Markdown from '@/app/components/Markdown'
 import RecordingFrame from '@/app/record/RecordingFrame'
 import WebcamOverlay from '@/app/record/WebcamOverlay'
 import WebcamControls from '@/app/components/WebcamControls'
 import { useUser, type Merchant } from '@/app/contexts/UserContext'
 import { useMerchantFlow } from '@/app/contexts/MerchantFlowContext'
 import { MERCHANT_TARGET_URL } from '@/app/config'
+import { merchantRecord } from '@/app/copy/instructions'
 
 type Props = {
   recording: ReturnType<typeof import('@/app/hooks/useRecording').useRecording>
@@ -54,7 +56,7 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
       <PageLayout
         navBack={navBack}
         navForward={navForward}
-        instructions={<p>Record a merchant customization walkthrough. Select a merchant and start recording.</p>}
+        instructions={<Markdown>{merchantRecord}</Markdown>}
         settings={
           <div className="flex flex-col gap-3">
             <div className="flex gap-1">
@@ -62,7 +64,7 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
                 value={merchantId}
                 onChange={(e) => setMerchantId(e.target.value)}
                 disabled={recording.isRecording}
-                className="flex-1 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 shadow-sm outline-none focus:border-zinc-500 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                className="flex-1 rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground shadow-sm outline-none focus:border-muted disabled:opacity-50"
               >
                 <option value="">Select merchant…</option>
                 {merchants.map((m) => (
@@ -72,7 +74,7 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
               <button
                 onClick={() => setShowAddMerchant(true)}
                 disabled={recording.isRecording}
-                className="flex items-center justify-center rounded-md border border-zinc-300 bg-white px-2.5 text-zinc-600 shadow-sm hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                className="flex items-center justify-center rounded-md border border-border bg-surface px-2.5 text-muted shadow-sm hover:bg-background disabled:opacity-50"
                 title="Add new merchant"
               >
                 +
@@ -84,10 +86,10 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
             <button
               onClick={recording.isRecording ? recording.stop : () => recording.start(presenter, merchantId)}
               disabled={isCountingDown || (!recording.isRecording && !canStart)}
-              className={`w-full rounded-md px-4 py-1.5 text-sm font-medium shadow-sm disabled:opacity-40 disabled:cursor-not-allowed text-white ${
+              className={`w-full rounded-md px-4 py-1.5 text-sm font-medium shadow-sm disabled:opacity-40 disabled:cursor-not-allowed ${
                 recording.isRecording
-                  ? 'bg-red-600 hover:bg-red-700'
-                  : 'bg-zinc-900 hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300'
+                  ? 'bg-red-600 text-white hover:bg-red-700'
+                  : 'bg-foreground text-background hover:opacity-80'
               }`}
             >
               {isCountingDown ? 'Starting…' : recording.isRecording ? 'Stop Recording' : 'Start Recording'}
@@ -95,7 +97,7 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
           </div>
         }
       >
-        <div className="flex flex-1 items-center justify-center overflow-hidden rounded-xl border border-zinc-300 p-[10px] dark:border-zinc-700">
+        <div className="flex flex-1 items-center justify-center overflow-hidden rounded-2xl border border-border bg-surface p-[10px] shadow-md">
           <RecordingFrame
             iframeRef={recording.iframeRef}
             product={brand}
@@ -111,16 +113,16 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
       </PageLayout>
 
       {showAddMerchant && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="w-80 rounded-xl border border-zinc-200 bg-white p-6 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
-            <h2 className="mb-4 text-sm font-semibold text-zinc-800 dark:text-zinc-100">Add New Merchant</h2>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/50">
+          <div className="w-80 rounded-xl border border-border bg-surface p-6 shadow-md">
+            <h2 className="mb-4 text-sm font-semibold text-foreground">Add New Merchant</h2>
             <div className="flex flex-col gap-3">
-              <input type="text" value={merchantName} onChange={(e) => setMerchantName(e.target.value)} placeholder="Company name" className="w-full rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 placeholder-zinc-400 shadow-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100" />
-              <input type="text" value={merchantUrlInput} onChange={(e) => setMerchantUrlInput(e.target.value)} placeholder="mammut.com" className="w-full rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 placeholder-zinc-400 shadow-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100" />
+              <input type="text" value={merchantName} onChange={(e) => setMerchantName(e.target.value)} placeholder="Company name" className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground placeholder:text-muted shadow-sm outline-none focus:border-muted" />
+              <input type="text" value={merchantUrlInput} onChange={(e) => setMerchantUrlInput(e.target.value)} placeholder="mammut.com" className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground placeholder:text-muted shadow-sm outline-none focus:border-muted" />
               {addMerchantError && <p className="text-xs text-red-500">{addMerchantError}</p>}
               <div className="flex gap-2 pt-1">
-                <button onClick={() => { setShowAddMerchant(false); setMerchantName(''); setMerchantUrlInput(''); setAddMerchantError('') }} className="flex-1 rounded-md border border-zinc-300 px-4 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">Cancel</button>
-                <button onClick={handleAddMerchant} disabled={!merchantName.trim() || !merchantUrlInput.trim().includes('.')} className="flex-1 rounded-md bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300">Add</button>
+                <button onClick={() => { setShowAddMerchant(false); setMerchantName(''); setMerchantUrlInput(''); setAddMerchantError('') }} className="flex-1 rounded-md border border-border px-4 py-1.5 text-sm text-muted hover:bg-background hover:text-foreground">Cancel</button>
+                <button onClick={handleAddMerchant} disabled={!merchantName.trim() || !merchantUrlInput.trim().includes('.')} className="flex-1 rounded-md bg-foreground px-4 py-1.5 text-sm font-medium text-background hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed">Add</button>
               </div>
             </div>
           </div>

@@ -43,8 +43,8 @@ export default function MerchantFlowWizard() {
   if (!presenter) {
     return (
       <PageLayout instructions={<p>Select a presenter on the home page first.</p>} settings={null}>
-        <div className="flex flex-1 items-center justify-center rounded-xl border border-zinc-300 dark:border-zinc-700">
-          <p className="text-sm text-zinc-500">No presenter selected</p>
+        <div className="flex flex-1 items-center justify-center rounded-2xl border border-border bg-surface shadow-md">
+          <p className="text-sm text-muted">No presenter selected</p>
         </div>
       </PageLayout>
     )
@@ -52,7 +52,7 @@ export default function MerchantFlowWizard() {
 
   return (
     <div className="flex h-screen flex-col">
-      <div className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+      <div className="border-b border-border bg-surface">
         <FlowStepper steps={STEPS} currentStep={flow.step} maxReachableStep={maxStepRef.current} onStepClick={goTo} />
       </div>
       <div className="flex flex-1 items-center justify-center overflow-hidden">

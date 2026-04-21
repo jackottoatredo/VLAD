@@ -1,5 +1,7 @@
 'use client'
+import { useState } from 'react'
 import type { WebcamSettings, WebcamMode, WebcamVertical, WebcamHorizontal } from '@/types/webcam'
+import { DEFAULT_WEBCAM_SETTINGS } from '@/types/webcam'
 
 type Props = {
   settings: WebcamSettings
@@ -13,83 +15,83 @@ const MODES: { value: WebcamMode; label: string }[] = [
   { value: 'off', label: 'Off' },
 ]
 
-type Corner = { v: WebcamVertical; h: WebcamHorizontal }
-const CORNERS: Corner[] = [
-  { v: 'top', h: 'left' },
-  { v: 'top', h: 'right' },
-  { v: 'bottom', h: 'left' },
-  { v: 'bottom', h: 'right' },
-]
+const VERTICALS: WebcamVertical[] = ['top', 'bottom']
+const HORIZONTALS: WebcamHorizontal[] = ['left', 'right']
 
-function CornerPicker({
-  vertical,
-  horizontal,
-  onChange,
-  disabled,
-}: {
-  vertical: WebcamVertical
-  horizontal: WebcamHorizontal
-  onChange: (v: WebcamVertical, h: WebcamHorizontal) => void
-  disabled?: boolean
-}) {
-  return (
-    <div className="grid grid-cols-2 grid-rows-2 gap-1.5 rounded-md border border-zinc-300 p-1.5 dark:border-zinc-700">
-      {CORNERS.map(({ v, h }) => {
-        const active = vertical === v && horizontal === h
-        return (
-          <button
-            key={`${v}-${h}`}
-            onClick={() => onChange(v, h)}
-            disabled={disabled}
-            className={`h-4 w-4 rounded-full border-2 transition-colors disabled:opacity-50 ${
-              active
-                ? 'border-zinc-900 bg-zinc-900 dark:border-zinc-100 dark:bg-zinc-100'
-                : 'border-zinc-300 bg-transparent hover:border-zinc-500 dark:border-zinc-600 dark:hover:border-zinc-400'
-            }`}
-            title={`${v}-${h}`}
-          />
-        )
-      })}
-    </div>
-  )
-}
+const SELECT_CLASS =
+  'flex-1 rounded-md border border-border bg-surface px-2 py-1 text-xs text-foreground shadow-sm outline-none focus:border-muted disabled:opacity-50'
 
 export default function WebcamControls({ settings, onChange, disabled }: Props) {
-  const showPosition = settings.webcamMode !== 'off'
+  const [useDefaults, setUseDefaults] = useState(true)
+
+  const toggleDefaults = () => {
+    if (useDefaults) {
+      setUseDefaults(false)
+    } else {
+      setUseDefaults(true)
+      onChange(DEFAULT_WEBCAM_SETTINGS)
+    }
+  }
 
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Webcam</p>
-
-      <div className="flex items-stretch gap-2">
-        <div className="flex flex-1 rounded-md border border-zinc-300 dark:border-zinc-700 overflow-hidden">
-          {MODES.map((opt) => (
-            <button
-              key={opt.value}
-              onClick={() => onChange({ ...settings, webcamMode: opt.value })}
-              disabled={disabled}
-              className={`flex-1 px-3 py-1 text-xs font-medium transition-colors disabled:opacity-50 ${
-                settings.webcamMode === opt.value
-                  ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
-                  : 'bg-white text-zinc-600 hover:bg-zinc-50 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800'
-              }`}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-
-        {showPosition && (
-          <CornerPicker
-            vertical={settings.webcamVertical}
-            horizontal={settings.webcamHorizontal}
-            onChange={(webcamVertical, webcamHorizontal) =>
-              onChange({ ...settings, webcamVertical, webcamHorizontal })
-            }
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-medium text-muted">Webcam</p>
+        <label className="flex items-center gap-1.5 text-xs italic text-muted opacity-80 select-none">
+          <span>use defaults</span>
+          <input
+            type="checkbox"
+            checked={useDefaults}
+            onChange={toggleDefaults}
             disabled={disabled}
+            className="h-3.5 w-3.5 accent-foreground"
           />
-        )}
+        </label>
       </div>
+
+      {!useDefaults && (
+        <>
+          <div className="flex rounded-md border border-border overflow-hidden">
+            {MODES.map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => onChange({ ...settings, webcamMode: opt.value })}
+                disabled={disabled}
+                className={`flex-1 px-2 py-1 text-xs font-medium transition-colors disabled:opacity-50 ${
+                  settings.webcamMode === opt.value
+                    ? 'bg-foreground text-background'
+                    : 'bg-surface text-muted hover:bg-background'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex gap-2">
+            <select
+              value={settings.webcamVertical}
+              onChange={(e) => onChange({ ...settings, webcamVertical: e.target.value as WebcamVertical })}
+              disabled={disabled}
+              className={SELECT_CLASS}
+            >
+              {VERTICALS.map((v) => (
+                <option key={v} value={v}>{v}</option>
+              ))}
+            </select>
+            <select
+              value={settings.webcamHorizontal}
+              onChange={(e) => onChange({ ...settings, webcamHorizontal: e.target.value as WebcamHorizontal })}
+              disabled={disabled}
+              className={SELECT_CLASS}
+            >
+              {HORIZONTALS.map((h) => (
+                <option key={h} value={h}>{h}</option>
+              ))}
+            </select>
+          </div>
+        </>
+      )}
     </div>
   )
 }

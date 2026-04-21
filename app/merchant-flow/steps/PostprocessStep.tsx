@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import PageLayout, { type NavButton } from '@/app/components/PageLayout'
+import Markdown from '@/app/components/Markdown'
 import MediaEditor from '@/app/components/MediaEditor'
 import { DEFAULT_FPS, MERCHANT_TARGET_URL } from '@/app/config'
 import { useUser } from '@/app/contexts/UserContext'
 import { useMerchantFlow } from '@/app/contexts/MerchantFlowContext'
+import { merchantPostprocess } from '@/app/copy/instructions'
 
 const POLL_MS = 500
 
@@ -148,27 +150,21 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
     <PageLayout
       navBack={navBack}
       navForward={navForward}
-      instructions={
-        <div className="space-y-2 text-sm text-zinc-600 dark:text-zinc-400">
-          <p>Review your merchant recording and trim any dead air from the start and end.</p>
-          <p>Drag the green handles to set in/out points, or use arrow keys for frame-by-frame precision.</p>
-          <p>Use the forward arrow to save to library.</p>
-        </div>
-      }
+      instructions={<Markdown>{merchantPostprocess}</Markdown>}
       settings={
         <div className="flex flex-col gap-3">
           <button
             onClick={handleSave}
             disabled={!videoUrl || saveStatus === 'saving' || saveStatus === 'saved'}
-            className="w-full rounded-md border border-zinc-300 bg-white px-4 py-1.5 text-sm font-medium text-zinc-700 shadow-sm hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            className="w-full rounded-md border border-border bg-surface px-4 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-background disabled:opacity-50"
           >
             {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? 'Saved' : 'Save'}
           </button>
-          {saveStatus === 'error' && <p className="text-xs text-red-600 dark:text-red-400">{saveError}</p>}
+          {saveStatus === 'error' && <p className="text-xs text-red-500">{saveError}</p>}
         </div>
       }
     >
-      <div className="flex flex-1 flex-col gap-4 overflow-hidden rounded-xl border border-zinc-300 p-4 dark:border-zinc-700">
+      <div className="flex flex-1 flex-col gap-4 overflow-hidden rounded-2xl border border-border bg-surface p-4 shadow-md">
         <MediaEditor
           videoUrl={videoUrl}
           loading={loading ? { stages: loading } : undefined}

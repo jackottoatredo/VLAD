@@ -6,6 +6,8 @@ import Modal from '@/app/components/Modal'
 import DeleteModal from '@/app/components/DeleteModal'
 import MultiSelect from '@/app/components/MultiSelect'
 import PreviewModal from '@/app/components/PreviewModal'
+import Markdown from '@/app/components/Markdown'
+import { mergeExport as mergeExportInstructions } from '@/app/copy/instructions'
 import { initialSteps, runMergeJob } from './pipeline'
 
 type Recording = {
@@ -177,18 +179,28 @@ export default function MergeExportPage() {
   }
 
   return (
-    <div className="flex min-h-screen w-full items-center justify-center bg-black font-sans" style={{ padding: '0 150px' }}>
+    <div className="flex min-h-screen w-full items-center justify-center bg-background font-sans" style={{ padding: '0 150px' }}>
       <div className="relative w-full" style={{ aspectRatio: '15/8' }}>
         <div className="absolute inset-0 flex gap-[10px]">
+            {/* Instructions */}
+            <div className="flex min-h-0 w-1/4 flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-md">
+              <p className="shrink-0 flex min-h-11 items-center border-b border-border px-4 text-xs font-semibold uppercase tracking-wider text-muted">
+                Instructions
+              </p>
+              <div className="flex-1 overflow-y-auto p-4">
+                <Markdown>{mergeExportInstructions}</Markdown>
+              </div>
+            </div>
+
             {/* Column A — Merchant Recordings */}
-            <div className="flex w-1/3 flex-col overflow-hidden rounded-xl border border-zinc-700">
-              <div className="flex items-center justify-between border-b border-zinc-700 bg-zinc-800 px-4 py-3">
-                <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
+            <div className="flex w-1/4 flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-md">
+              <div className="flex items-center justify-between border-b border-border px-4 py-3">
+                <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">
                   Merchant Intros
                 </h2>
                 <Link
                   href="/merchant-flow"
-                  className="flex h-5 w-5 items-center justify-center rounded border border-zinc-600 text-zinc-400 transition-colors hover:border-zinc-400 hover:text-zinc-200"
+                  className="flex h-5 w-5 items-center justify-center rounded border border-border text-muted transition-colors hover:border-muted hover:text-foreground"
                 >
                   <span className="text-sm leading-none">+</span>
                 </Link>
@@ -198,23 +210,23 @@ export default function MergeExportPage() {
                   <div
                     key={r.id}
                     onClick={() => toggleMerchant(r.id)}
-                    className={`group flex h-10 w-full cursor-pointer items-center justify-between border-b border-zinc-800 px-4 text-sm transition-colors ${
+                    className={`group flex h-10 w-full cursor-pointer items-center justify-between border-b border-border px-4 text-sm transition-colors ${
                       selectedMerchants.has(r.id)
-                        ? 'bg-zinc-800 text-zinc-50'
-                        : 'text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200'
+                        ? 'bg-background text-foreground'
+                        : 'text-muted hover:bg-background hover:text-foreground'
                     }`}
                   >
                     <span className="min-w-0 truncate">{r.merchant_id ?? r.id.slice(0, 8)}</span>
                     <span className="ml-2 flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                       <button
                         onClick={(e) => { e.stopPropagation(); openRecordingPreview(r, `Merchant Intro: ${r.merchant_id ?? r.id.slice(0, 8)}`) }}
-                        className="text-zinc-600 hover:text-zinc-200"
+                        className="text-muted hover:text-foreground"
                       >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: r.id, name: r.merchant_id ?? r.id.slice(0, 8), kind: 'recording' }) }}
-                        className="text-zinc-600 hover:text-red-500"
+                        className="text-muted hover:text-red-500"
                       >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
                       </button>
@@ -222,20 +234,20 @@ export default function MergeExportPage() {
                   </div>
                 ))}
                 {merchants.length === 0 && (
-                  <p className="px-4 py-3 text-xs text-zinc-600">No merchant recordings yet.</p>
+                  <p className="px-4 py-3 text-xs text-muted opacity-70">No merchant recordings yet.</p>
                 )}
               </div>
             </div>
 
             {/* Column B — Product Recordings */}
-            <div className="flex w-1/3 flex-col overflow-hidden rounded-xl border border-zinc-700">
-              <div className="flex items-center justify-between border-b border-zinc-700 bg-zinc-800 px-4 py-3">
-                <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
+            <div className="flex w-1/4 flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-md">
+              <div className="flex items-center justify-between border-b border-border px-4 py-3">
+                <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">
                   Product Recordings
                 </h2>
                 <Link
                   href="/product-flow"
-                  className="flex h-5 w-5 items-center justify-center rounded border border-zinc-600 text-zinc-400 transition-colors hover:border-zinc-400 hover:text-zinc-200"
+                  className="flex h-5 w-5 items-center justify-center rounded border border-border text-muted transition-colors hover:border-muted hover:text-foreground"
                 >
                   <span className="text-sm leading-none">+</span>
                 </Link>
@@ -245,23 +257,23 @@ export default function MergeExportPage() {
                   <div
                     key={r.id}
                     onClick={() => setSelectedProduct(r.id === selectedProduct ? null : r.id)}
-                    className={`group flex h-10 w-full cursor-pointer items-center justify-between border-b border-zinc-800 px-4 text-sm transition-colors ${
+                    className={`group flex h-10 w-full cursor-pointer items-center justify-between border-b border-border px-4 text-sm transition-colors ${
                       selectedProduct === r.id
-                        ? 'bg-zinc-800 text-zinc-50'
-                        : 'text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200'
+                        ? 'bg-background text-foreground'
+                        : 'text-muted hover:bg-background hover:text-foreground'
                     }`}
                   >
                     <span className="min-w-0 truncate">{r.product_name ?? r.id.slice(0, 8)}</span>
                     <span className="ml-2 flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                       <button
                         onClick={(e) => { e.stopPropagation(); openRecordingPreview(r, `Product Recording: ${r.product_name ?? r.id.slice(0, 8)}`) }}
-                        className="text-zinc-600 hover:text-zinc-200"
+                        className="text-muted hover:text-foreground"
                       >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: r.id, name: r.product_name ?? r.id.slice(0, 8), kind: 'recording' }) }}
-                        className="text-zinc-600 hover:text-red-500"
+                        className="text-muted hover:text-red-500"
                       >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
                       </button>
@@ -269,20 +281,20 @@ export default function MergeExportPage() {
                   </div>
                 ))}
                 {products.length === 0 && (
-                  <p className="px-4 py-3 text-xs text-zinc-600">No product recordings yet.</p>
+                  <p className="px-4 py-3 text-xs text-muted opacity-70">No product recordings yet.</p>
                 )}
               </div>
             </div>
 
             {/* Column C — Renders */}
-            <div className="flex w-1/3 flex-col overflow-hidden rounded-xl border border-zinc-700">
-              <div className="flex items-center justify-between border-b border-zinc-700 bg-zinc-800 px-4 py-3">
-                <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
-                  Exports
+            <div className="flex w-1/4 flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-md">
+              <div className="flex items-center justify-between border-b border-border px-4 py-3">
+                <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">
+                  Rendering Tasks
                 </h2>
                 <button
                   onClick={() => setShowGenerateModal(true)}
-                  className="flex h-5 w-5 items-center justify-center rounded border border-zinc-600 text-zinc-400 transition-colors hover:border-zinc-400 hover:text-zinc-200"
+                  className="flex h-5 w-5 items-center justify-center rounded border border-border text-muted transition-colors hover:border-muted hover:text-foreground"
                 >
                   <span className="text-sm leading-none">+</span>
                 </button>
@@ -302,11 +314,11 @@ export default function MergeExportPage() {
                   ]
 
                   if (entries.length === 0) {
-                    return <p className="px-4 py-3 text-xs text-zinc-600">No exports yet.</p>
+                    return <p className="px-4 py-3 text-xs text-muted opacity-70">No exports yet.</p>
                   }
 
                   return entries.map((entry, i) => {
-                    const border = ' border-b border-zinc-800'
+                    const border = ' border-b border-border'
 
                     if (entry.kind === 'active') {
                       const { task } = entry
@@ -325,12 +337,12 @@ export default function MergeExportPage() {
                       return (
                         <div
                           key={task.key}
-                          className={`group relative flex h-10 items-center justify-between px-4 transition-colors hover:bg-zinc-900${border}`}
+                          className={`group relative flex h-10 items-center justify-between px-4 transition-colors hover:bg-background${border}`}
                           onDoubleClick={isComplete ? openActivePreview : undefined}
                         >
                           <span className="flex min-w-0 items-center gap-2">
-                            {isNew && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-white" />}
-                            <p className="min-w-0 truncate text-sm text-zinc-400">{task.brand}</p>
+                            {isNew && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-foreground" />}
+                            <p className="min-w-0 truncate text-sm text-muted">{task.brand}</p>
                           </span>
                           {task.error ? (
                             <span className="ml-3 flex shrink-0 items-center gap-2">
@@ -341,24 +353,24 @@ export default function MergeExportPage() {
                                   setActiveTasks((prev) => prev.filter((t) => t.key !== task.key))
                                   runTask(task.merchantRecordingId, task.productRecordingId)
                                 }}
-                                className="text-xs text-zinc-500 hover:text-zinc-200"
+                                className="text-xs text-muted hover:text-foreground"
                               >
                                 Retry
                               </button>
                             </span>
                           ) : currentStep ? (
-                            <span className="ml-3 shrink-0 text-xs text-zinc-600">{currentStep.label}</span>
+                            <span className="ml-3 shrink-0 text-xs text-muted opacity-70">{currentStep.label}</span>
                           ) : isComplete ? (
                             <span className="ml-3 flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                               <button
                                 onClick={(e) => { e.stopPropagation(); openActivePreview() }}
-                                className="text-zinc-600 hover:text-zinc-200"
+                                className="text-muted hover:text-foreground"
                               >
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                               </button>
                               <button
                                 onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: task.renderId!, name: task.brand, kind: 'render' }) }}
-                                className="text-zinc-600 hover:text-red-500"
+                                className="text-muted hover:text-red-500"
                               >
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
                               </button>
@@ -367,9 +379,9 @@ export default function MergeExportPage() {
                           {inProgress && (
                             <div className="absolute bottom-0 left-0 right-0 flex h-[2px] gap-[2px]">
                               {task.steps.map((step) => (
-                                <div key={step.label} className="flex-1 bg-zinc-800">
+                                <div key={step.label} className="flex-1 bg-border">
                                   <div
-                                    className="h-full bg-zinc-400 transition-all duration-100"
+                                    className="h-full bg-muted transition-all duration-100"
                                     style={{ width: `${Math.round(step.progress)}%` }}
                                   />
                                 </div>
@@ -392,23 +404,23 @@ export default function MergeExportPage() {
                     return (
                       <div
                         key={r.id}
-                        className={`group flex h-10 items-center justify-between px-4 transition-colors hover:bg-zinc-900${border}`}
+                        className={`group flex h-10 items-center justify-between px-4 transition-colors hover:bg-background${border}`}
                         onDoubleClick={openDbPreview}
                       >
                         <span className="flex min-w-0 items-center gap-2">
-                          {isNew && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-white" />}
-                          <p className="min-w-0 truncate text-sm text-zinc-400">{label}</p>
+                          {isNew && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-foreground" />}
+                          <p className="min-w-0 truncate text-sm text-muted">{label}</p>
                         </span>
                         <span className="ml-3 flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                           <button
                             onClick={(e) => { e.stopPropagation(); openDbPreview() }}
-                            className="text-zinc-600 hover:text-zinc-200"
+                            className="text-muted hover:text-foreground"
                           >
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                           </button>
                           <button
                             onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: r.id, name: label, kind: 'render' }) }}
-                            className="text-zinc-600 hover:text-red-500"
+                            className="text-muted hover:text-red-500"
                           >
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
                           </button>
@@ -447,7 +459,7 @@ export default function MergeExportPage() {
         <Modal title="Generate New Video" onClose={() => { setShowGenerateModal(false); setModalMerchants(new Set()); setModalProduct(''); }}>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="mb-1 block text-xs font-medium text-zinc-400">Merchant Intros</label>
+              <label className="mb-1 block text-xs font-medium text-muted">Merchant Intros</label>
               <MultiSelect
                 options={merchants.map((r) => ({ value: r.id, label: r.merchant_id ?? r.id.slice(0, 8) }))}
                 selected={modalMerchants}
@@ -456,11 +468,11 @@ export default function MergeExportPage() {
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-zinc-400">Product Recording</label>
+              <label className="mb-1 block text-xs font-medium text-muted">Product Recording</label>
               <select
                 value={modalProduct}
                 onChange={(e) => setModalProduct(e.target.value)}
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-zinc-500"
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-muted"
               >
                 <option value="">Select a product recording</option>
                 {products.map((r) => (
@@ -473,7 +485,7 @@ export default function MergeExportPage() {
             <button
               type="submit"
               disabled={modalMerchants.size === 0 || !modalProduct}
-              className="w-full rounded-lg bg-zinc-200 px-4 py-2 text-sm font-medium text-zinc-900 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
+              className="w-full rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background transition-colors hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Start {modalMerchants.size || 0} rendering task{modalMerchants.size === 1 ? '' : 's'}
             </button>

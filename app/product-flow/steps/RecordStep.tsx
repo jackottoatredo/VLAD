@@ -83,19 +83,24 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
     recording.resetPending()
   }
 
-  async function handleContinue() {
+  function handleContinue() {
     if (!presenter || !product) return
     // Already-committed flow: nothing to upload, just advance.
     if (hasCommitted && recording.uploadStatus === 'idle') {
       flow.setStep(1)
       return
     }
-    const flowId = await recording.commit()
-    if (!flowId) return
-    // Recording is now persisted to R2. Clear any stale previews from a prior take
-    // before seeding new jobIds, otherwise clearResults would wipe them right back out.
+    // Navigate immediately — the RecordStep unmounts and the modal goes with
+    // it. Upload + eager preview enqueue run in the background; PostprocessStep
+    // will pick up jobIds as the chain resolves.
     flow.clearResults()
-    if (EAGER_PREVIEW_RENDERING) {
+    flow.setStep(1)
+
+    void (async () => {
+      const flowId = await recording.commit()
+      if (!flowId) return
+      if (!EAGER_PREVIEW_RENDERING) return
+
       const brandlessUrl = `${TARGET_URL}?product=${encodeURIComponent(product)}`
       const common = {
         flowId,
@@ -128,9 +133,7 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
         if (res?.videoUrl) flow.setBrandVideoUrl(brand, res.videoUrl)
         else if (res?.jobId) flow.setBrandJobId(brand, res.jobId)
       })
-    }
-
-    flow.setStep(1)
+    })()
   }
 
   return (

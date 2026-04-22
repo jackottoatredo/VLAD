@@ -50,16 +50,41 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
     recording.resetPending()
   }
 
-  async function handleContinue() {
+  function handleContinue() {
     if (!presenter || !merchantId) return
     if (hasCommitted && recording.uploadStatus === 'idle') {
       flow.setStep(1)
       return
     }
-    const flowId = await recording.commit()
-    if (!flowId) return
+    // Navigate immediately — modal unmounts with the RecordStep. Upload and
+    // the produce enqueue run in the background; PostprocessStep picks up the
+    // jobId via context when it arrives.
     flow.clearResults()
     flow.setStep(1)
+
+    void (async () => {
+      const flowId = await recording.commit()
+      if (!flowId) return
+      const targetUrl = websiteUrl
+        ? `${MERCHANT_TARGET_URL}?brand=${encodeURIComponent(websiteUrl)}`
+        : MERCHANT_TARGET_URL
+      const res = await fetch('/api/produce', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          flowId,
+          presenter, merchantId, url: targetUrl,
+          webcamMode: webcamSettings.webcamMode,
+          webcamVertical: webcamSettings.webcamVertical,
+          webcamHorizontal: webcamSettings.webcamHorizontal,
+          preview: true,
+        }),
+      })
+        .then((r) => r.json() as Promise<{ jobId?: string; videoUrl?: string; videoR2Key?: string; error?: string }>)
+        .catch(() => ({} as { jobId?: string; videoUrl?: string; videoR2Key?: string; error?: string }))
+      if (res.videoUrl) flow.setPostprocessVideoUrl(res.videoUrl, res.videoR2Key)
+      else if (res.jobId) flow.setPostprocessJobId(res.jobId)
+    })()
   }
 
   const [showPicker, setShowPicker] = useState(false)

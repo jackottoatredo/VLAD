@@ -22,10 +22,13 @@ type Props = {
 export default function PostprocessStep({ navBack, navForward }: Props) {
   const { presenter } = useUser()
   const flow = useMerchantFlow()
-  const { merchantId, websiteUrl: merchantUrl, webcamSettings, trimStartSec, trimEndSec, postprocessVideoUrl, flowId, name: existingName } = flow
+  const { merchantId, websiteUrl: merchantUrl, webcamSettings, trimStartSec, trimEndSec, postprocessVideoUrl, flowId, name: existingName, postprocessJobId, origin } = flow
 
   const [videoUrl, setVideoUrl] = useState<string | null>(postprocessVideoUrl)
-  const [loading, setLoading] = useState<LoadingStage[] | null>(null)
+  const initialLoading: LoadingStage[] | null = postprocessVideoUrl
+    ? null
+    : [{ label: 'Rendering', progress: 0 }, { label: 'Compositing', progress: 0 }]
+  const [loading, setLoading] = useState<LoadingStage[] | null>(initialLoading)
   const [error, setError] = useState<string | null>(null)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [saveError, setSaveError] = useState('')
@@ -70,13 +73,27 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [flow])
 
-  // Auto-render on mount
+  // Sync context.postprocessJobId → jobIdRef/loading so the polling effect
+  // picks it up when RecordStep's background chain enqueues the job AFTER
+  // this component has already mounted.
   useEffect(() => {
-    if (didAutoRender.current || postprocessVideoUrl || !presenter || !merchantId) return
+    if (!postprocessJobId || postprocessVideoUrl) return
+    if (jobIdRef.current === postprocessJobId) return
+    jobIdRef.current = postprocessJobId
+    setLoading([{ label: 'Rendering', progress: 0 }, { label: 'Compositing', progress: 0 }])
+  }, [postprocessJobId, postprocessVideoUrl])
+
+  // Auto-render only for reopened flows. New-recording flows rely on
+  // RecordStep's background chain to enqueue the job after the raw-session
+  // upload completes.
+  useEffect(() => {
+    if (didAutoRender.current || postprocessVideoUrl || !presenter || !merchantId || !flowId) return
+    if (postprocessJobId) { didAutoRender.current = true; return }
+    if (origin !== 'reopened') return
     didAutoRender.current = true
     startRender()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [presenter, merchantId, postprocessVideoUrl])
+  }, [presenter, merchantId, postprocessVideoUrl, postprocessJobId, flowId, origin])
 
   async function startRender() {
     if (!presenter || !merchantId || !flowId) return

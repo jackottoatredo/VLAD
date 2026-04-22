@@ -63,22 +63,24 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
   }
 
   async function handleRecordAgain() {
-    if (!presenter || !product) return
+    // Per design: no modal. Reset to armed-but-idle — controls re-enabled,
+    // no countdown. User adjusts settings and hits Start themselves.
     await cancelActiveJobs()
     flow.clearResults()
-    recording.start(presenter, product)
+    recording.resetPending()
   }
 
   async function handleContinue() {
     if (!presenter || !product) return
-    const ok = await recording.commit()
-    if (!ok) return
+    const flowId = await recording.commit()
+    if (!flowId) return
     // Recording is now persisted to R2. Clear any stale previews from a prior take
     // before seeding new jobIds, otherwise clearResults would wipe them right back out.
     flow.clearResults()
     if (EAGER_PREVIEW_RENDERING) {
       const brandlessUrl = `${TARGET_URL}?product=${encodeURIComponent(product)}`
       const common = {
+        flowId,
         presenter, product,
         webcamMode: webcamSettings.webcamMode,
         webcamVertical: webcamSettings.webcamVertical,
@@ -146,7 +148,7 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
           <hr className="border-border" />
 
           <button
-            onClick={recording.isRecording ? recording.stop : () => recording.start(presenter, product)}
+            onClick={recording.isRecording ? recording.stop : () => recording.start(presenter)}
             disabled={isCountingDown || (!recording.isRecording && !canStart)}
             className={`w-full rounded-md px-4 py-1.5 text-sm font-medium shadow-sm disabled:opacity-40 disabled:cursor-not-allowed ${
               recording.isRecording

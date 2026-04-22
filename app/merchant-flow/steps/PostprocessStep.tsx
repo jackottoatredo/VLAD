@@ -8,6 +8,7 @@ import { DEFAULT_FPS, MERCHANT_TARGET_URL } from '@/app/config'
 import { useUser } from '@/app/contexts/UserContext'
 import { useMerchantFlow } from '@/app/contexts/MerchantFlowContext'
 import { merchantPostprocess } from '@/app/copy/instructions'
+import NameRecordingModal from '@/app/components/NameRecordingModal'
 
 const POLL_MS = 500
 
@@ -21,13 +22,14 @@ type Props = {
 export default function PostprocessStep({ navBack, navForward }: Props) {
   const { presenter } = useUser()
   const flow = useMerchantFlow()
-  const { merchantId, websiteUrl: merchantUrl, webcamSettings, trimStartSec, trimEndSec, postprocessVideoUrl } = flow
+  const { merchantId, websiteUrl: merchantUrl, webcamSettings, trimStartSec, trimEndSec, postprocessVideoUrl, flowId, name: existingName } = flow
 
   const [videoUrl, setVideoUrl] = useState<string | null>(postprocessVideoUrl)
   const [loading, setLoading] = useState<LoadingStage[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [saveError, setSaveError] = useState('')
+  const [nameModalOpen, setNameModalOpen] = useState(false)
   const jobIdRef = useRef<string | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const didAutoRender = useRef(false)
@@ -77,7 +79,7 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
   }, [presenter, merchantId, postprocessVideoUrl])
 
   async function startRender() {
-    if (!presenter || !merchantId) return
+    if (!presenter || !merchantId || !flowId) return
     setError(null)
     setVideoUrl(null)
     setLoading([{ label: 'Rendering', progress: 0 }, { label: 'Compositing', progress: 0 }])
@@ -92,6 +94,7 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          flowId,
           presenter, merchantId, url: targetUrl,
           webcamMode: webcamSettings.webcamMode,
           webcamVertical: webcamSettings.webcamVertical,
@@ -119,8 +122,8 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
     }
   }
 
-  async function handleSave() {
-    if (!presenter || !merchantId) return
+  async function submitSave(name: string): Promise<{ ok: true } | { ok: false; error: string }> {
+    if (!presenter || !merchantId || !flowId) return { ok: false, error: 'Flow not ready.' }
     setSaveStatus('saving')
     setSaveError('')
     try {
@@ -128,21 +131,44 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          presenter, session: `${presenter}_${merchantId}`, type: 'merchant', merchantId,
+          flowId,
+          name,
+          status: 'saved',
+          type: 'merchant',
+          merchantId,
           previewVideoR2Key: flow.postprocessVideoR2Key,
-          metadata: {
-            merchantUrl, trimStartSec, trimEndSec,
+          webcamSettings: {
             webcamMode: webcamSettings.webcamMode,
             webcamVertical: webcamSettings.webcamVertical,
             webcamHorizontal: webcamSettings.webcamHorizontal,
           },
+          metadata: { merchantUrl, trimStartSec, trimEndSec },
         }),
       })
-      const data = (await res.json()) as { ok?: boolean; error?: string }
-      if (!res.ok || !data.ok) { setSaveStatus('error'); setSaveError(data.error ?? 'Failed.') }
-      else { setSaveStatus('saved'); flow.markSaved(); flow.setStep(2) }
-    } catch { setSaveStatus('error'); setSaveError('Unexpected error.') }
+      const data = (await res.json()) as { ok?: boolean; error?: string; code?: string }
+      if (!res.ok || !data.ok) {
+        setSaveStatus('error')
+        const err = data.error ?? 'Failed.'
+        setSaveError(err)
+        return { ok: false, error: err }
+      }
+      setSaveStatus('saved')
+      setNameModalOpen(false)
+      flow.markPersisted({ name, status: 'saved' })
+      flow.setStep(2)
+      return { ok: true }
+    } catch {
+      setSaveStatus('error')
+      setSaveError('Unexpected error.')
+      return { ok: false, error: 'Unexpected error.' }
+    }
   }
+
+  const canSave = !!videoUrl && saveStatus !== 'saving' && saveStatus !== 'saved'
+  const defaultSuffix = (() => {
+    if (existingName && merchantId && existingName.startsWith(`${merchantId}-`)) return existingName.slice(merchantId.length + 1)
+    return ''
+  })()
 
   return (
     <PageLayout
@@ -152,8 +178,8 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
       settings={
         <div className="flex flex-col gap-3">
           <button
-            onClick={handleSave}
-            disabled={!videoUrl || saveStatus === 'saving' || saveStatus === 'saved'}
+            onClick={() => setNameModalOpen(true)}
+            disabled={!canSave}
             className="w-full rounded-md border border-border bg-surface px-4 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-background disabled:opacity-50"
           >
             {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? 'Saved' : 'Save'}
@@ -175,6 +201,16 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
           quality="preview"
         />
       </div>
+      {nameModalOpen && merchantId && (
+        <NameRecordingModal
+          title="Save Recording"
+          prefix={merchantId}
+          defaultSuffix={defaultSuffix}
+          submitLabel="Save"
+          onSubmit={submitSave}
+          onCancel={() => setNameModalOpen(false)}
+        />
+      )}
     </PageLayout>
   )
 }

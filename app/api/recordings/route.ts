@@ -12,15 +12,29 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const type = searchParams.get("type");
+  const name = searchParams.get("name");
 
   if (type && type !== "product" && type !== "merchant") {
     return NextResponse.json({ error: "Invalid type." }, { status: 400 });
   }
 
+  // Live duplicate check used by the name modal.
+  if (name != null) {
+    const { data, error } = await supabase
+      .from("vlad_recordings")
+      .select("id")
+      .eq("user_id", session.email)
+      .eq("name", name)
+      .maybeSingle();
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ exists: !!data });
+  }
+
   let query = supabase
     .from("vlad_recordings")
-    .select("id, type, product_name, merchant_id, preview_url, created_at")
-    .order("created_at", { ascending: false });
+    .select("id, type, name, product_name, merchant_id, preview_url, status, created_at, updated_at")
+    .eq("user_id", session.email)
+    .order("updated_at", { ascending: false });
 
   if (type) {
     query = query.eq("type", type);
@@ -55,7 +69,8 @@ export async function DELETE(request: Request) {
   const { error } = await supabase
     .from("vlad_recordings")
     .delete()
-    .eq("id", body.id);
+    .eq("id", body.id)
+    .eq("user_id", session.email);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

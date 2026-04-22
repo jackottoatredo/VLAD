@@ -1,54 +1,56 @@
 'use client'
 
+export type StepState = 'current' | 'complete' | 'incomplete' | 'locked'
+
 type Props = {
   steps: string[]
-  currentStep: number
-  maxReachableStep?: number
+  stepStates: StepState[]
   onStepClick?: (step: number) => void
 }
 
-export default function FlowStepper({ steps, currentStep, maxReachableStep, onStepClick }: Props) {
-  const maxReachable = maxReachableStep ?? currentStep
-
+export default function FlowStepper({ steps, stepStates, onStepClick }: Props) {
   return (
     <div className="flex items-center justify-center gap-2 px-4 py-4">
       {steps.map((label, i) => {
-        const isActive = i === currentStep
-        const isDone = i < currentStep
-        const canClick = !!onStepClick && i <= maxReachable
-        const isFuture = i > maxReachable
+        const state = stepStates[i] ?? 'locked'
+        const isCurrent = state === 'current'
+        const isComplete = state === 'complete'
+        const isIncomplete = state === 'incomplete'
+        const isLocked = state === 'locked'
+        const canClick = !!onStepClick && !isLocked
+
+        const circleCls = isCurrent
+          ? 'bg-accent text-white ring-2 ring-accent/30'
+          : isComplete
+          ? 'bg-accent text-white'
+          : isIncomplete
+          ? 'border border-border bg-surface text-foreground'
+          : 'bg-border text-muted opacity-60'
+
+        const labelCls = isCurrent
+          ? 'font-medium text-foreground'
+          : isComplete
+          ? 'text-foreground'
+          : isIncomplete
+          ? 'text-muted'
+          : 'text-muted opacity-60'
+
+        const prevLocked = i > 0 && stepStates[i - 1] === 'locked'
+        const connectorCls = i > 0 && !prevLocked && !isLocked ? 'bg-accent' : 'bg-border'
 
         return (
           <div key={label} className="flex items-center gap-2">
-            {i > 0 && (
-              <div className={`h-px w-6 ${i <= maxReachable ? 'bg-accent' : 'bg-border'}`} />
-            )}
+            {i > 0 && <div className={`h-px w-6 ${connectorCls}`} />}
             <button
               type="button"
               onClick={() => canClick && onStepClick?.(i)}
               disabled={!canClick}
               className={`flex items-center gap-1.5 ${canClick ? 'cursor-pointer' : 'cursor-default'}`}
             >
-              <div
-                className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-medium ${
-                  isActive || isDone
-                    ? 'bg-accent text-white'
-                    : isFuture
-                    ? 'bg-border text-muted opacity-60'
-                    : 'bg-border text-muted'
-                }`}
-              >
-                {isDone ? '✓' : i + 1}
+              <div className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-medium ${circleCls}`}>
+                {isComplete ? '✓' : i + 1}
               </div>
-              <span
-                className={`text-xs ${
-                  isActive ? 'font-medium text-foreground'
-                  : isFuture ? 'text-muted opacity-60'
-                  : 'text-muted'
-                }`}
-              >
-                {label}
-              </span>
+              <span className={`text-xs ${labelCls}`}>{label}</span>
             </button>
           </div>
         )

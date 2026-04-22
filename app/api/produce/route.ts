@@ -8,8 +8,11 @@ import { jobsQueue } from "@/lib/queue/connection";
 import type { ProduceJobPayload } from "@/lib/queue/payloads";
 import { downloadBufferFromR2, getPresignedUrl } from "@/lib/storage/r2";
 import { findCachedRender } from "@/lib/cache/render-cache";
+import { supabase } from "@/lib/db/supabase";
 
 export const runtime = "nodejs";
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function hashUrl(url: string): string {
   return createHash("sha256").update(url).digest("hex").slice(0, 16);
@@ -28,6 +31,7 @@ function trimKey(startSec: number | undefined, endSec: number | undefined): stri
 }
 
 type RequestBody = {
+  flowId?: unknown;
   product?: unknown;
   merchantId?: unknown;
   url?: unknown;
@@ -53,6 +57,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid JSON." }, { status: 400 });
   }
 
+  const flowId = typeof body.flowId === "string" ? body.flowId.trim() : "";
+  if (!UUID_RE.test(flowId)) {
+    return NextResponse.json({ error: "Missing or invalid flowId." }, { status: 400 });
+  }
+
   const identifier = typeof body.product === "string" && body.product.trim()
     ? body.product.trim()
     : typeof body.merchantId === "string" && body.merchantId.trim()
@@ -68,17 +77,39 @@ export async function POST(request: Request) {
   }
 
   const presenter = sanitizePresenter(session.email);
-  const safeId = identifier.replace(/[^a-z0-9_\-]/gi, "_");
   const url = body.url.trim();
-  const dirName = `${presenter}_${safeId}`;
+  const dirName = `${presenter}_${flowId}`;
+
+  // Mouse + webcam source keys. If an existing vlad_recordings row owns this flowId,
+  // prefer its stored URLs (handles reopened saved/draft recordings whose source
+  // files may live at either sessions/ or recordings/).
+  let mouseR2Key = `sessions/${presenter}/${flowId}/mouse.json`;
+  let webcamR2Key: string | null = `sessions/${presenter}/${flowId}/webcam.webm`;
+
+  const { data: existingRow } = await supabase
+    .from("vlad_recordings")
+    .select("id, user_id, mouse_events_url, webcam_url")
+    .eq("id", flowId)
+    .maybeSingle();
+
+  if (existingRow) {
+    if (existingRow.user_id !== session.email) {
+      return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+    }
+    if (typeof existingRow.mouse_events_url === "string" && existingRow.mouse_events_url) {
+      mouseR2Key = existingRow.mouse_events_url;
+    }
+    webcamR2Key = typeof existingRow.webcam_url === "string" && existingRow.webcam_url
+      ? existingRow.webcam_url
+      : null;
+  }
 
   // Read mouse events from R2
-  const mouseR2Key = `sessions/${presenter}/${safeId}/mouse.json`;
   let mouseBuffer: Buffer;
   try {
     mouseBuffer = await downloadBufferFromR2(mouseR2Key);
   } catch {
-    return NextResponse.json({ error: "No recording found for this presenter + product/merchant." }, { status: 404 });
+    return NextResponse.json({ error: "No recording found for this flow." }, { status: 404 });
   }
 
   let mouseData: { events?: unknown; virtualWidth?: unknown; virtualHeight?: unknown };
@@ -127,8 +158,8 @@ export async function POST(request: Request) {
   const wcFP = webcamFingerprint(webcamSettings);
   const tKey = trimKey(trimStartSec, trimEndSec);
 
-  // Check Redis cache for cached artifacts
-  const cached = await findCachedRender(presenter, safeId, urlHash, mouseHash, wcFP, tKey, tier);
+  // Check Redis cache for cached artifacts (keyed on flowId via safeId)
+  const cached = await findCachedRender(presenter, flowId, urlHash, mouseHash, wcFP, tKey, tier);
 
   // Fully cached — presign and return
   if (cached.trimmedR2Key) {
@@ -142,15 +173,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ videoUrl: presigned, videoR2Key: cached.compositeR2Key });
   }
 
-  // Determine webcam R2 key (may not exist)
-  const webcamR2Key = `sessions/${presenter}/${safeId}/webcam.webm`;
-
   const step = cached.startFromStep;
 
   const job = await jobsQueue.add("produce", {
     type: "produce",
     presenter,
-    safeId,
+    safeId: flowId,
     dirName,
     url,
     width: mouseData.virtualWidth,
@@ -175,6 +203,7 @@ export async function POST(request: Request) {
     wcFingerprint: wcFP,
     trimKeyStr: tKey,
     preview,
+    flowId,
   } satisfies ProduceJobPayload, {
     jobId: randomUUID().slice(0, 8),
     priority,

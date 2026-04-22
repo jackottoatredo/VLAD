@@ -21,7 +21,7 @@ type Props = {
 export default function PostprocessStep({ navBack, navForward }: Props) {
   const { presenter } = useUser()
   const flow = useProductFlow()
-  const { product, webcamSettings, trimStartSec, trimEndSec, postprocessVideoUrl, postprocessJobId } = flow
+  const { product, webcamSettings, trimStartSec, trimEndSec, postprocessVideoUrl, postprocessJobId, flowId } = flow
 
   const [videoUrl, setVideoUrl] = useState<string | null>(postprocessVideoUrl)
   const initialLoading: LoadingStage[] | null = postprocessJobId && !postprocessVideoUrl
@@ -92,7 +92,7 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
   }, [presenter, product, postprocessVideoUrl, postprocessJobId])
 
   async function startRender() {
-    if (!presenter || !product) return
+    if (!presenter || !product || !flowId) return
     setError(null)
     setVideoUrl(null)
     setLoading([
@@ -108,6 +108,7 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          flowId,
           presenter, product, url,
           webcamMode: webcamSettings.webcamMode,
           webcamVertical: webcamSettings.webcamVertical,

@@ -34,14 +34,14 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
   }, [recording.webcamError])
 
   function handleRecordAgain() {
-    if (!presenter || !merchantId) return
-    recording.start(presenter, merchantId)
+    flow.clearResults()
+    recording.resetPending()
   }
 
   async function handleContinue() {
     if (!presenter || !merchantId) return
-    const ok = await recording.commit()
-    if (!ok) return
+    const flowId = await recording.commit()
+    if (!flowId) return
     flow.clearResults()
     flow.setStep(1)
   }
@@ -73,7 +73,7 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
             <WebcamControls settings={webcamSettings} onChange={setWebcamSettings} disabled={recording.isRecording} />
 
             <button
-              onClick={recording.isRecording ? recording.stop : () => recording.start(presenter, merchantId)}
+              onClick={recording.isRecording ? recording.stop : () => recording.start(presenter)}
               disabled={isCountingDown || (!recording.isRecording && !canStart)}
               className={`w-full rounded-md px-4 py-1.5 text-sm font-medium shadow-sm disabled:opacity-40 disabled:cursor-not-allowed ${
                 recording.isRecording

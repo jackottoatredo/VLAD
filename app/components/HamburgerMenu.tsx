@@ -1,11 +1,11 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { signOut, useSession } from "next-auth/react";
 import BugReportModal from "./BugReportModal";
 import FeatureRequestModal from "./FeatureRequestModal";
+import { useNavigationGuard } from "@/app/contexts/NavigationGuardContext";
 
 const links = [
   { href: "/", label: "Home" },
@@ -20,16 +20,18 @@ export default function HamburgerMenu() {
   const [featureOpen, setFeatureOpen] = useState(false);
   const pathname = usePathname();
   const { data: session } = useSession();
+  const { tryNavigate } = useNavigationGuard();
 
   return (
     <>
       <div className="fixed top-4 left-4 z-50 flex items-center gap-2">
-        <Link
-          href="/"
+        <button
+          type="button"
+          onClick={() => tryNavigate("/")}
           className="text-lg font-bold tracking-tight text-foreground"
         >
           VLAD
-        </Link>
+        </button>
         <button
           onClick={() => setOpen((prev) => !prev)}
           aria-label="Toggle menu"
@@ -63,18 +65,18 @@ export default function HamburgerMenu() {
               )}
 
               {links.map(({ href, label }) => (
-                <Link
+                <button
                   key={href}
-                  href={href}
-                  onClick={() => setOpen(false)}
-                  className={`block px-4 py-2 text-sm transition-colors hover:bg-background ${
+                  type="button"
+                  onClick={() => { setOpen(false); tryNavigate(href); }}
+                  className={`block w-full px-4 py-2 text-left text-sm transition-colors hover:bg-background ${
                     pathname === href
                       ? "font-medium text-foreground"
                       : "text-muted"
                   }`}
                 >
                   {label}
-                </Link>
+                </button>
               ))}
 
               <div className="my-1 border-t border-border" />

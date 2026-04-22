@@ -8,6 +8,7 @@ import { EAGER_PREVIEW_RENDERING, PREVIEW_BRANDS, TARGET_URL, type PreviewBrand 
 import { useUser } from '@/app/contexts/UserContext'
 import { useProductFlow } from '@/app/contexts/ProductFlowContext'
 import { productPreview } from '@/app/copy/instructions'
+import NameRecordingModal from '@/app/components/NameRecordingModal'
 
 const POLL_MS = 500
 const BRANDLESS_SLOT = 'brandless' as const
@@ -40,7 +41,7 @@ type Props = {
 export default function PreviewStep({ navBack, navForward }: Props) {
   const { presenter } = useUser()
   const flow = useProductFlow()
-  const { product, webcamSettings, trimStartSec, trimEndSec, brandVideoUrls, brandJobIds, postprocessVideoUrl, postprocessJobId } = flow
+  const { product, webcamSettings, trimStartSec, trimEndSec, brandVideoUrls, brandJobIds, postprocessVideoUrl, postprocessJobId, flowId, name: existingName } = flow
 
   const [slotJobs, setSlotJobs] = useState<Record<Slot, SlotJob>>(() => {
     const initial = {} as Record<Slot, SlotJob>
@@ -62,6 +63,7 @@ export default function PreviewStep({ navBack, navForward }: Props) {
 
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [saveError, setSaveError] = useState('')
+  const [nameModalOpen, setNameModalOpen] = useState(false)
 
   const videoRefs = useRef<Record<Slot, React.RefObject<HTMLVideoElement | null>>>(
     Object.fromEntries(SLOTS.map((s) => [s, { current: null }])) as Record<Slot, React.RefObject<HTMLVideoElement | null>>,
@@ -142,6 +144,7 @@ export default function PreviewStep({ navBack, navForward }: Props) {
   }, [presenter, product])
 
   async function generateBrand(brand: PreviewBrand) {
+    if (!flowId) return
     setSlotJobs((prev) => ({
       ...prev,
       [brand]: { videoUrl: null, loading: initialLoadingStages(), error: null },
@@ -152,6 +155,7 @@ export default function PreviewStep({ navBack, navForward }: Props) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          flowId,
           presenter, product, url,
           webcamMode: webcamSettings.webcamMode,
           webcamVertical: webcamSettings.webcamVertical,
@@ -185,8 +189,8 @@ export default function PreviewStep({ navBack, navForward }: Props) {
     }
   }
 
-  async function handleSave() {
-    if (!presenter || !product) return
+  async function submitSave(name: string): Promise<{ ok: true } | { ok: false; error: string }> {
+    if (!presenter || !product || !flowId) return { ok: false, error: 'Flow not ready.' }
     setSaveStatus('saving')
     setSaveError('')
     try {
@@ -194,23 +198,44 @@ export default function PreviewStep({ navBack, navForward }: Props) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          presenter, session: `${presenter}_${product}`, type: 'product', productName: product,
+          flowId,
+          name,
+          status: 'saved',
+          type: 'product',
+          productName: product,
           previewVideoR2Key: flow.postprocessVideoR2Key,
-          metadata: {
-            trimStartSec, trimEndSec,
+          webcamSettings: {
             webcamMode: webcamSettings.webcamMode,
             webcamVertical: webcamSettings.webcamVertical,
             webcamHorizontal: webcamSettings.webcamHorizontal,
           },
+          metadata: { trimStartSec, trimEndSec },
         }),
       })
       const data = (await res.json()) as { ok?: boolean; error?: string }
-      if (!res.ok || !data.ok) { setSaveStatus('error'); setSaveError(data.error ?? 'Failed to save.') }
-      else { setSaveStatus('saved'); flow.markSaved(); flow.setStep(3) }
-    } catch { setSaveStatus('error'); setSaveError('Unexpected error.') }
+      if (!res.ok || !data.ok) {
+        setSaveStatus('error')
+        const err = data.error ?? 'Failed to save.'
+        setSaveError(err)
+        return { ok: false, error: err }
+      }
+      setSaveStatus('saved')
+      setNameModalOpen(false)
+      flow.markPersisted({ name, status: 'saved' })
+      flow.setStep(3)
+      return { ok: true }
+    } catch {
+      setSaveStatus('error')
+      setSaveError('Unexpected error.')
+      return { ok: false, error: 'Unexpected error.' }
+    }
   }
 
   const allDone = SLOTS.every((s) => !!slotJobs[s].videoUrl)
+  const defaultSuffix = (() => {
+    if (existingName && product && existingName.startsWith(`${product}-`)) return existingName.slice(product.length + 1)
+    return ''
+  })()
 
   return (
     <PageLayout
@@ -227,7 +252,7 @@ export default function PreviewStep({ navBack, navForward }: Props) {
             Play All
           </button>
           <button
-            onClick={handleSave}
+            onClick={() => setNameModalOpen(true)}
             disabled={!allDone || saveStatus === 'saving' || saveStatus === 'saved'}
             className="w-full rounded-md border border-border bg-surface px-4 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-background disabled:opacity-50"
           >
@@ -258,6 +283,16 @@ export default function PreviewStep({ navBack, navForward }: Props) {
           )
         })}
       </div>
+      {nameModalOpen && product && (
+        <NameRecordingModal
+          title="Save Recording"
+          prefix={product}
+          defaultSuffix={defaultSuffix}
+          submitLabel="Save"
+          onSubmit={submitSave}
+          onCancel={() => setNameModalOpen(false)}
+        />
+      )}
     </PageLayout>
   )
 }

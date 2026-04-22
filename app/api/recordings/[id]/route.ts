@@ -70,12 +70,13 @@ export async function GET(
   if (row.merchant_id && UUID_RE.test(row.merchant_id)) {
     const { data: preview } = await supabase
       .from("previews")
-      .select("brand_name, website_url")
+      .select("website_url, data")
       .eq("id", row.merchant_id)
       .maybeSingle();
-    const pr = preview as { brand_name?: string; website_url?: string } | null;
-    brandName = pr?.brand_name ?? "";
-    websiteUrl = (pr?.website_url ?? "").replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+    const pr = preview as { website_url?: string; data?: { brandName?: string } | null } | null;
+    const rawUrl = pr?.website_url ?? "";
+    websiteUrl = rawUrl.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+    brandName = typeof pr?.data?.brandName === "string" ? pr.data.brandName : websiteUrl;
   }
 
   return NextResponse.json({

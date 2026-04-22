@@ -22,7 +22,7 @@ type Props = {
 export default function PostprocessStep({ navBack, navForward }: Props) {
   const { presenter } = useUser()
   const flow = useMerchantFlow()
-  const { merchantId, websiteUrl: merchantUrl, webcamSettings, trimStartSec, trimEndSec, postprocessVideoUrl, flowId, name: existingName, postprocessJobId, origin } = flow
+  const { merchantId, brandName, websiteUrl: merchantUrl, webcamSettings, trimStartSec, trimEndSec, postprocessVideoUrl, flowId, name: existingName, postprocessJobId, origin } = flow
 
   const [videoUrl, setVideoUrl] = useState<string | null>(postprocessVideoUrl)
   const initialLoading: LoadingStage[] | null = postprocessVideoUrl
@@ -183,7 +183,7 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
 
   const canSave = !!videoUrl && saveStatus !== 'saving' && saveStatus !== 'saved'
   const defaultSuffix = (() => {
-    if (existingName && merchantId && existingName.startsWith(`${merchantId}-`)) return existingName.slice(merchantId.length + 1)
+    if (existingName && brandName && existingName.startsWith(`${brandName}-`)) return existingName.slice(brandName.length + 1)
     return ''
   })()
   const isReopened = origin === 'reopened' && !!existingName
@@ -252,7 +252,7 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
       {nameModalOpen && merchantId && (
         <NameRecordingModal
           title="Save Recording"
-          prefix={merchantId}
+          prefix={brandName || merchantId}
           defaultSuffix={defaultSuffix}
           submitLabel="Save"
           onSubmit={submitSave}

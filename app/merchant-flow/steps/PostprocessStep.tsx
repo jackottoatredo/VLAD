@@ -8,6 +8,7 @@ import { DEFAULT_FPS, MERCHANT_TARGET_URL } from '@/app/config'
 import { useUser } from '@/app/contexts/UserContext'
 import { useMerchantFlow } from '@/app/contexts/MerchantFlowContext'
 import { merchantPostprocess } from '@/app/copy/instructions'
+import NameRecordingModal from '@/app/components/NameRecordingModal'
 
 const POLL_MS = 500
 
@@ -21,13 +22,17 @@ type Props = {
 export default function PostprocessStep({ navBack, navForward }: Props) {
   const { presenter } = useUser()
   const flow = useMerchantFlow()
-  const { merchantId, websiteUrl: merchantUrl, webcamSettings, trimStartSec, trimEndSec, postprocessVideoUrl } = flow
+  const { merchantId, websiteUrl: merchantUrl, webcamSettings, trimStartSec, trimEndSec, postprocessVideoUrl, flowId, name: existingName, postprocessJobId, origin } = flow
 
   const [videoUrl, setVideoUrl] = useState<string | null>(postprocessVideoUrl)
-  const [loading, setLoading] = useState<LoadingStage[] | null>(null)
+  const initialLoading: LoadingStage[] | null = postprocessVideoUrl
+    ? null
+    : [{ label: 'Rendering', progress: 0 }, { label: 'Compositing', progress: 0 }]
+  const [loading, setLoading] = useState<LoadingStage[] | null>(initialLoading)
   const [error, setError] = useState<string | null>(null)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [saveError, setSaveError] = useState('')
+  const [nameModalOpen, setNameModalOpen] = useState(false)
   const jobIdRef = useRef<string | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const didAutoRender = useRef(false)
@@ -68,16 +73,30 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [flow])
 
-  // Auto-render on mount
+  // Sync context.postprocessJobId → jobIdRef/loading so the polling effect
+  // picks it up when RecordStep's background chain enqueues the job AFTER
+  // this component has already mounted.
   useEffect(() => {
-    if (didAutoRender.current || postprocessVideoUrl || !presenter || !merchantId) return
+    if (!postprocessJobId || postprocessVideoUrl) return
+    if (jobIdRef.current === postprocessJobId) return
+    jobIdRef.current = postprocessJobId
+    setLoading([{ label: 'Rendering', progress: 0 }, { label: 'Compositing', progress: 0 }])
+  }, [postprocessJobId, postprocessVideoUrl])
+
+  // Auto-render only for reopened flows. New-recording flows rely on
+  // RecordStep's background chain to enqueue the job after the raw-session
+  // upload completes.
+  useEffect(() => {
+    if (didAutoRender.current || postprocessVideoUrl || !presenter || !merchantId || !flowId) return
+    if (postprocessJobId) { didAutoRender.current = true; return }
+    if (origin !== 'reopened') return
     didAutoRender.current = true
     startRender()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [presenter, merchantId, postprocessVideoUrl])
+  }, [presenter, merchantId, postprocessVideoUrl, postprocessJobId, flowId, origin])
 
   async function startRender() {
-    if (!presenter || !merchantId) return
+    if (!presenter || !merchantId || !flowId) return
     setError(null)
     setVideoUrl(null)
     setLoading([{ label: 'Rendering', progress: 0 }, { label: 'Compositing', progress: 0 }])
@@ -92,6 +111,7 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          flowId,
           presenter, merchantId, url: targetUrl,
           webcamMode: webcamSettings.webcamMode,
           webcamVertical: webcamSettings.webcamVertical,
@@ -119,8 +139,8 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
     }
   }
 
-  async function handleSave() {
-    if (!presenter || !merchantId) return
+  async function submitSave(name: string): Promise<{ ok: true } | { ok: false; error: string }> {
+    if (!presenter || !merchantId || !flowId) return { ok: false, error: 'Flow not ready.' }
     setSaveStatus('saving')
     setSaveError('')
     try {
@@ -128,20 +148,55 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          presenter, session: `${presenter}_${merchantId}`, type: 'merchant', merchantId,
+          flowId,
+          name,
+          status: 'saved',
+          type: 'merchant',
+          merchantId,
           previewVideoR2Key: flow.postprocessVideoR2Key,
-          metadata: {
-            merchantUrl, trimStartSec, trimEndSec,
+          webcamSettings: {
             webcamMode: webcamSettings.webcamMode,
             webcamVertical: webcamSettings.webcamVertical,
             webcamHorizontal: webcamSettings.webcamHorizontal,
           },
+          metadata: { merchantUrl, trimStartSec, trimEndSec },
         }),
       })
-      const data = (await res.json()) as { ok?: boolean; error?: string }
-      if (!res.ok || !data.ok) { setSaveStatus('error'); setSaveError(data.error ?? 'Failed.') }
-      else { setSaveStatus('saved'); flow.markSaved(); flow.setStep(2) }
-    } catch { setSaveStatus('error'); setSaveError('Unexpected error.') }
+      const data = (await res.json()) as { ok?: boolean; error?: string; code?: string }
+      if (!res.ok || !data.ok) {
+        setSaveStatus('error')
+        const err = data.error ?? 'Failed.'
+        setSaveError(err)
+        return { ok: false, error: err }
+      }
+      setSaveStatus('saved')
+      setNameModalOpen(false)
+      flow.markPersisted({ name, status: 'saved' })
+      flow.setStep(2)
+      return { ok: true }
+    } catch {
+      setSaveStatus('error')
+      setSaveError('Unexpected error.')
+      return { ok: false, error: 'Unexpected error.' }
+    }
+  }
+
+  const canSave = !!videoUrl && saveStatus !== 'saving' && saveStatus !== 'saved'
+  const defaultSuffix = (() => {
+    if (existingName && merchantId && existingName.startsWith(`${merchantId}-`)) return existingName.slice(merchantId.length + 1)
+    return ''
+  })()
+  const isReopened = origin === 'reopened' && !!existingName
+
+  async function handleSaveChanges() {
+    if (!existingName) return
+    await submitSave(existingName)
+  }
+
+  function handleDiscardChanges() {
+    if (!flowId) return
+    try { localStorage.removeItem('vlad_merchant_flow') } catch { /* ignore */ }
+    window.location.assign(`/merchant-flow?recordingId=${flowId}`)
   }
 
   return (
@@ -151,13 +206,32 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
       instructions={<Markdown>{merchantPostprocess}</Markdown>}
       settings={
         <div className="flex flex-col gap-3">
-          <button
-            onClick={handleSave}
-            disabled={!videoUrl || saveStatus === 'saving' || saveStatus === 'saved'}
-            className="w-full rounded-md border border-border bg-surface px-4 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-background disabled:opacity-50"
-          >
-            {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? 'Saved' : 'Save'}
-          </button>
+          {isReopened ? (
+            <>
+              <button
+                onClick={handleSaveChanges}
+                disabled={!canSave}
+                className="w-full rounded-md border border-border bg-surface px-4 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-background disabled:opacity-50"
+              >
+                {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? 'Saved' : 'Save Changes'}
+              </button>
+              <button
+                onClick={handleDiscardChanges}
+                disabled={saveStatus === 'saving'}
+                className="w-full rounded-md border border-red-500/40 bg-surface px-4 py-1.5 text-sm font-medium text-red-500 shadow-sm hover:bg-red-500/10 disabled:opacity-50"
+              >
+                Discard Changes
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => setNameModalOpen(true)}
+              disabled={!canSave}
+              className="w-full rounded-md border border-border bg-surface px-4 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-background disabled:opacity-50"
+            >
+              {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? 'Saved' : 'Save'}
+            </button>
+          )}
           {saveStatus === 'error' && <p className="text-xs text-red-500">{saveError}</p>}
         </div>
       }
@@ -175,6 +249,16 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
           quality="preview"
         />
       </div>
+      {nameModalOpen && merchantId && (
+        <NameRecordingModal
+          title="Save Recording"
+          prefix={merchantId}
+          defaultSuffix={defaultSuffix}
+          submitLabel="Save"
+          onSubmit={submitSave}
+          onCancel={() => setNameModalOpen(false)}
+        />
+      )}
     </PageLayout>
   )
 }

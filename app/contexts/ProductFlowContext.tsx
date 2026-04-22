@@ -13,6 +13,8 @@ import {
 import { type WebcamSettings, DEFAULT_WEBCAM_SETTINGS } from "@/types/webcam";
 
 export type ProductFlowStep = 0 | 1 | 2 | 3; // Record, Postprocess, Preview, Saved
+export type PersistedStatus = "unsaved" | "draft" | "saved";
+export type FlowOrigin = "new" | "reopened";
 
 type ProductFlowState = {
   step: ProductFlowStep;
@@ -26,7 +28,28 @@ type ProductFlowState = {
   // In-flight BullMQ job IDs for eager preview renders. Cleared as URLs resolve.
   postprocessJobId: string | null;
   brandJobIds: Record<string, string>;
-  savedToLibrary: boolean;
+
+  // Session identity. Allocated at commit() time by useRecording and surfaced
+  // here via hydrateCommitted(). Used as the R2 path segment and the
+  // vlad_recordings row id.
+  flowId: string | null;
+  name: string | null;
+  origin: FlowOrigin;
+  persistedStatus: PersistedStatus;
+  /** True if the user has made any change since hydration/last-save. */
+  dirtySinceLoad: boolean;
+};
+
+type HydrateArgs = {
+  flowId: string;
+  name: string;
+  product: string;
+  webcamSettings: WebcamSettings;
+  trimStartSec: number;
+  trimEndSec: number;
+  postprocessVideoUrl: string | null;
+  postprocessVideoR2Key: string | null;
+  persistedStatus: PersistedStatus;
 };
 
 type ProductFlowContextValue = ProductFlowState & {
@@ -40,8 +63,24 @@ type ProductFlowContextValue = ProductFlowState & {
   setBrandJobId: (brand: string, jobId: string | null) => void;
   getActiveJobIds: () => string[];
   clearResults: () => void;
-  markSaved: () => void;
+
+  /** Called by useRecording once a commit() upload succeeds. */
+  hydrateCommitted: (flowId: string) => void;
+  /** Populate the flow from an existing vlad_recordings row on reopen. */
+  hydrateFromRecording: (args: HydrateArgs) => void;
+  /** Mark the flow as persisted (draft or saved) — keeps state in context. */
+  markPersisted: (args: { name: string; status: PersistedStatus }) => void;
+  /** True if there is user content worth keeping that hasn't been saved. */
+  hasUnsavedChanges: () => boolean;
+  /** Fully reset + clear localStorage. */
   reset: () => void;
+  /**
+   * Discard the current recording session (clears flowId, render results, and
+   * persisted draft/saved state) while preserving the user's product selection
+   * and webcam settings. Used by "Record Again" when a recording has already
+   * been committed to the flow.
+   */
+  discardRecording: () => void;
 };
 
 const LS_KEY = "vlad_product_flow";
@@ -58,7 +97,11 @@ function initialState(): ProductFlowState {
     brandVideoUrls: {},
     postprocessJobId: null,
     brandJobIds: {},
-    savedToLibrary: false,
+    flowId: null,
+    name: null,
+    origin: "new",
+    persistedStatus: "unsaved",
+    dirtySinceLoad: false,
   };
 }
 
@@ -67,9 +110,11 @@ function loadState(): ProductFlowState {
   try {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return initialState();
-    // Merge onto a fresh initialState so fields added to the state shape after this
-    // blob was persisted (e.g. postprocessJobId, brandJobIds) are present as defaults.
-    return { ...initialState(), ...(JSON.parse(raw) as Partial<ProductFlowState>) };
+    const parsed = JSON.parse(raw) as Partial<ProductFlowState>;
+    // Legacy blobs predate `flowId`. We can't reconstruct it, so treat them as
+    // fresh state to avoid sending requests with a missing flowId.
+    if (!parsed.flowId) return initialState();
+    return { ...initialState(), ...parsed };
   } catch {
     return initialState();
   }
@@ -79,13 +124,16 @@ function saveState(state: ProductFlowState) {
   try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch { /* ignore */ }
 }
 
+function clearStored() {
+  try { localStorage.removeItem(LS_KEY); } catch { /* ignore */ }
+}
+
 const ProductFlowContext = createContext<ProductFlowContextValue | undefined>(undefined);
 
 export function ProductFlowContextProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<ProductFlowState>(loadState);
   const isFirstRender = useRef(true);
 
-  // Persist to localStorage on change (skip the initial load)
   useEffect(() => {
     if (isFirstRender.current) { isFirstRender.current = false; return; }
     saveState(state);
@@ -96,7 +144,12 @@ export function ProductFlowContextProvider({ children }: { children: ReactNode }
   }, []);
 
   const setProduct = useCallback((product: string) => {
-    setState((prev) => ({ ...initialState(), product, webcamSettings: prev.webcamSettings }));
+    setState((prev) => ({
+      ...initialState(),
+      product,
+      webcamSettings: prev.webcamSettings,
+      dirtySinceLoad: true,
+    }));
   }, []);
 
   const setWebcamSettings = useCallback((settings: WebcamSettings) => {
@@ -104,19 +157,23 @@ export function ProductFlowContextProvider({ children }: { children: ReactNode }
       ...prev, webcamSettings: settings,
       postprocessVideoUrl: null, postprocessVideoR2Key: null, brandVideoUrls: {},
       postprocessJobId: null, brandJobIds: {},
-      savedToLibrary: false,
+      dirtySinceLoad: true,
     }));
   }, []);
 
   const setTrim = useCallback((startSec: number, endSec: number) => {
     setState((prev) => ({
       ...prev, trimStartSec: startSec, trimEndSec: endSec,
-      savedToLibrary: false,
+      dirtySinceLoad: true,
     }));
   }, []);
 
   const setPostprocessVideoUrl = useCallback((url: string | null, r2Key?: string | null) => {
-    setState((prev) => ({ ...prev, postprocessVideoUrl: url, postprocessVideoR2Key: r2Key ?? prev.postprocessVideoR2Key }));
+    setState((prev) => ({
+      ...prev,
+      postprocessVideoUrl: url,
+      postprocessVideoR2Key: r2Key ?? prev.postprocessVideoR2Key,
+    }));
   }, []);
 
   const setBrandVideoUrl = useCallback((brand: string, url: string) => {
@@ -139,7 +196,7 @@ export function ProductFlowContextProvider({ children }: { children: ReactNode }
   }, []);
 
   const stateRef = useRef(state);
-  stateRef.current = state;
+  useEffect(() => { stateRef.current = state; }, [state]);
   const getActiveJobIds = useCallback(() => {
     const s = stateRef.current;
     const ids: string[] = [];
@@ -153,19 +210,54 @@ export function ProductFlowContextProvider({ children }: { children: ReactNode }
       ...prev, trimStartSec: 0, trimEndSec: 0,
       postprocessVideoUrl: null, postprocessVideoR2Key: null, brandVideoUrls: {},
       postprocessJobId: null, brandJobIds: {},
-      savedToLibrary: false,
     }));
   }, []);
 
-  const markSaved = useCallback(() => {
-    setState((prev) => ({ ...prev, savedToLibrary: true }));
-    // Clear persisted state so revisiting the flow starts fresh
-    try { localStorage.removeItem(LS_KEY); } catch { /* ignore */ }
+  const hydrateCommitted = useCallback((flowId: string) => {
+    setState((prev) => ({ ...prev, flowId, dirtySinceLoad: true }));
+  }, []);
+
+  const hydrateFromRecording = useCallback((args: HydrateArgs) => {
+    setState(() => ({
+      ...initialState(),
+      flowId: args.flowId,
+      name: args.name,
+      product: args.product,
+      webcamSettings: args.webcamSettings,
+      trimStartSec: args.trimStartSec,
+      trimEndSec: args.trimEndSec,
+      postprocessVideoUrl: args.postprocessVideoUrl,
+      postprocessVideoR2Key: args.postprocessVideoR2Key,
+      persistedStatus: args.persistedStatus,
+      origin: "reopened",
+      dirtySinceLoad: false,
+      step: 1, // Postprocess
+    }));
+  }, []);
+
+  const markPersisted = useCallback(({ name, status }: { name: string; status: PersistedStatus }) => {
+    setState((prev) => ({ ...prev, name, persistedStatus: status, dirtySinceLoad: false }));
+  }, []);
+
+  const hasUnsavedChanges = useCallback(() => {
+    const s = stateRef.current;
+    if (s.persistedStatus === "unsaved") {
+      return !!s.flowId; // recording committed but not saved
+    }
+    return s.dirtySinceLoad;
   }, []);
 
   const reset = useCallback(() => {
     setState(initialState());
-    try { localStorage.removeItem(LS_KEY); } catch { /* ignore */ }
+    clearStored();
+  }, []);
+
+  const discardRecording = useCallback(() => {
+    setState((prev) => ({
+      ...initialState(),
+      product: prev.product,
+      webcamSettings: prev.webcamSettings,
+    }));
   }, []);
 
   const value = useMemo<ProductFlowContextValue>(
@@ -174,9 +266,16 @@ export function ProductFlowContextProvider({ children }: { children: ReactNode }
       setStep, setProduct, setWebcamSettings, setTrim,
       setPostprocessVideoUrl, setBrandVideoUrl,
       setPostprocessJobId, setBrandJobId, getActiveJobIds,
-      clearResults, markSaved, reset,
+      clearResults,
+      hydrateCommitted, hydrateFromRecording, markPersisted, hasUnsavedChanges,
+      reset, discardRecording,
     }),
-    [state, setStep, setProduct, setWebcamSettings, setTrim, setPostprocessVideoUrl, setBrandVideoUrl, setPostprocessJobId, setBrandJobId, getActiveJobIds, clearResults, markSaved, reset],
+    [
+      state, setStep, setProduct, setWebcamSettings, setTrim, setPostprocessVideoUrl,
+      setBrandVideoUrl, setPostprocessJobId, setBrandJobId, getActiveJobIds,
+      clearResults, hydrateCommitted, hydrateFromRecording, markPersisted,
+      hasUnsavedChanges, reset, discardRecording,
+    ],
   );
 
   return <ProductFlowContext.Provider value={value}>{children}</ProductFlowContext.Provider>;

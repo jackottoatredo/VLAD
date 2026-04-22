@@ -17,17 +17,24 @@ type RelayEvent = {
 
 type UseRecordingOpts = {
   webcamMode: WebcamMode;
+  /**
+   * Called when the user commits a recording (after upload succeeds) with the
+   * flowId that was used as the R2 path segment. The caller is expected to
+   * store this flowId in its flow context so later produce / save calls use
+   * the same identifier.
+   */
+  onCommitted?: (flowId: string) => void;
 };
 
 type PendingRecording = {
-  dn: string;
+  flowId: string;
   presenter: string;
   recordedAt: string;
   events: RelayEvent[];
   webcamBlob: Blob | null;
 };
 
-export function useRecording({ webcamMode }: UseRecordingOpts) {
+export function useRecording({ webcamMode, onCommitted }: UseRecordingOpts) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const videoElRef = useRef<HTMLVideoElement | null>(null);
   const eventsRef = useRef<RelayEvent[]>([]);
@@ -41,7 +48,7 @@ export function useRecording({ webcamMode }: UseRecordingOpts) {
   const countdownTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   // Snapshot refs for async save
-  const dirNameRef = useRef("");
+  const flowIdRef = useRef("");
   const presenterRef = useRef("");
   const recordingStartedAt = useRef("");
 
@@ -141,9 +148,14 @@ export function useRecording({ webcamMode }: UseRecordingOpts) {
     attachStreamToVideo();
   }, []);
 
-  const beginRecording = useCallback((presenter: string, identifier: string) => {
-    const dn = `${presenter}_${identifier}`;
-    dirNameRef.current = dn;
+  const beginRecording = useCallback((presenter: string) => {
+    // Allocate a fresh UUID for every recording attempt. Two sequential takes
+    // of the same product/merchant get distinct flowIds and distinct R2 paths
+    // (old one orphaned until the user saves/discards).
+    const flowId = (typeof crypto !== "undefined" && "randomUUID" in crypto)
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    flowIdRef.current = flowId;
     presenterRef.current = presenter;
     recordingStartedAt.current = new Date().toISOString();
     eventsRef.current = [{ eventType: "recording-start", x: 0, y: 0, buttons: 0, timestamp: performance.now() }];
@@ -167,7 +179,7 @@ export function useRecording({ webcamMode }: UseRecordingOpts) {
     setCountdown(null);
   }, []);
 
-  const start = useCallback((presenter: string, identifier: string) => {
+  const start = useCallback((presenter: string) => {
     clearCountdown();
     // Clear the confirmation guard immediately so "Record Again" doesn't leave the
     // overlay visible during the 3s countdown. Also discard any prior take — its
@@ -181,7 +193,7 @@ export function useRecording({ webcamMode }: UseRecordingOpts) {
       setTimeout(() => setCountdown(1), 2000),
       setTimeout(() => {
         setCountdown(null);
-        beginRecording(presenter, identifier);
+        beginRecording(presenter);
       }, 3000),
     ];
     countdownTimeoutsRef.current = timeouts;
@@ -190,7 +202,7 @@ export function useRecording({ webcamMode }: UseRecordingOpts) {
   const stop = useCallback(async () => {
     clearCountdown();
     setIsRecording(false);
-    const dn = dirNameRef.current;
+    const flowId = flowIdRef.current;
     const presenter = presenterRef.current;
 
     // Finalize the webcam blob from whatever MediaRecorder buffered, but don't upload.
@@ -204,7 +216,7 @@ export function useRecording({ webcamMode }: UseRecordingOpts) {
     });
 
     pendingRef.current = {
-      dn,
+      flowId,
       presenter,
       recordedAt: recordingStartedAt.current,
       events: eventsRef.current,
@@ -215,16 +227,17 @@ export function useRecording({ webcamMode }: UseRecordingOpts) {
 
   // Upload the pending recording to R2. Caller awaits this before doing anything that
   // depends on the session blobs being in storage (e.g. enqueueing produce jobs).
-  const commit = useCallback(async (): Promise<boolean> => {
+  // Returns the allocated flowId on success, null on failure.
+  const commit = useCallback(async (): Promise<string | null> => {
     const pending = pendingRef.current;
-    if (!pending) return false;
+    if (!pending) return null;
     setUploadStatus("uploading");
     try {
       const mousePromise = fetch("/api/save-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          session: pending.dn,
+          flowId: pending.flowId,
           presenter: pending.presenter,
           recordedAt: pending.recordedAt,
           virtualWidth: IFRAME_WIDTH,
@@ -236,21 +249,33 @@ export function useRecording({ webcamMode }: UseRecordingOpts) {
       const webcamPromise: Promise<unknown> = pending.webcamBlob
         ? (() => {
             const fd = new FormData();
-            fd.append("session", pending.dn);
-            fd.append("presenter", pending.presenter);
-            fd.append("video", pending.webcamBlob, `${pending.dn}_webcam.webm`);
+            fd.append("flowId", pending.flowId);
+            fd.append("video", pending.webcamBlob, `${pending.flowId}_webcam.webm`);
             return fetch("/api/save-webcam", { method: "POST", body: fd });
           })()
         : Promise.resolve();
 
       await Promise.all([mousePromise, webcamPromise]);
       pendingRef.current = null;
-      return true;
+      setUploadStatus("idle");
+      onCommitted?.(pending.flowId);
+      return pending.flowId;
     } catch (err) {
       console.error("[useRecording] commit failed", err);
       setUploadStatus("ready");
-      return false;
+      return null;
     }
+  }, [onCommitted]);
+
+  /**
+   * Clear the pending take without starting a new recording. Used by
+   * "Record Again" when the user wants to re-arm controls (product/webcam
+   * selectors) before hitting Start themselves.
+   */
+  const resetPending = useCallback(() => {
+    pendingRef.current = null;
+    setUploadStatus("idle");
+    setRecordingKey((k) => k + 1);
   }, []);
 
   return {
@@ -265,5 +290,6 @@ export function useRecording({ webcamMode }: UseRecordingOpts) {
     start,
     stop,
     commit,
+    resetPending,
   };
 }

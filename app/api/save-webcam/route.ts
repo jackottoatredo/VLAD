@@ -4,6 +4,8 @@ import { uploadToR2 } from "@/lib/storage/r2";
 
 export const runtime = "nodejs";
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function POST(request: Request) {
   const session = await requireSession();
   if (!session) {
@@ -17,24 +19,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid form data." }, { status: 400 });
   }
 
-  const sessionName = formData.get("session");
+  const flowIdRaw = formData.get("flowId");
   const video = formData.get("video");
 
-  if (typeof sessionName !== "string" || !sessionName.trim()) {
-    return NextResponse.json({ error: "Missing session name." }, { status: 400 });
+  const flowId = typeof flowIdRaw === "string" ? flowIdRaw.trim() : "";
+  if (!UUID_RE.test(flowId)) {
+    return NextResponse.json({ error: "Missing or invalid flowId." }, { status: 400 });
   }
   if (!(video instanceof Blob)) {
     return NextResponse.json({ error: "Missing video data." }, { status: 400 });
   }
 
   const safePresenter = sanitizePresenter(session.email);
-  const safeName = sessionName.replace(/[^a-z0-9_\-]/gi, "_");
-  const safeId = safeName.startsWith(`${safePresenter}_`)
-    ? safeName.slice(safePresenter.length + 1)
-    : safeName;
-
   const buffer = Buffer.from(await video.arrayBuffer());
-  const r2Key = `sessions/${safePresenter}/${safeId}/webcam.webm`;
+  const r2Key = `sessions/${safePresenter}/${flowId}/webcam.webm`;
 
   await uploadToR2(r2Key, buffer, "video/webm");
 

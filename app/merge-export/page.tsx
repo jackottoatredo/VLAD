@@ -1,6 +1,6 @@
 'use client'
 
-import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useState } from 'react'
 import Modal from '@/app/components/Modal'
 import DeleteModal from '@/app/components/DeleteModal'
@@ -13,10 +13,14 @@ import { initialSteps, runMergeJob } from './pipeline'
 type Recording = {
   id: string
   type: 'product' | 'merchant'
+  name: string
   product_name: string | null
   merchant_id: string | null
   preview_url: string | null
+  status: 'draft' | 'saved'
+  metadata: Record<string, unknown> | null
   created_at: string
+  updated_at: string
 }
 
 type Render = {
@@ -26,6 +30,7 @@ type Render = {
   status: 'pending' | 'rendering' | 'done' | 'error'
   progress: number
   seen: boolean
+  stale: boolean
   created_at: string
 }
 
@@ -44,9 +49,19 @@ type ActiveTask = {
 }
 
 export default function MergeExportPage() {
+  const router = useRouter()
   const [merchants, setMerchants] = useState<Recording[]>([])
   const [products, setProducts] = useState<Recording[]>([])
   const [renders, setRenders] = useState<Render[]>([])
+
+  function openRecordingInEditor(recording: Recording) {
+    // Per design: if any local flow session of the same kind exists, wipe it so
+    // hydrateFromRecording lands on a clean slate. Tab refresh on the wizard
+    // still restores via localStorage; this path is explicit reopen.
+    const lsKey = recording.type === 'product' ? 'vlad_product_flow' : 'vlad_merchant_flow'
+    try { localStorage.removeItem(lsKey) } catch { /* ignore */ }
+    router.push(`/${recording.type}-flow?recordingId=${recording.id}`)
+  }
 
   const [selectedMerchants, setSelectedMerchants] = useState<Set<string>>(new Set())
   const [selectedProduct, setSelectedProduct] = useState<string | null>(null)
@@ -55,7 +70,7 @@ export default function MergeExportPage() {
   const [modalProduct, setModalProduct] = useState('')
   const [activeTasks, setActiveTasks] = useState<ActiveTask[]>([])
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string; kind: 'recording' | 'render' } | null>(null)
-  const [previewTarget, setPreviewTarget] = useState<{ title: string; videoUrl?: string | null; renderId?: string; downloadName?: string } | null>(null)
+  const [previewTarget, setPreviewTarget] = useState<{ title: string; videoUrl?: string | null; renderId?: string; downloadName?: string; onEdit?: () => void; trimStartSec?: number; trimEndSec?: number } | null>(null)
 
   async function handleDelete() {
     if (!deleteTarget) return
@@ -126,8 +141,18 @@ export default function MergeExportPage() {
     const name = recording.type === 'merchant'
       ? `merchant-intro-${recording.merchant_id ?? recording.id.slice(0, 8)}`
       : `product-recording-${recording.product_name ?? recording.id.slice(0, 8)}`
+    const meta = recording.metadata ?? {}
+    const trimStartSec = typeof meta.trimStartSec === 'number' ? meta.trimStartSec : undefined
+    const trimEndSec = typeof meta.trimEndSec === 'number' ? meta.trimEndSec : undefined
     // Pass the R2 key directly — PreviewModal streams via /api/stream?key=...
-    setPreviewTarget({ title, videoUrl: recording.preview_url, downloadName: name })
+    setPreviewTarget({
+      title,
+      videoUrl: recording.preview_url,
+      downloadName: name,
+      onEdit: () => { setPreviewTarget(null); openRecordingInEditor(recording) },
+      trimStartSec,
+      trimEndSec,
+    })
   }
 
   async function runTask(merchantRecordingId: string, productRecordingId: string) {
@@ -198,36 +223,42 @@ export default function MergeExportPage() {
                 <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">
                   Merchant Intros
                 </h2>
-                <Link
-                  href="/merchant-flow"
+                <button
+                  type="button"
+                  onClick={() => router.push('/merchant-flow')}
                   className="flex h-5 w-5 items-center justify-center rounded border border-border text-muted transition-colors hover:border-muted hover:text-foreground"
                 >
                   <span className="text-sm leading-none">+</span>
-                </Link>
+                </button>
               </div>
               <div className="flex-1 overflow-y-auto">
                 {merchants.map((r) => (
                   <div
                     key={r.id}
                     onClick={() => toggleMerchant(r.id)}
-                    onDoubleClick={() => openRecordingPreview(r, `Merchant Intro: ${r.merchant_id ?? r.id.slice(0, 8)}`)}
+                    onDoubleClick={() => openRecordingPreview(r, `Merchant Intro: ${r.name ?? r.merchant_id ?? r.id.slice(0, 8)}`)}
                     className={`group flex h-10 w-full cursor-pointer items-center justify-between border-b border-border px-4 text-sm transition-colors ${
                       selectedMerchants.has(r.id)
                         ? 'bg-background text-foreground'
                         : 'text-muted hover:bg-background hover:text-foreground'
                     }`}
                   >
-                    <span className="min-w-0 truncate">{r.merchant_id ?? r.id.slice(0, 8)}</span>
+                    <span className="min-w-0 flex-1 truncate">{r.name ?? r.merchant_id ?? r.id.slice(0, 8)}</span>
+                    {r.status === 'draft' && (
+                      <span className="ml-2 shrink-0 rounded border border-amber-500/50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-amber-600 dark:text-amber-400">Draft</span>
+                    )}
                     <span className="ml-2 flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                       <button
-                        onClick={(e) => { e.stopPropagation(); openRecordingPreview(r, `Merchant Intro: ${r.merchant_id ?? r.id.slice(0, 8)}`) }}
+                        onClick={(e) => { e.stopPropagation(); openRecordingPreview(r, `Merchant Intro: ${r.name ?? r.merchant_id ?? r.id.slice(0, 8)}`) }}
                         className="text-muted hover:text-foreground"
+                        title="Preview"
                       >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                       </button>
                       <button
-                        onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: r.id, name: r.merchant_id ?? r.id.slice(0, 8), kind: 'recording' }) }}
+                        onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: r.id, name: r.name ?? r.merchant_id ?? r.id.slice(0, 8), kind: 'recording' }) }}
                         className="text-muted hover:text-red-500"
+                        title="Delete"
                       >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
                       </button>
@@ -246,36 +277,42 @@ export default function MergeExportPage() {
                 <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">
                   Product Recordings
                 </h2>
-                <Link
-                  href="/product-flow"
+                <button
+                  type="button"
+                  onClick={() => router.push('/product-flow')}
                   className="flex h-5 w-5 items-center justify-center rounded border border-border text-muted transition-colors hover:border-muted hover:text-foreground"
                 >
                   <span className="text-sm leading-none">+</span>
-                </Link>
+                </button>
               </div>
               <div className="flex-1 overflow-y-auto">
                 {products.map((r) => (
                   <div
                     key={r.id}
                     onClick={() => setSelectedProduct(r.id === selectedProduct ? null : r.id)}
-                    onDoubleClick={() => openRecordingPreview(r, `Product Recording: ${r.product_name ?? r.id.slice(0, 8)}`)}
+                    onDoubleClick={() => openRecordingPreview(r, `Product Recording: ${r.name ?? r.product_name ?? r.id.slice(0, 8)}`)}
                     className={`group flex h-10 w-full cursor-pointer items-center justify-between border-b border-border px-4 text-sm transition-colors ${
                       selectedProduct === r.id
                         ? 'bg-background text-foreground'
                         : 'text-muted hover:bg-background hover:text-foreground'
                     }`}
                   >
-                    <span className="min-w-0 truncate">{r.product_name ?? r.id.slice(0, 8)}</span>
+                    <span className="min-w-0 flex-1 truncate">{r.name ?? r.product_name ?? r.id.slice(0, 8)}</span>
+                    {r.status === 'draft' && (
+                      <span className="ml-2 shrink-0 rounded border border-amber-500/50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-amber-600 dark:text-amber-400">Draft</span>
+                    )}
                     <span className="ml-2 flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                       <button
-                        onClick={(e) => { e.stopPropagation(); openRecordingPreview(r, `Product Recording: ${r.product_name ?? r.id.slice(0, 8)}`) }}
+                        onClick={(e) => { e.stopPropagation(); openRecordingPreview(r, `Product Recording: ${r.name ?? r.product_name ?? r.id.slice(0, 8)}`) }}
                         className="text-muted hover:text-foreground"
+                        title="Preview"
                       >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                       </button>
                       <button
-                        onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: r.id, name: r.product_name ?? r.id.slice(0, 8), kind: 'recording' }) }}
+                        onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: r.id, name: r.name ?? r.product_name ?? r.id.slice(0, 8), kind: 'recording' }) }}
                         className="text-muted hover:text-red-500"
+                        title="Delete"
                       >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
                       </button>
@@ -409,11 +446,14 @@ export default function MergeExportPage() {
                         className={`group flex h-10 items-center justify-between px-4 transition-colors hover:bg-background${border}`}
                         onDoubleClick={openDbPreview}
                       >
-                        <span className="flex min-w-0 items-center gap-2">
+                        <span className="flex min-w-0 flex-1 items-center gap-2">
                           {isNew && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-foreground" />}
                           <p className="min-w-0 truncate text-sm text-muted">{label}</p>
                         </span>
-                        <span className="ml-3 flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                        {r.stale && (
+                          <span className="mr-2 shrink-0 rounded border border-amber-500/50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-amber-600 dark:text-amber-400">Outdated</span>
+                        )}
+                        <span className="ml-1 flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                           <button
                             onClick={(e) => { e.stopPropagation(); openDbPreview() }}
                             className="text-muted hover:text-foreground"
@@ -441,7 +481,10 @@ export default function MergeExportPage() {
           title={previewTarget.title}
           videoUrl={previewTarget.videoUrl}
           downloadName={previewTarget.downloadName}
+          trimStartSec={previewTarget.trimStartSec}
+          trimEndSec={previewTarget.trimEndSec}
           onClose={() => setPreviewTarget(null)}
+          onEdit={previewTarget.onEdit}
           onDelete={previewTarget.renderId ? () => {
             setDeleteTarget({ id: previewTarget.renderId!, name: previewTarget.title, kind: 'render' })
             setPreviewTarget(null)

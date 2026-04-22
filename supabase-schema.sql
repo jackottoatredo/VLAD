@@ -1,23 +1,14 @@
 -- VLAD Supabase Schema
 -- Run this in the Supabase SQL editor to create all required tables.
 --
--- FRESH START: if migrating from the old name-based user system,
--- drop the old tables first:
---   DROP TABLE IF EXISTS vlad_renders CASCADE;
---   DROP TABLE IF EXISTS vlad_recordings CASCADE;
---   DROP TABLE IF EXISTS vlad_users CASCADE;
+-- Merchants come from the external `previews` scrape table (same Supabase
+-- project). `vlad_recordings.merchant_id` holds `previews.id` (uuid) as text
+-- with no foreign key, since `previews` is owned by a separate service.
 
 create table vlad_users (
   id          text primary key,        -- email address (e.g. jack.otto@redo.com)
   first_name  text not null,
   last_name   text not null default '',
-  created_at  timestamptz default now()
-);
-
-create table vlad_merchants (
-  id          text primary key,
-  name        text not null,
-  url         text not null,
   created_at  timestamptz default now()
 );
 
@@ -27,7 +18,7 @@ create table vlad_recordings (
   type              text not null check (type in ('product', 'merchant')),
   name              text not null,
   product_name      text,
-  merchant_id       text references vlad_merchants(id),
+  merchant_id       text,
   mouse_events_url  text,
   webcam_url        text,
   preview_url       text,
@@ -51,19 +42,3 @@ create table vlad_renders (
   stale                   boolean not null default false,
   created_at              timestamptz default now()
 );
-
--- Migration for an existing install that has the older schema:
---
---   ALTER TABLE vlad_recordings DROP CONSTRAINT vlad_recordings_status_check;
---   ALTER TABLE vlad_recordings ADD CONSTRAINT vlad_recordings_status_check
---     CHECK (status IN ('draft', 'saved'));
---   ALTER TABLE vlad_recordings ADD COLUMN name text;
---   UPDATE vlad_recordings SET name = COALESCE(product_name, merchant_id, id::text);
---   ALTER TABLE vlad_recordings ALTER COLUMN name SET NOT NULL;
---   ALTER TABLE vlad_recordings ADD CONSTRAINT vlad_recordings_user_name_unique UNIQUE (user_id, name);
---   ALTER TABLE vlad_recordings ADD COLUMN webcam_settings jsonb;
---   ALTER TABLE vlad_recordings ADD COLUMN updated_at timestamptz NOT NULL DEFAULT now();
---   ALTER TABLE vlad_recordings ALTER COLUMN mouse_events_url DROP NOT NULL;
---   ALTER TABLE vlad_renders ADD COLUMN stale boolean NOT NULL DEFAULT false;
-
-

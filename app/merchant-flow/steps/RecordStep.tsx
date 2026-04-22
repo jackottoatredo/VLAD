@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import PageLayout, { type NavButton } from '@/app/components/PageLayout'
 import Markdown from '@/app/components/Markdown'
 import RecordingFrame from '@/app/record/RecordingFrame'
@@ -22,6 +22,15 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
   const { presenter, merchants, addMerchant } = useUser()
   const flow = useMerchantFlow()
   const { merchantId, webcamSettings, setMerchantId, setWebcamSettings } = flow
+
+  // Verify webcam access every time the record page is entered.
+  useEffect(() => {
+    if (webcamSettings.webcamMode !== 'off') void recording.ensureWebcam()
+  }, [recording, webcamSettings.webcamMode])
+
+  useEffect(() => {
+    if (recording.webcamError) alert(recording.webcamError)
+  }, [recording.webcamError])
 
   function handleRecordAgain() {
     if (!presenter || !merchantId) return

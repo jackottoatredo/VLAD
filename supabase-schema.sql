@@ -14,19 +14,15 @@ create table vlad_users (
   created_at  timestamptz default now()
 );
 
-create table vlad_merchants (
-  id          text primary key,
-  name        text not null,
-  url         text not null,
-  created_at  timestamptz default now()
-);
+-- Merchants come from the external `previews` scrape table (same Supabase
+-- project). merchant_id below holds previews.id (uuid) as text.
 
 create table vlad_recordings (
   id                uuid primary key default gen_random_uuid(),
   user_id           text references vlad_users(id) not null,
   type              text not null check (type in ('product', 'merchant')),
   product_name      text,
-  merchant_id       text references vlad_merchants(id),
+  merchant_id       text,
   mouse_events_url  text not null,
   webcam_url        text,
   preview_url       text,

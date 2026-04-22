@@ -19,12 +19,9 @@ type Props = {
 }
 
 export default function PostprocessStep({ navBack, navForward }: Props) {
-  const { presenter, merchants } = useUser()
+  const { presenter } = useUser()
   const flow = useMerchantFlow()
-  const { merchantId, webcamSettings, trimStartSec, trimEndSec, postprocessVideoUrl } = flow
-
-  const selectedMerchant = merchants.find((m) => m.id === merchantId)
-  const merchantUrl = selectedMerchant?.url ?? ''
+  const { merchantId, websiteUrl: merchantUrl, webcamSettings, trimStartSec, trimEndSec, postprocessVideoUrl } = flow
 
   const [videoUrl, setVideoUrl] = useState<string | null>(postprocessVideoUrl)
   const [loading, setLoading] = useState<LoadingStage[] | null>(null)

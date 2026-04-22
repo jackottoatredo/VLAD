@@ -14,9 +14,17 @@ import { type WebcamSettings, DEFAULT_WEBCAM_SETTINGS } from "@/types/webcam";
 
 export type MerchantFlowStep = 0 | 1 | 2; // Record, Postprocess, Saved
 
+export type SelectedMerchant = {
+  id: string;
+  brandName: string;
+  websiteUrl: string;
+};
+
 type MerchantFlowState = {
   step: MerchantFlowStep;
   merchantId: string;
+  brandName: string;
+  websiteUrl: string;
   webcamSettings: WebcamSettings;
   trimStartSec: number;
   trimEndSec: number;
@@ -27,7 +35,7 @@ type MerchantFlowState = {
 
 type MerchantFlowContextValue = MerchantFlowState & {
   setStep: (step: MerchantFlowStep) => void;
-  setMerchantId: (id: string) => void;
+  setMerchant: (merchant: SelectedMerchant | null) => void;
   setWebcamSettings: (settings: WebcamSettings) => void;
   setTrim: (startSec: number, endSec: number) => void;
   setPostprocessVideoUrl: (url: string | null, r2Key?: string | null) => void;
@@ -42,6 +50,8 @@ function initialState(): MerchantFlowState {
   return {
     step: 0,
     merchantId: "",
+    brandName: "",
+    websiteUrl: "",
     webcamSettings: { ...DEFAULT_WEBCAM_SETTINGS },
     trimStartSec: 0,
     trimEndSec: 0,
@@ -81,8 +91,14 @@ export function MerchantFlowContextProvider({ children }: { children: ReactNode 
     setState((prev) => ({ ...prev, step }));
   }, []);
 
-  const setMerchantId = useCallback((merchantId: string) => {
-    setState((prev) => ({ ...initialState(), merchantId, webcamSettings: prev.webcamSettings }));
+  const setMerchant = useCallback((merchant: SelectedMerchant | null) => {
+    setState((prev) => ({
+      ...initialState(),
+      merchantId: merchant?.id ?? "",
+      brandName: merchant?.brandName ?? "",
+      websiteUrl: merchant?.websiteUrl ?? "",
+      webcamSettings: prev.webcamSettings,
+    }));
   }, []);
 
   const setWebcamSettings = useCallback((settings: WebcamSettings) => {
@@ -123,10 +139,10 @@ export function MerchantFlowContextProvider({ children }: { children: ReactNode 
   const value = useMemo<MerchantFlowContextValue>(
     () => ({
       ...state,
-      setStep, setMerchantId, setWebcamSettings, setTrim,
+      setStep, setMerchant, setWebcamSettings, setTrim,
       setPostprocessVideoUrl, clearResults, markSaved, reset,
     }),
-    [state, setStep, setMerchantId, setWebcamSettings, setTrim, setPostprocessVideoUrl, clearResults, markSaved, reset],
+    [state, setStep, setMerchant, setWebcamSettings, setTrim, setPostprocessVideoUrl, clearResults, markSaved, reset],
   );
 
   return <MerchantFlowContext.Provider value={value}>{children}</MerchantFlowContext.Provider>;

@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect } from 'react'
 import PageLayout, { type NavButton } from '@/app/components/PageLayout'
 import Markdown from '@/app/components/Markdown'
 import RecordingFrame from '@/app/record/RecordingFrame'
@@ -36,6 +37,15 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
   const { presenter } = useUser()
   const flow = useProductFlow()
   const { product, webcamSettings, setProduct, setWebcamSettings } = flow
+
+  // Verify webcam access every time the record page is entered.
+  useEffect(() => {
+    if (webcamSettings.webcamMode !== 'off') void recording.ensureWebcam()
+  }, [recording, webcamSettings.webcamMode])
+
+  useEffect(() => {
+    if (recording.webcamError) alert(recording.webcamError)
+  }, [recording.webcamError])
 
   const isCountingDown = recording.countdown != null
   const canStart = !!presenter && !!product && !recording.isRecording && !isCountingDown

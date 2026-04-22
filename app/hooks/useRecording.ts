@@ -66,40 +66,79 @@ export function useRecording({ webcamMode }: UseRecordingOpts) {
     return () => window.removeEventListener("message", handler);
   }, [isRecording]);
 
-  // Webcam stream lifecycle
+  const [webcamError, setWebcamError] = useState<string | null>(null);
+  // Guards concurrent ensureWebcam() calls so a rapid remount + mode change
+  // doesn't trigger two getUserMedia requests in flight.
+  const requestInFlightRef = useRef<Promise<boolean> | null>(null);
+
+  const hasLiveStream = () =>
+    !!streamRef.current?.getTracks().some((t) => t.readyState === "live");
+
+  const attachStreamToVideo = () => {
+    const el = videoElRef.current;
+    const stream = streamRef.current;
+    if (el && stream && el.srcObject !== stream) {
+      el.srcObject = stream;
+      el.play().catch(() => {});
+    }
+  };
+
+  // Idempotent webcam acquisition. Safe to call on every RecordStep mount,
+  // webcamMode change, or retry-button click. Returns true when a live stream
+  // is available by the time the promise resolves.
+  const ensureWebcam = useCallback(async (): Promise<boolean> => {
+    if (hasLiveStream()) {
+      attachStreamToVideo();
+      return true;
+    }
+    if (requestInFlightRef.current) return requestInFlightRef.current;
+
+    const request = (async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        streamRef.current = stream;
+        setWebcamError(null);
+        attachStreamToVideo();
+        return true;
+      } catch (err) {
+        const name = (err as { name?: string })?.name;
+        const msg =
+          name === "NotAllowedError" ? "Camera access was denied. Enable it in your browser's site settings, then try again."
+          : name === "NotFoundError" ? "No camera or microphone was found on this device."
+          : name === "NotReadableError" ? "The camera is being used by another app. Close it and try again."
+          : (err as { message?: string })?.message || "Could not access the camera.";
+        setWebcamError(msg);
+        return false;
+      } finally {
+        requestInFlightRef.current = null;
+      }
+    })();
+    requestInFlightRef.current = request;
+    return request;
+  }, []);
+
+  // React to webcamMode: acquire on video/audio, tear down on off.
   useEffect(() => {
     if (webcamMode === "off") {
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
+      setWebcamError(null);
       if (videoElRef.current) videoElRef.current.srcObject = null;
       return;
     }
-    navigator.mediaDevices
-      .getUserMedia({ video: true, audio: true })
-      .then((stream) => {
-        streamRef.current = stream;
-        const el = videoElRef.current;
-        if (el) {
-          el.srcObject = stream;
-          el.play().catch(() => {});
-        }
-      })
-      .catch(() => {});
+    void ensureWebcam();
     return () => {
       streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
     };
-  }, [webcamMode]);
+  }, [webcamMode, ensureWebcam]);
 
   // Ref callback: re-binds srcObject every time the <video> element mounts.
-  // Fixes blank webcam when returning to the record step — useRecording lives
-  // at the wizard level so the stream persists, but the video element is
-  // recreated on each RecordStep mount.
+  // useRecording lives at the wizard level so the stream persists, but the
+  // video element is recreated on each RecordStep mount.
   const webcamVideoRef = useCallback((el: HTMLVideoElement | null) => {
     videoElRef.current = el;
-    if (el && streamRef.current) {
-      el.srcObject = streamRef.current;
-      el.play().catch(() => {});
-    }
+    attachStreamToVideo();
   }, []);
 
   const beginRecording = useCallback((presenter: string, identifier: string) => {
@@ -221,6 +260,8 @@ export function useRecording({ webcamMode }: UseRecordingOpts) {
     countdown,
     recordingKey,
     uploadStatus,
+    webcamError,
+    ensureWebcam,
     start,
     stop,
     commit,

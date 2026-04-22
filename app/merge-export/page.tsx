@@ -18,6 +18,7 @@ type Recording = {
   merchant_id: string | null
   preview_url: string | null
   status: 'draft' | 'saved'
+  metadata: Record<string, unknown> | null
   created_at: string
   updated_at: string
 }
@@ -69,7 +70,7 @@ export default function MergeExportPage() {
   const [modalProduct, setModalProduct] = useState('')
   const [activeTasks, setActiveTasks] = useState<ActiveTask[]>([])
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string; kind: 'recording' | 'render' } | null>(null)
-  const [previewTarget, setPreviewTarget] = useState<{ title: string; videoUrl?: string | null; renderId?: string; downloadName?: string } | null>(null)
+  const [previewTarget, setPreviewTarget] = useState<{ title: string; videoUrl?: string | null; renderId?: string; downloadName?: string; onEdit?: () => void; trimStartSec?: number; trimEndSec?: number } | null>(null)
 
   async function handleDelete() {
     if (!deleteTarget) return
@@ -140,8 +141,18 @@ export default function MergeExportPage() {
     const name = recording.type === 'merchant'
       ? `merchant-intro-${recording.merchant_id ?? recording.id.slice(0, 8)}`
       : `product-recording-${recording.product_name ?? recording.id.slice(0, 8)}`
+    const meta = recording.metadata ?? {}
+    const trimStartSec = typeof meta.trimStartSec === 'number' ? meta.trimStartSec : undefined
+    const trimEndSec = typeof meta.trimEndSec === 'number' ? meta.trimEndSec : undefined
     // Pass the R2 key directly — PreviewModal streams via /api/stream?key=...
-    setPreviewTarget({ title, videoUrl: recording.preview_url, downloadName: name })
+    setPreviewTarget({
+      title,
+      videoUrl: recording.preview_url,
+      downloadName: name,
+      onEdit: () => { setPreviewTarget(null); openRecordingInEditor(recording) },
+      trimStartSec,
+      trimEndSec,
+    })
   }
 
   async function runTask(merchantRecordingId: string, productRecordingId: string) {
@@ -238,13 +249,6 @@ export default function MergeExportPage() {
                     )}
                     <span className="ml-2 flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                       <button
-                        onClick={(e) => { e.stopPropagation(); openRecordingInEditor(r) }}
-                        className="text-muted hover:text-foreground"
-                        title="Open in editor"
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
-                      </button>
-                      <button
                         onClick={(e) => { e.stopPropagation(); openRecordingPreview(r, `Merchant Intro: ${r.name ?? r.merchant_id ?? r.id.slice(0, 8)}`) }}
                         className="text-muted hover:text-foreground"
                         title="Preview"
@@ -298,13 +302,6 @@ export default function MergeExportPage() {
                       <span className="ml-2 shrink-0 rounded border border-amber-500/50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-amber-600 dark:text-amber-400">Draft</span>
                     )}
                     <span className="ml-2 flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); openRecordingInEditor(r) }}
-                        className="text-muted hover:text-foreground"
-                        title="Open in editor"
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
-                      </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); openRecordingPreview(r, `Product Recording: ${r.name ?? r.product_name ?? r.id.slice(0, 8)}`) }}
                         className="text-muted hover:text-foreground"
@@ -484,7 +481,10 @@ export default function MergeExportPage() {
           title={previewTarget.title}
           videoUrl={previewTarget.videoUrl}
           downloadName={previewTarget.downloadName}
+          trimStartSec={previewTarget.trimStartSec}
+          trimEndSec={previewTarget.trimEndSec}
           onClose={() => setPreviewTarget(null)}
+          onEdit={previewTarget.onEdit}
           onDelete={previewTarget.renderId ? () => {
             setDeleteTarget({ id: previewTarget.renderId!, name: previewTarget.title, kind: 'render' })
             setPreviewTarget(null)

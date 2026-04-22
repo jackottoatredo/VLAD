@@ -186,6 +186,18 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
     if (existingName && merchantId && existingName.startsWith(`${merchantId}-`)) return existingName.slice(merchantId.length + 1)
     return ''
   })()
+  const isReopened = origin === 'reopened' && !!existingName
+
+  async function handleSaveChanges() {
+    if (!existingName) return
+    await submitSave(existingName)
+  }
+
+  function handleDiscardChanges() {
+    if (!flowId) return
+    try { localStorage.removeItem('vlad_merchant_flow') } catch { /* ignore */ }
+    window.location.assign(`/merchant-flow?recordingId=${flowId}`)
+  }
 
   return (
     <PageLayout
@@ -194,13 +206,32 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
       instructions={<Markdown>{merchantPostprocess}</Markdown>}
       settings={
         <div className="flex flex-col gap-3">
-          <button
-            onClick={() => setNameModalOpen(true)}
-            disabled={!canSave}
-            className="w-full rounded-md border border-border bg-surface px-4 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-background disabled:opacity-50"
-          >
-            {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? 'Saved' : 'Save'}
-          </button>
+          {isReopened ? (
+            <>
+              <button
+                onClick={handleSaveChanges}
+                disabled={!canSave}
+                className="w-full rounded-md border border-border bg-surface px-4 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-background disabled:opacity-50"
+              >
+                {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? 'Saved' : 'Save Changes'}
+              </button>
+              <button
+                onClick={handleDiscardChanges}
+                disabled={saveStatus === 'saving'}
+                className="w-full rounded-md border border-red-500/40 bg-surface px-4 py-1.5 text-sm font-medium text-red-500 shadow-sm hover:bg-red-500/10 disabled:opacity-50"
+              >
+                Discard Changes
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => setNameModalOpen(true)}
+              disabled={!canSave}
+              className="w-full rounded-md border border-border bg-surface px-4 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-background disabled:opacity-50"
+            >
+              {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? 'Saved' : 'Save'}
+            </button>
+          )}
           {saveStatus === 'error' && <p className="text-xs text-red-500">{saveError}</p>}
         </div>
       }

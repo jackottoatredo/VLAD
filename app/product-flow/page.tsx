@@ -3,13 +3,16 @@
 import { Suspense, useEffect, useRef, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { ProductFlowContextProvider, useProductFlow } from '@/app/contexts/ProductFlowContext'
+import { useUser } from '@/app/contexts/UserContext'
 import { DEFAULT_WEBCAM_SETTINGS, type WebcamSettings } from '@/types/webcam'
+import { EAGER_PREVIEW_RENDERING, PREVIEW_BRANDS, TARGET_URL } from '@/app/config'
 import ProductFlowWizard from '@/app/product-flow/ProductFlowWizard'
 
 function ProductFlowInner() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const flow = useProductFlow()
+  const { presenter } = useUser()
   const recordingId = searchParams?.get('recordingId') ?? null
   const [loading, setLoading] = useState(!!recordingId)
   const [error, setError] = useState<string | null>(null)
@@ -67,12 +70,43 @@ function ProductFlowInner() {
         // Strip the query param so refreshes resume from localStorage instead of refetching.
         router.replace('/product-flow')
         setLoading(false)
+
+        // Brand previews aren't persisted; re-enqueue the 3 branded renders now
+        // so they're ready (or in flight) by the time the user reaches Preview.
+        if (EAGER_PREVIEW_RENDERING && presenter && r.productName) {
+          const brandlessUrl = `${TARGET_URL}?product=${encodeURIComponent(r.productName)}`
+          const common = {
+            flowId: r.id,
+            presenter,
+            product: r.productName,
+            webcamMode: ws.webcamMode,
+            webcamVertical: ws.webcamVertical,
+            webcamHorizontal: ws.webcamHorizontal,
+            trimStartSec,
+            trimEndSec,
+            preview: true as const,
+            priority: 2,
+          }
+          for (const brand of PREVIEW_BRANDS) {
+            fetch('/api/produce', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ...common, url: `${brandlessUrl}&brand=${encodeURIComponent(brand)}` }),
+            })
+              .then((resp) => resp.json() as Promise<{ jobId?: string; videoUrl?: string; videoR2Key?: string }>)
+              .then((res) => {
+                if (res.videoUrl) flow.setBrandVideoUrl(brand, res.videoUrl)
+                else if (res.jobId) flow.setBrandJobId(brand, res.jobId)
+              })
+              .catch(() => { /* ignore; PreviewStep has a fallback */ })
+          }
+        }
       } catch {
         setError('Failed to load recording.')
         setLoading(false)
       }
     })()
-  }, [recordingId, flow, router])
+  }, [recordingId, flow, router, presenter])
 
   if (loading) {
     return (

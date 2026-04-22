@@ -125,6 +125,11 @@ export default function ProductFlowWizard() {
       <div className="border-b border-border bg-surface">
         <FlowStepper steps={STEPS} stepStates={stepStates} />
       </div>
+      {flow.origin === 'reopened' && flow.name && (
+        <p className="pt-3 text-center text-base italic text-muted">
+          editing {flow.name}
+        </p>
+      )}
       <div className="flex flex-1 items-center justify-center overflow-hidden">
         {flow.step === 0 && <RecordStep recording={recording} navForward={navForward} />}
         {flow.step === 1 && <PostprocessStep navBack={navBack} navForward={navForward} />}

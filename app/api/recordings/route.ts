@@ -32,7 +32,7 @@ export async function GET(request: Request) {
 
   let query = supabase
     .from("vlad_recordings")
-    .select("id, type, name, product_name, merchant_id, preview_url, status, created_at, updated_at")
+    .select("id, type, name, product_name, merchant_id, preview_url, status, metadata, created_at, updated_at")
     .eq("user_id", session.email)
     .order("updated_at", { ascending: false });
 

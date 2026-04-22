@@ -65,12 +65,16 @@ export async function POST(request: Request) {
   let merchantBrandUrl = typeof merchantMeta.merchantUrl === "string" ? merchantMeta.merchantUrl : "";
 
   if (!merchantBrandUrl && merchant.merchant_id) {
-    const { data: merchantRow } = await supabase
-      .from("vlad_merchants")
-      .select("url")
+    // merchant_id on new recordings is a previews.id uuid. Old slug-form ids
+    // won't match and simply return no row — merge proceeds without a brand param.
+    const { data: previewRow } = await supabase
+      .from("previews")
+      .select("website_url")
       .eq("id", merchant.merchant_id)
-      .single();
-    merchantBrandUrl = (merchantRow as { url?: string } | null)?.url ?? "";
+      .maybeSingle();
+    const rawUrl = (previewRow as { website_url?: string } | null)?.website_url ?? "";
+    // The iframe brand target rejects URLs with http(s):// — strip before using.
+    merchantBrandUrl = rawUrl.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
   }
 
   const product = productRes.data as {

@@ -27,6 +27,8 @@ function MerchantFlowInner() {
             type: 'product' | 'merchant'
             name: string
             merchantId: string | null
+            brandName: string
+            websiteUrl: string
             status: 'draft' | 'saved'
             previewUrl: string | null
             previewR2Key: string | null
@@ -57,6 +59,8 @@ function MerchantFlowInner() {
           flowId: r.id,
           name: r.name,
           merchantId: r.merchantId ?? '',
+          brandName: r.brandName,
+          websiteUrl: r.websiteUrl,
           webcamSettings: ws,
           trimStartSec,
           trimEndSec,

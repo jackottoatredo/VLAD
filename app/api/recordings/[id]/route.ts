@@ -65,6 +65,19 @@ export async function GET(
     }
   }
 
+  let brandName = "";
+  let websiteUrl = "";
+  if (row.merchant_id && UUID_RE.test(row.merchant_id)) {
+    const { data: preview } = await supabase
+      .from("previews")
+      .select("brand_name, website_url")
+      .eq("id", row.merchant_id)
+      .maybeSingle();
+    const pr = preview as { brand_name?: string; website_url?: string } | null;
+    brandName = pr?.brand_name ?? "";
+    websiteUrl = (pr?.website_url ?? "").replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+  }
+
   return NextResponse.json({
     recording: {
       id: row.id,
@@ -72,6 +85,8 @@ export async function GET(
       name: row.name,
       productName: row.product_name,
       merchantId: row.merchant_id,
+      brandName,
+      websiteUrl,
       status: row.status,
       webcamSettings: row.webcam_settings ?? null,
       metadata: row.metadata ?? {},

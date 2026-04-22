@@ -70,6 +70,12 @@ type MerchantFlowContextValue = MerchantFlowState & {
   markPersisted: (args: { name: string; status: PersistedStatus }) => void;
   hasUnsavedChanges: () => boolean;
   reset: () => void;
+  /**
+   * Discard the current recording session (flowId, render results, persisted
+   * state) while preserving merchant selection and webcam settings. Used by
+   * "Record Again" when a recording has already been committed.
+   */
+  discardRecording: () => void;
 };
 
 const LS_KEY = "vlad_merchant_flow";
@@ -223,6 +229,14 @@ export function MerchantFlowContextProvider({ children }: { children: ReactNode 
     clearStored();
   }, []);
 
+  const discardRecording = useCallback(() => {
+    setState((prev) => ({
+      ...initialState(),
+      merchantId: prev.merchantId,
+      webcamSettings: prev.webcamSettings,
+    }));
+  }, []);
+
   const value = useMemo<MerchantFlowContextValue>(
     () => ({
       ...state,
@@ -230,13 +244,13 @@ export function MerchantFlowContextProvider({ children }: { children: ReactNode 
       setPostprocessVideoUrl, setPostprocessJobId, getActiveJobIds,
       clearResults,
       hydrateCommitted, hydrateFromRecording, markPersisted, hasUnsavedChanges,
-      reset,
+      reset, discardRecording,
     }),
     [
       state, setStep, setMerchant, setWebcamSettings, setTrim,
       setPostprocessVideoUrl, setPostprocessJobId, getActiveJobIds,
       clearResults, hydrateCommitted, hydrateFromRecording, markPersisted,
-      hasUnsavedChanges, reset,
+      hasUnsavedChanges, reset, discardRecording,
     ],
   );
 

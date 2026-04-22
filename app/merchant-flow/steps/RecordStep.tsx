@@ -33,21 +33,34 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
     if (recording.webcamError) alert(recording.webcamError)
   }, [recording.webcamError])
 
-  function handleRecordAgain() {
-    flow.clearResults()
+  const isCountingDown = recording.countdown != null
+  const canStart = !!merchantId && !recording.isRecording && !isCountingDown
+  const hasCommitted = !!flow.flowId
+  const overlayStatus: 'idle' | 'uploading' | 'ready' =
+    recording.uploadStatus !== 'idle' ? recording.uploadStatus : (hasCommitted ? 'ready' : 'idle')
+  const overlayVisible = overlayStatus !== 'idle'
+
+  async function handleRecordAgain() {
+    if (hasCommitted && flow.flowId) {
+      try { await fetch(`/api/sessions/${flow.flowId}`, { method: 'DELETE' }) } catch { /* ignore */ }
+      flow.discardRecording()
+    } else {
+      flow.clearResults()
+    }
     recording.resetPending()
   }
 
   async function handleContinue() {
     if (!presenter || !merchantId) return
+    if (hasCommitted && recording.uploadStatus === 'idle') {
+      flow.setStep(1)
+      return
+    }
     const flowId = await recording.commit()
     if (!flowId) return
     flow.clearResults()
     flow.setStep(1)
   }
-
-  const isCountingDown = recording.countdown != null
-  const canStart = !!merchantId && !recording.isRecording && !isCountingDown
 
   const [showPicker, setShowPicker] = useState(false)
 
@@ -61,7 +74,7 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
           <div className="flex flex-col gap-3">
             <button
               onClick={() => setShowPicker(true)}
-              disabled={recording.isRecording}
+              disabled={recording.isRecording || overlayVisible}
               className="flex w-full items-center justify-between rounded-md border border-border bg-surface px-3 py-1.5 text-left text-sm text-foreground shadow-sm hover:bg-background disabled:opacity-50"
             >
               <span className={merchantId ? '' : 'text-muted'}>
@@ -70,11 +83,11 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
               <span className="text-xs text-muted">{merchantId ? 'Change' : ''}</span>
             </button>
 
-            <WebcamControls settings={webcamSettings} onChange={setWebcamSettings} disabled={recording.isRecording} />
+            <WebcamControls settings={webcamSettings} onChange={setWebcamSettings} disabled={recording.isRecording || overlayVisible} />
 
             <button
               onClick={recording.isRecording ? recording.stop : () => recording.start(presenter)}
-              disabled={isCountingDown || (!recording.isRecording && !canStart)}
+              disabled={isCountingDown || overlayVisible || (!recording.isRecording && !canStart)}
               className={`w-full rounded-md px-4 py-1.5 text-sm font-medium shadow-sm disabled:opacity-40 disabled:cursor-not-allowed ${
                 recording.isRecording
                   ? 'bg-red-600 text-white hover:bg-red-700'
@@ -99,7 +112,7 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
             <WebcamOverlay webcamSettings={webcamSettings} videoRef={recording.webcamVideoRef} mirror />
           </RecordingFrame>
           <RecordConfirmOverlay
-            uploadStatus={recording.uploadStatus}
+            uploadStatus={overlayStatus}
             onRecordAgain={handleRecordAgain}
             onContinue={handleContinue}
           />

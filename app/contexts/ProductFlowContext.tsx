@@ -74,6 +74,13 @@ type ProductFlowContextValue = ProductFlowState & {
   hasUnsavedChanges: () => boolean;
   /** Fully reset + clear localStorage. */
   reset: () => void;
+  /**
+   * Discard the current recording session (clears flowId, render results, and
+   * persisted draft/saved state) while preserving the user's product selection
+   * and webcam settings. Used by "Record Again" when a recording has already
+   * been committed to the flow.
+   */
+  discardRecording: () => void;
 };
 
 const LS_KEY = "vlad_product_flow";
@@ -245,6 +252,14 @@ export function ProductFlowContextProvider({ children }: { children: ReactNode }
     clearStored();
   }, []);
 
+  const discardRecording = useCallback(() => {
+    setState((prev) => ({
+      ...initialState(),
+      product: prev.product,
+      webcamSettings: prev.webcamSettings,
+    }));
+  }, []);
+
   const value = useMemo<ProductFlowContextValue>(
     () => ({
       ...state,
@@ -253,13 +268,13 @@ export function ProductFlowContextProvider({ children }: { children: ReactNode }
       setPostprocessJobId, setBrandJobId, getActiveJobIds,
       clearResults,
       hydrateCommitted, hydrateFromRecording, markPersisted, hasUnsavedChanges,
-      reset,
+      reset, discardRecording,
     }),
     [
       state, setStep, setProduct, setWebcamSettings, setTrim, setPostprocessVideoUrl,
       setBrandVideoUrl, setPostprocessJobId, setBrandJobId, getActiveJobIds,
       clearResults, hydrateCommitted, hydrateFromRecording, markPersisted,
-      hasUnsavedChanges, reset,
+      hasUnsavedChanges, reset, discardRecording,
     ],
   );
 

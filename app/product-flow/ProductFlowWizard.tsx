@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useProductFlow, type ProductFlowStep } from '@/app/contexts/ProductFlowContext'
 import { useUser } from '@/app/contexts/UserContext'
 import { useRecording } from '@/app/hooks/useRecording'
@@ -41,11 +41,6 @@ export default function ProductFlowWizard() {
       return completeness[i] ? 'complete' : 'incomplete'
     })
   }, [flow.step, reopened, flow.flowId, flow.postprocessVideoUrl, flow.brandVideoUrls, flow.persistedStatus])
-
-  const goTo = useCallback((s: number) => {
-    if (stepStates[s] === 'locked') return
-    flow.setStep(s as ProductFlowStep)
-  }, [flow, stepStates])
 
   // Register navigation guard.
   useEffect(() => {
@@ -103,6 +98,11 @@ export default function ProductFlowWizard() {
     return () => setGuard(null)
   }, [flow, setGuard, recording])
 
+  const goTo = (s: number) => {
+    if (stepStates[s] === 'locked') return
+    flow.setStep(s as ProductFlowStep)
+  }
+
   const navBack = flow.step > 0 && stepStates[flow.step - 1] !== 'locked'
     ? { label: STEPS[flow.step - 1], onClick: () => goTo(flow.step - 1) }
     : null
@@ -123,7 +123,7 @@ export default function ProductFlowWizard() {
   return (
     <div className="flex h-screen flex-col">
       <div className="border-b border-border bg-surface">
-        <FlowStepper steps={STEPS} stepStates={stepStates} onStepClick={goTo} />
+        <FlowStepper steps={STEPS} stepStates={stepStates} />
       </div>
       <div className="flex flex-1 items-center justify-center overflow-hidden">
         {flow.step === 0 && <RecordStep recording={recording} navForward={navForward} />}

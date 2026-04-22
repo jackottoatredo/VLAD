@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useMerchantFlow, type MerchantFlowStep } from '@/app/contexts/MerchantFlowContext'
 import { useUser } from '@/app/contexts/UserContext'
 import { useRecording } from '@/app/hooks/useRecording'
@@ -37,11 +37,6 @@ export default function MerchantFlowWizard() {
       return completeness[i] ? 'complete' : 'incomplete'
     })
   }, [flow.step, reopened, flow.flowId, flow.postprocessVideoUrl, flow.persistedStatus])
-
-  const goTo = useCallback((s: number) => {
-    if (stepStates[s] === 'locked') return
-    flow.setStep(s as MerchantFlowStep)
-  }, [flow, stepStates])
 
   useEffect(() => {
     const guardFn = (): GuardPrompt | null => {
@@ -93,6 +88,11 @@ export default function MerchantFlowWizard() {
     return () => setGuard(null)
   }, [flow, setGuard, recording])
 
+  const goTo = (s: number) => {
+    if (stepStates[s] === 'locked') return
+    flow.setStep(s as MerchantFlowStep)
+  }
+
   const navBack = flow.step > 0 && stepStates[flow.step - 1] !== 'locked'
     ? { label: STEPS[flow.step - 1], onClick: () => goTo(flow.step - 1) }
     : null
@@ -113,7 +113,7 @@ export default function MerchantFlowWizard() {
   return (
     <div className="flex h-screen flex-col">
       <div className="border-b border-border bg-surface">
-        <FlowStepper steps={STEPS} stepStates={stepStates} onStepClick={goTo} />
+        <FlowStepper steps={STEPS} stepStates={stepStates} />
       </div>
       <div className="flex flex-1 items-center justify-center overflow-hidden">
         {flow.step === 0 && <RecordStep recording={recording} navForward={navForward} />}

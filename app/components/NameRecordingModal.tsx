@@ -75,8 +75,8 @@ export default function NameRecordingModal({
     <Modal title={title} onClose={() => (busy ? null : onCancel())}>
       <p className="text-sm text-muted">Give this recording a name.</p>
 
-      <div className="mt-4 flex items-center gap-1 rounded-md border border-border bg-surface px-3 py-1.5 text-sm">
-        <span className="text-muted">{prefix}-</span>
+      <div className="mt-4 flex items-center gap-2 text-sm">
+        <span className="text-foreground">{prefix}-</span>
         <input
           autoFocus
           type="text"
@@ -85,8 +85,7 @@ export default function NameRecordingModal({
             setSuffix(sanitizeSuffix(e.target.value))
             setExistsWarning(false)
           }}
-          placeholder="v1"
-          className="flex-1 bg-transparent text-foreground outline-none placeholder:text-muted"
+          className="flex-1 rounded-md border border-border bg-surface px-3 py-1.5 text-foreground outline-none"
         />
       </div>
 

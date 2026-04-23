@@ -130,17 +130,17 @@ export default function MergeExportPage() {
   }
 
   function merchantLabel(id: string) {
-    return merchants.find((m) => m.id === id)?.merchant_id ?? id.slice(0, 8)
+    return merchants.find((m) => m.id === id)?.name ?? id.slice(0, 8)
   }
 
   function productLabel(id: string) {
-    return products.find((p) => p.id === id)?.product_name ?? id.slice(0, 8)
+    return products.find((p) => p.id === id)?.name ?? id.slice(0, 8)
   }
 
   function openRecordingPreview(recording: Recording, title: string) {
     const name = recording.type === 'merchant'
-      ? `merchant-intro-${recording.merchant_id ?? recording.id.slice(0, 8)}`
-      : `product-recording-${recording.product_name ?? recording.id.slice(0, 8)}`
+      ? `merchant-intro-${recording.name ?? recording.id.slice(0, 8)}`
+      : `product-recording-${recording.name ?? recording.id.slice(0, 8)}`
     const meta = recording.metadata ?? {}
     const trimStartSec = typeof meta.trimStartSec === 'number' ? meta.trimStartSec : undefined
     const trimEndSec = typeof meta.trimEndSec === 'number' ? meta.trimEndSec : undefined
@@ -506,7 +506,7 @@ export default function MergeExportPage() {
             <div>
               <label className="mb-1 block text-xs font-medium text-muted">Merchant Intros</label>
               <MultiSelect
-                options={merchants.map((r) => ({ value: r.id, label: r.merchant_id ?? r.id.slice(0, 8) }))}
+                options={merchants.map((r) => ({ value: r.id, label: r.name ?? r.id.slice(0, 8) }))}
                 selected={modalMerchants}
                 onChange={setModalMerchants}
                 placeholder="Select merchant intros"
@@ -522,7 +522,7 @@ export default function MergeExportPage() {
                 <option value="">Select a product recording</option>
                 {products.map((r) => (
                   <option key={r.id} value={r.id}>
-                    {r.product_name ?? r.id.slice(0, 8)}
+                    {r.name ?? r.id.slice(0, 8)}
                   </option>
                 ))}
               </select>

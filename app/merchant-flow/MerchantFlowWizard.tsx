@@ -42,7 +42,8 @@ export default function MerchantFlowWizard() {
     const guardFn = (): GuardPrompt | null => {
       const hasPendingTake = recording.uploadStatus === 'ready'
       if (!flow.hasUnsavedChanges() && !hasPendingTake) return null
-      const prefix = flow.brandName || flow.merchantId || 'merchant'
+      const cleanBrand = flow.brandName ? flow.brandName.toLowerCase().replace(/\s+/g, '-') : ''
+      const prefix = cleanBrand || flow.merchantId || 'merchant'
       const defaultSuffix = (() => {
         if (flow.name && prefix && flow.name.startsWith(`${prefix}-`)) return flow.name.slice(prefix.length + 1)
         return ''

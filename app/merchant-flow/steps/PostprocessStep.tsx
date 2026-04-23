@@ -182,8 +182,10 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
   }
 
   const canSave = !!videoUrl && saveStatus !== 'saving' && saveStatus !== 'saved'
+  const cleanBrand = brandName ? brandName.toLowerCase().replace(/\s+/g, '-') : ''
+  const prefix = cleanBrand || merchantId || ''
   const defaultSuffix = (() => {
-    if (existingName && brandName && existingName.startsWith(`${brandName}-`)) return existingName.slice(brandName.length + 1)
+    if (existingName && prefix && existingName.startsWith(`${prefix}-`)) return existingName.slice(prefix.length + 1)
     return ''
   })()
   const isReopened = origin === 'reopened' && !!existingName
@@ -252,7 +254,7 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
       {nameModalOpen && merchantId && (
         <NameRecordingModal
           title="Save Recording"
-          prefix={brandName || merchantId}
+          prefix={prefix}
           defaultSuffix={defaultSuffix}
           submitLabel="Save"
           onSubmit={submitSave}

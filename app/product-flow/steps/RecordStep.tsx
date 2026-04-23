@@ -49,6 +49,13 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
 
   const isCountingDown = recording.countdown != null
   const canStart = !!presenter && !!product && !recording.isRecording && !isCountingDown
+  // Overlay visible whenever the flow has an unresolved take to confirm OR a
+  // recording already committed to the flow (e.g. user navigated back from
+  // Postprocess or resumed via localStorage).
+  const hasCommitted = !!flow.flowId
+  const overlayStatus: 'idle' | 'uploading' | 'ready' =
+    recording.uploadStatus !== 'idle' ? recording.uploadStatus : (hasCommitted ? 'ready' : 'idle')
+  const overlayVisible = overlayStatus !== 'idle'
 
   async function cancelActiveJobs() {
     const ids = flow.getActiveJobIds()
@@ -63,22 +70,40 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
   }
 
   async function handleRecordAgain() {
-    if (!presenter || !product) return
     await cancelActiveJobs()
-    flow.clearResults()
-    recording.start(presenter, product)
+    // If the flow already has a committed recording, discard it entirely —
+    // delete raw R2 session files and reset the flow. User then re-arms controls
+    // and hits Start when ready.
+    if (hasCommitted && flow.flowId) {
+      try { await fetch(`/api/sessions/${flow.flowId}`, { method: 'DELETE' }) } catch { /* ignore */ }
+      flow.discardRecording()
+    } else {
+      flow.clearResults()
+    }
+    recording.resetPending()
   }
 
-  async function handleContinue() {
+  function handleContinue() {
     if (!presenter || !product) return
-    const ok = await recording.commit()
-    if (!ok) return
-    // Recording is now persisted to R2. Clear any stale previews from a prior take
-    // before seeding new jobIds, otherwise clearResults would wipe them right back out.
+    // Already-committed flow: nothing to upload, just advance.
+    if (hasCommitted && recording.uploadStatus === 'idle') {
+      flow.setStep(1)
+      return
+    }
+    // Navigate immediately — the RecordStep unmounts and the modal goes with
+    // it. Upload + eager preview enqueue run in the background; PostprocessStep
+    // will pick up jobIds as the chain resolves.
     flow.clearResults()
-    if (EAGER_PREVIEW_RENDERING) {
+    flow.setStep(1)
+
+    void (async () => {
+      const flowId = await recording.commit()
+      if (!flowId) return
+      if (!EAGER_PREVIEW_RENDERING) return
+
       const brandlessUrl = `${TARGET_URL}?product=${encodeURIComponent(product)}`
       const common = {
+        flowId,
         presenter, product,
         webcamMode: webcamSettings.webcamMode,
         webcamVertical: webcamSettings.webcamVertical,
@@ -108,9 +133,7 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
         if (res?.videoUrl) flow.setBrandVideoUrl(brand, res.videoUrl)
         else if (res?.jobId) flow.setBrandJobId(brand, res.jobId)
       })
-    }
-
-    flow.setStep(1)
+    })()
   }
 
   return (
@@ -125,7 +148,7 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
             <select
               value={product}
               onChange={(e) => setProduct(e.target.value)}
-              disabled={recording.isRecording}
+              disabled={recording.isRecording || overlayVisible}
               className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground shadow-sm outline-none focus:border-muted disabled:opacity-50"
             >
               <option value="">Select product…</option>
@@ -140,14 +163,14 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
           <WebcamControls
             settings={webcamSettings}
             onChange={setWebcamSettings}
-            disabled={recording.isRecording}
+            disabled={recording.isRecording || overlayVisible}
           />
 
           <hr className="border-border" />
 
           <button
-            onClick={recording.isRecording ? recording.stop : () => recording.start(presenter, product)}
-            disabled={isCountingDown || (!recording.isRecording && !canStart)}
+            onClick={recording.isRecording ? recording.stop : () => recording.start(presenter)}
+            disabled={isCountingDown || overlayVisible || (!recording.isRecording && !canStart)}
             className={`w-full rounded-md px-4 py-1.5 text-sm font-medium shadow-sm disabled:opacity-40 disabled:cursor-not-allowed ${
               recording.isRecording
                 ? 'bg-red-600 text-white hover:bg-red-700'
@@ -170,7 +193,7 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
           <WebcamOverlay webcamSettings={webcamSettings} videoRef={recording.webcamVideoRef} mirror />
         </RecordingFrame>
         <RecordConfirmOverlay
-          uploadStatus={recording.uploadStatus}
+          uploadStatus={overlayStatus}
           onRecordAgain={handleRecordAgain}
           onContinue={handleContinue}
         />

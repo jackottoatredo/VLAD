@@ -4,7 +4,7 @@ import { requireSession } from "@/lib/apiAuth";
 
 export const runtime = "nodejs";
 
-const RENDER_FIELDS = "id, product_recording_id, merchant_recording_id, brand, video_url, status, progress, seen, created_at";
+const RENDER_FIELDS = "id, product_recording_id, merchant_recording_id, brand, video_url, status, progress, seen, stale, created_at";
 
 export async function GET() {
   const session = await requireSession();

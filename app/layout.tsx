@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { UserContextProvider } from "./contexts/UserContext";
+import { NavigationGuardProvider } from "./contexts/NavigationGuardContext";
 import HamburgerMenu from "./components/HamburgerMenu";
 import AuthProvider from "./components/AuthProvider";
 import ThemeProvider from "./components/ThemeProvider";
@@ -36,9 +37,11 @@ export default function RootLayout({
       <body className="min-h-screen flex flex-col bg-background text-foreground">
         <ThemeProvider>
           <AuthProvider>
-            <HamburgerMenu />
-            <ThemeToggle />
-            <UserContextProvider>{children}</UserContextProvider>
+            <NavigationGuardProvider>
+              <HamburgerMenu />
+              <ThemeToggle />
+              <UserContextProvider>{children}</UserContextProvider>
+            </NavigationGuardProvider>
           </AuthProvider>
         </ThemeProvider>
       </body>

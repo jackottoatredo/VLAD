@@ -4,6 +4,8 @@ import { uploadToR2 } from "@/lib/storage/r2";
 
 export const runtime = "nodejs";
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function POST(request: Request) {
   const session = await requireSession();
   if (!session) {
@@ -18,21 +20,16 @@ export async function POST(request: Request) {
   }
 
   const record = body as Record<string, unknown>;
+  const flowId = typeof record.flowId === "string" ? record.flowId.trim() : "";
 
-  if (typeof record.session !== "string" || !record.session.trim()) {
-    return NextResponse.json({ error: "Missing session name." }, { status: 400 });
+  if (!UUID_RE.test(flowId)) {
+    return NextResponse.json({ error: "Missing or invalid flowId." }, { status: 400 });
   }
 
   const safePresenter = sanitizePresenter(session.email);
-  // session is dirName = `${presenter}_{safeId}` — extract safeId
-  const safeName = record.session.replace(/[^a-z0-9_\-]/gi, "_");
-  const safeId = safeName.startsWith(`${safePresenter}_`)
-    ? safeName.slice(safePresenter.length + 1)
-    : safeName;
-
-  const payload = { ...record, presenter: session.email };
+  const payload = { ...record, presenter: session.email, flowId };
   const jsonBuffer = Buffer.from(JSON.stringify(payload, null, 2), "utf-8");
-  const r2Key = `sessions/${safePresenter}/${safeId}/mouse.json`;
+  const r2Key = `sessions/${safePresenter}/${flowId}/mouse.json`;
 
   await uploadToR2(r2Key, jsonBuffer, "application/json");
 

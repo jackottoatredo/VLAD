@@ -1,11 +1,9 @@
 -- VLAD Supabase Schema
 -- Run this in the Supabase SQL editor to create all required tables.
 --
--- FRESH START: if migrating from the old name-based user system,
--- drop the old tables first:
---   DROP TABLE IF EXISTS vlad_renders CASCADE;
---   DROP TABLE IF EXISTS vlad_recordings CASCADE;
---   DROP TABLE IF EXISTS vlad_users CASCADE;
+-- Merchants come from the external `previews` scrape table (same Supabase
+-- project). `vlad_recordings.merchant_id` holds `previews.id` (uuid) as text
+-- with no foreign key, since `previews` is owned by a separate service.
 
 create table vlad_users (
   id          text primary key,        -- email address (e.g. jack.otto@redo.com)
@@ -14,25 +12,22 @@ create table vlad_users (
   created_at  timestamptz default now()
 );
 
-create table vlad_merchants (
-  id          text primary key,
-  name        text not null,
-  url         text not null,
-  created_at  timestamptz default now()
-);
-
 create table vlad_recordings (
   id                uuid primary key default gen_random_uuid(),
   user_id           text references vlad_users(id) not null,
   type              text not null check (type in ('product', 'merchant')),
+  name              text not null,
   product_name      text,
-  merchant_id       text references vlad_merchants(id),
-  mouse_events_url  text not null,
+  merchant_id       text,
+  mouse_events_url  text,
   webcam_url        text,
   preview_url       text,
+  webcam_settings   jsonb,
   metadata          jsonb not null default '{}',
-  status            text not null default 'saved' check (status in ('saved')),
-  created_at        timestamptz default now()
+  status            text not null default 'saved' check (status in ('draft', 'saved')),
+  created_at        timestamptz default now(),
+  updated_at        timestamptz not null default now(),
+  unique (user_id, name)
 );
 
 create table vlad_renders (
@@ -44,7 +39,6 @@ create table vlad_renders (
   status                  text not null default 'pending' check (status in ('pending', 'rendering', 'done', 'error')),
   progress                int default 0,
   seen                    boolean not null default false,
+  stale                   boolean not null default false,
   created_at              timestamptz default now()
 );
-
-

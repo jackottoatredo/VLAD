@@ -21,12 +21,15 @@ type Props = {
 export default function PostprocessStep({ navBack, navForward }: Props) {
   const { presenter } = useUser()
   const flow = useProductFlow()
-  const { product, webcamSettings, trimStartSec, trimEndSec, postprocessVideoUrl, postprocessJobId } = flow
+  const { product, webcamSettings, trimStartSec, trimEndSec, postprocessVideoUrl, postprocessJobId, flowId, origin } = flow
 
   const [videoUrl, setVideoUrl] = useState<string | null>(postprocessVideoUrl)
-  const initialLoading: LoadingStage[] | null = postprocessJobId && !postprocessVideoUrl
-    ? [{ label: 'Rendering', progress: 0 }, { label: 'Compositing', progress: 0 }]
-    : null
+  // Show the Rendering loader immediately on mount for any not-yet-resolved
+  // flow: a jobId we need to poll, a fresh flow whose background chain is
+  // about to produce a jobId, or a reopened draft that will auto-render.
+  const initialLoading: LoadingStage[] | null = postprocessVideoUrl
+    ? null
+    : [{ label: 'Rendering', progress: 0 }, { label: 'Compositing', progress: 0 }]
   const [loading, setLoading] = useState<LoadingStage[] | null>(initialLoading)
   const [error, setError] = useState<string | null>(null)
   const jobIdRef = useRef<string | null>(postprocessJobId)
@@ -77,22 +80,34 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [flow])
 
-  // Auto-render on mount if no cached video. If eager enqueue already seeded a jobId,
-  // skip firing a fresh /api/produce — the poller above will pick up jobIdRef from the
-  // initial render.
+  // Sync context.postprocessJobId → jobIdRef/loading so the polling effect
+  // picks it up when RecordStep's background chain enqueues the job AFTER
+  // this component has already mounted.
   useEffect(() => {
-    if (didAutoRender.current || postprocessVideoUrl || !presenter || !product) return
-    if (postprocessJobId) {
-      didAutoRender.current = true
-      return
-    }
+    if (!postprocessJobId || postprocessVideoUrl) return
+    if (jobIdRef.current === postprocessJobId) return
+    jobIdRef.current = postprocessJobId
+    setLoading([
+      { label: 'Rendering', progress: 0 },
+      { label: 'Compositing', progress: 0 },
+    ])
+  }, [postprocessJobId, postprocessVideoUrl])
+
+  // Auto-render only for reopened flows that arrive without a cached preview
+  // and no in-flight job. New-recording flows rely on RecordStep's background
+  // chain to enqueue the job; firing /api/produce here too would race the
+  // raw-session upload.
+  useEffect(() => {
+    if (didAutoRender.current || postprocessVideoUrl || !presenter || !product || !flowId) return
+    if (postprocessJobId) { didAutoRender.current = true; return }
+    if (origin !== 'reopened') return
     didAutoRender.current = true
     startRender()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [presenter, product, postprocessVideoUrl, postprocessJobId])
+  }, [presenter, product, postprocessVideoUrl, postprocessJobId, flowId, origin])
 
   async function startRender() {
-    if (!presenter || !product) return
+    if (!presenter || !product || !flowId) return
     setError(null)
     setVideoUrl(null)
     setLoading([
@@ -108,6 +123,7 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          flowId,
           presenter, product, url,
           webcamMode: webcamSettings.webcamMode,
           webcamVertical: webcamSettings.webcamVertical,

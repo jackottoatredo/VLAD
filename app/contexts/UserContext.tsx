@@ -11,15 +11,10 @@ import {
 } from "react";
 import { useSession } from "next-auth/react";
 
-export type Merchant = { id: string; name: string; url: string };
-
 type UserContextValue = {
   presenter: string;
   users: string[];
-  merchants: Merchant[];
-  addMerchant: (m: Merchant) => void;
   refreshUsers: () => Promise<void>;
-  refreshMerchants: () => Promise<void>;
 };
 
 const UserContext = createContext<UserContextValue | undefined>(undefined);
@@ -29,7 +24,6 @@ export function UserContextProvider({ children }: { children: ReactNode }) {
   const presenter = session?.user?.email ?? "";
 
   const [users, setUsers] = useState<string[]>([]);
-  const [merchants, setMerchants] = useState<Merchant[]>([]);
 
   const refreshUsers = useCallback(async () => {
     try {
@@ -41,40 +35,19 @@ export function UserContextProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const refreshMerchants = useCallback(async () => {
-    try {
-      const res = await fetch("/api/list-merchants");
-      const data = (await res.json()) as { merchants: Merchant[] };
-      setMerchants(data.merchants);
-    } catch {
-      /* keep existing */
-    }
-  }, []);
-
   useEffect(() => {
     if (presenter) {
       refreshUsers();
-      refreshMerchants();
     }
-  }, [presenter, refreshUsers, refreshMerchants]);
-
-  const addMerchant = useCallback((m: Merchant) => {
-    setMerchants((prev) => {
-      if (prev.some((x) => x.id === m.id)) return prev;
-      return [...prev, m].sort((a, b) => a.name.localeCompare(b.name));
-    });
-  }, []);
+  }, [presenter, refreshUsers]);
 
   const value = useMemo<UserContextValue>(
     () => ({
       presenter,
       users,
-      merchants,
-      addMerchant,
       refreshUsers,
-      refreshMerchants,
     }),
-    [presenter, users, merchants, addMerchant, refreshUsers, refreshMerchants],
+    [presenter, users, refreshUsers],
   );
 
   return <UserContext.Provider value={value}>{children}</UserContext.Provider>;

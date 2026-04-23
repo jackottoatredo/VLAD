@@ -2,6 +2,8 @@ import {
   S3Client,
   PutObjectCommand,
   GetObjectCommand,
+  DeleteObjectCommand,
+  DeleteObjectsCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -62,6 +64,34 @@ export async function downloadFromR2(key: string, destPath: string): Promise<voi
   }
 
   await writeFile(destPath, Buffer.concat(chunks));
+}
+
+/**
+ * Delete a single object from R2. Does not throw if the key does not exist.
+ */
+export async function deleteFromR2(key: string): Promise<void> {
+  try {
+    await r2Client.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
+  } catch {
+    /* swallow */
+  }
+}
+
+/**
+ * Delete multiple objects from R2 in a single request.
+ */
+export async function deleteManyFromR2(keys: string[]): Promise<void> {
+  if (keys.length === 0) return;
+  try {
+    await r2Client.send(
+      new DeleteObjectsCommand({
+        Bucket: BUCKET,
+        Delete: { Objects: keys.map((k) => ({ Key: k })) },
+      }),
+    );
+  } catch {
+    /* swallow */
+  }
 }
 
 /**

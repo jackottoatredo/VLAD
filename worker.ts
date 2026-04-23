@@ -90,6 +90,21 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceRe
       trimmedR2Key: result.trimmedR2Key,
     });
 
+    // If this produce was tied to a draft vlad_recordings row, backfill the
+    // preview so reopening the draft later shows it ready. No-op if the row
+    // doesn't exist (user never saved).
+    if (d.flowId && result.finalR2Key) {
+      try {
+        await supabase
+          .from("vlad_recordings")
+          .update({ preview_url: result.finalR2Key, updated_at: new Date().toISOString() })
+          .eq("id", d.flowId)
+          .eq("status", "draft");
+      } catch {
+        /* swallow — best-effort */
+      }
+    }
+
     return result;
   } finally {
     rm(warmStartDir, { recursive: true, force: true }).catch(() => {});

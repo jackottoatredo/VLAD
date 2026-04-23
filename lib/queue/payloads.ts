@@ -52,6 +52,13 @@ export type ProduceJobPayload = {
 
   // Preview quality tier (true → reduced DPR + FFmpeg downscale). Separate cache from full.
   preview: boolean;
+
+  /**
+   * Optional vlad_recordings.id the worker should backfill with `preview_url` on
+   * completion. Set when this job was enqueued for a flow that is (or becomes)
+   * a draft. No-op if the row doesn't exist.
+   */
+  flowId?: string | null;
 };
 
 /**

@@ -72,10 +72,10 @@ export default function Home() {
           <span>
             New here? Read the{' '}
             <Link
-              href="/tutorial"
+              href="/docs"
               className="underline underline-offset-2 hover:text-muted"
             >
-              Tutorial
+              Docs
             </Link>
           </span>
         </div>

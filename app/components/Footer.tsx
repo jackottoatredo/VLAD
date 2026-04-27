@@ -14,8 +14,8 @@ export default function Footer() {
         Report a bug
       </a>
       <span className={separatorClass}>|</span>
-      <Link href="/tutorial" className={linkClass}>
-        Tutorial
+      <Link href="/docs" className={linkClass}>
+        Docs
       </Link>
       <span className={separatorClass}>|</span>
       <a

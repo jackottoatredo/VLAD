@@ -9,8 +9,8 @@ import { useNavigationGuard } from "@/app/contexts/NavigationGuardContext";
 
 const links = [
   { href: "/", label: "Home" },
-  { href: "/product-flow", label: "Product Flow" },
-  { href: "/merchant-flow", label: "Merchant Flow" },
+  { href: "/product-flow", label: "Record a Product" },
+  { href: "/merchant-flow", label: "Record an Intro" },
   { href: "/merge-export", label: "Merge & Export" },
 ];
 
@@ -92,14 +92,14 @@ export default function HamburgerMenu() {
 
               <button
                 type="button"
-                onClick={() => { setOpen(false); tryNavigate("/tutorial"); }}
+                onClick={() => { setOpen(false); tryNavigate("/docs"); }}
                 className={`block w-full px-4 py-1.5 text-left text-xs transition-colors hover:bg-background ${
-                  pathname === "/tutorial"
+                  pathname === "/docs"
                     ? "font-medium text-foreground"
                     : "text-muted hover:text-foreground"
                 }`}
               >
-                Tutorial
+                Docs
               </button>
               <button
                 onClick={() => { setOpen(false); setBugOpen(true); }}

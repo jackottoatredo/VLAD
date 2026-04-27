@@ -6,6 +6,7 @@ import HamburgerMenu from "./components/HamburgerMenu";
 import AuthProvider from "./components/AuthProvider";
 import ThemeProvider from "./components/ThemeProvider";
 import ThemeToggle from "./components/ThemeToggle";
+import Footer from "./components/Footer";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -41,6 +42,7 @@ export default function RootLayout({
               <HamburgerMenu />
               <ThemeToggle />
               <UserContextProvider>{children}</UserContextProvider>
+              <Footer />
             </NavigationGuardProvider>
           </AuthProvider>
         </ThemeProvider>

@@ -4,7 +4,6 @@ import Link from 'next/link'
 import { useSession, signOut } from 'next-auth/react'
 import { emailToName } from '@/lib/nameUtils'
 import Markdown from '@/app/components/Markdown'
-import Infographic from '@/app/components/Infographic'
 import { home as homeInstructions } from '@/app/copy/instructions'
 
 export default function Home() {
@@ -44,11 +43,9 @@ export default function Home() {
           )}
         </div>
 
-        <Infographic className="mx-auto w-full max-w-md text-foreground" />
+        <Markdown className="!text-foreground">{homeInstructions}</Markdown>
 
-        <Markdown>{homeInstructions}</Markdown>
-
-        <div className="grid grid-cols-3 gap-4 pt-2">
+        <div className="grid grid-cols-3 gap-4 !mt-2">
           <Link
             href="/product-flow"
             className="flex flex-col gap-2 rounded-xl border border-border bg-background p-5 transition hover:border-muted hover:shadow-sm"
@@ -70,6 +67,17 @@ export default function Home() {
             <h3 className="font-medium text-foreground">Merge & Export</h3>
             <p className="text-xs text-muted">Join recordings into final rendered videos ready to share.</p>
           </Link>
+        </div>
+        <div className="flex justify-start !mt-1 -mb-5 text-xs text-foreground">
+          <span>
+            New here? Read the{' '}
+            <Link
+              href="/docs"
+              className="underline underline-offset-2 hover:text-muted"
+            >
+              Docs
+            </Link>
+          </span>
         </div>
       </main>
     </div>

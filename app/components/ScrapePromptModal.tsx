@@ -10,7 +10,7 @@ type Props = {
 
 export default function ScrapePromptModal({ onClose }: Props) {
   return (
-    <Modal title="Brand not scraped yet" onClose={onClose}>
+    <Modal title="Brand not scraped yet?" onClose={onClose}>
       <div className="flex flex-col gap-4">
         <ol className="list-decimal space-y-2 pl-5 text-sm text-foreground">
           <li>Open the scrape tool.</li>

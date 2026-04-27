@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Modal from './Modal'
 import ScrapePromptModal from './ScrapePromptModal'
+import { SCRAPE_STATUS_LABEL, type MerchantSearchRow, type ScrapeStatus } from '@/types/merchant'
 
 export type PickedMerchant = {
   id: string
@@ -10,21 +11,12 @@ export type PickedMerchant = {
   websiteUrl: string
 }
 
-type PreviewStatus = 'pending' | 'complete' | 'incomplete'
+type SearchRow = MerchantSearchRow
 
-type SearchRow = {
-  id: string
-  brandName: string
-  websiteUrl: string
-  activityAt: string
-  wasEdited: boolean
-  status: PreviewStatus
-}
-
-const STATUS_STYLES: Record<PreviewStatus, { label: string; className: string }> = {
-  pending: { label: 'Pending', className: 'bg-blue-500 text-white' },
-  complete: { label: 'Complete', className: 'bg-white text-slate-900' },
-  incomplete: { label: 'Incomplete', className: 'bg-orange-500 text-white' },
+const STATUS_PILL_CLASS: Record<ScrapeStatus, string> = {
+  pending: 'bg-blue-500 text-white',
+  complete: 'bg-white text-slate-900',
+  incomplete: 'bg-orange-500 text-white',
 }
 
 type Props = {
@@ -104,7 +96,7 @@ export default function MerchantPickerModal({ onSelect, onClose }: Props) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search by URL (e.g. nike.com)"
-            className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground placeholder:text-muted shadow-sm outline-none focus:border-muted"
+            className="flex-1 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-black px-3 py-1.5 text-sm text-slate-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500 shadow-inner outline-none focus:border-gray-400 dark:focus:border-gray-500"
           />
           <button
             onClick={() => setShowScrapePrompt(true)}
@@ -137,8 +129,8 @@ export default function MerchantPickerModal({ onSelect, onClose }: Props) {
                   <td className="px-3 py-2 text-muted">{r.websiteUrl}</td>
                   <td className="px-3 py-2 text-muted">{formatActivity(r.activityAt, r.wasEdited)}</td>
                   <td className="px-3 py-2">
-                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLES[r.status].className}`}>
-                      {STATUS_STYLES[r.status].label}
+                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_PILL_CLASS[r.status]}`}>
+                      {SCRAPE_STATUS_LABEL[r.status]}
                     </span>
                   </td>
                   <td className="w-8 px-2 py-2 text-right">

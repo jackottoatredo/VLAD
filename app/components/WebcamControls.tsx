@@ -1,5 +1,6 @@
 'use client'
 import { useState } from 'react'
+import Select from '@/app/components/Select'
 import type { WebcamSettings, WebcamMode, WebcamVertical, WebcamHorizontal } from '@/types/webcam'
 import { DEFAULT_WEBCAM_SETTINGS } from '@/types/webcam'
 
@@ -15,11 +16,15 @@ const MODES: { value: WebcamMode; label: string }[] = [
   { value: 'off', label: 'Off' },
 ]
 
-const VERTICALS: WebcamVertical[] = ['top', 'bottom']
-const HORIZONTALS: WebcamHorizontal[] = ['left', 'right']
+const VERTICAL_OPTIONS: { value: WebcamVertical; label: string }[] = [
+  { value: 'top', label: 'top' },
+  { value: 'bottom', label: 'bottom' },
+]
 
-const SELECT_CLASS =
-  'flex-1 rounded-md border border-border bg-surface px-2 py-1 text-xs text-foreground shadow-sm outline-none focus:border-muted disabled:opacity-50'
+const HORIZONTAL_OPTIONS: { value: WebcamHorizontal; label: string }[] = [
+  { value: 'left', label: 'left' },
+  { value: 'right', label: 'right' },
+]
 
 export default function WebcamControls({ settings, onChange, disabled }: Props) {
   const [useDefaults, setUseDefaults] = useState(true)
@@ -69,26 +74,22 @@ export default function WebcamControls({ settings, onChange, disabled }: Props) 
           </div>
 
           <div className="flex gap-2">
-            <select
+            <Select
+              size="sm"
+              className="flex-1"
+              options={VERTICAL_OPTIONS}
               value={settings.webcamVertical}
-              onChange={(e) => onChange({ ...settings, webcamVertical: e.target.value as WebcamVertical })}
+              onChange={(v) => onChange({ ...settings, webcamVertical: v as WebcamVertical })}
               disabled={disabled}
-              className={SELECT_CLASS}
-            >
-              {VERTICALS.map((v) => (
-                <option key={v} value={v}>{v}</option>
-              ))}
-            </select>
-            <select
+            />
+            <Select
+              size="sm"
+              className="flex-1"
+              options={HORIZONTAL_OPTIONS}
               value={settings.webcamHorizontal}
-              onChange={(e) => onChange({ ...settings, webcamHorizontal: e.target.value as WebcamHorizontal })}
+              onChange={(v) => onChange({ ...settings, webcamHorizontal: v as WebcamHorizontal })}
               disabled={disabled}
-              className={SELECT_CLASS}
-            >
-              {HORIZONTALS.map((h) => (
-                <option key={h} value={h}>{h}</option>
-              ))}
-            </select>
+            />
           </div>
         </>
       )}

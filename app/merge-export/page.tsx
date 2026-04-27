@@ -2,13 +2,12 @@
 
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useState } from 'react'
-import Modal from '@/app/components/Modal'
 import DeleteModal from '@/app/components/DeleteModal'
-import MultiSelect from '@/app/components/MultiSelect'
 import PreviewModal from '@/app/components/PreviewModal'
 import Markdown from '@/app/components/Markdown'
 import { mergeExport as mergeExportInstructions } from '@/app/copy/instructions'
 import { initialSteps, runMergeJob } from './pipeline'
+import GenerateMergeModal, { type MergeFormState } from './GenerateMergeModal'
 
 type Recording = {
   id: string
@@ -66,8 +65,6 @@ export default function MergeExportPage() {
   const [selectedMerchants, setSelectedMerchants] = useState<Set<string>>(new Set())
   const [selectedProduct, setSelectedProduct] = useState<string | null>(null)
   const [showGenerateModal, setShowGenerateModal] = useState(false)
-  const [modalMerchants, setModalMerchants] = useState<Set<string>>(new Set())
-  const [modalProduct, setModalProduct] = useState('')
   const [activeTasks, setActiveTasks] = useState<ActiveTask[]>([])
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string; kind: 'recording' | 'render' } | null>(null)
   const [previewTarget, setPreviewTarget] = useState<{ title: string; videoUrl?: string | null; renderId?: string; downloadName?: string; onEdit?: () => void; trimStartSec?: number; trimEndSec?: number } | null>(null)
@@ -192,15 +189,18 @@ export default function MergeExportPage() {
     }
   }
 
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    const prodId = modalProduct
-    for (const merchantId of modalMerchants) {
-      runTask(merchantId, prodId)
+  function handleGenerate(state: MergeFormState) {
+    // First-draft wiring: pipeline does not yet consume the new settings, so
+    // they are logged for review only. The validation in GenerateMergeModal
+    // already blocks submission unless both intro and product are enabled.
+    console.log('[merge-export] form state:', state)
+    if (state.intro.enabled && state.product.enabled) {
+      const prodId = state.product.productRecordingId
+      for (const merchantId of state.intro.merchantRecordingIds) {
+        runTask(merchantId, prodId)
+      }
     }
     setShowGenerateModal(false)
-    setModalMerchants(new Set())
-    setModalProduct('')
   }
 
   return (
@@ -501,41 +501,12 @@ export default function MergeExportPage() {
       )}
 
       {showGenerateModal && (
-        <Modal title="Generate New Video" onClose={() => { setShowGenerateModal(false); setModalMerchants(new Set()); setModalProduct(''); }}>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-muted">Merchant Intros</label>
-              <MultiSelect
-                options={merchants.map((r) => ({ value: r.id, label: r.name ?? r.id.slice(0, 8) }))}
-                selected={modalMerchants}
-                onChange={setModalMerchants}
-                placeholder="Select merchant intros"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-muted">Product Recording</label>
-              <select
-                value={modalProduct}
-                onChange={(e) => setModalProduct(e.target.value)}
-                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-muted"
-              >
-                <option value="">Select a product recording</option>
-                {products.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.name ?? r.id.slice(0, 8)}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <button
-              type="submit"
-              disabled={modalMerchants.size === 0 || !modalProduct}
-              className="w-full rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background transition-colors hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Start {modalMerchants.size || 0} rendering task{modalMerchants.size === 1 ? '' : 's'}
-            </button>
-          </form>
-        </Modal>
+        <GenerateMergeModal
+          merchants={merchants.map((r) => ({ id: r.id, label: r.name ?? r.id.slice(0, 8) }))}
+          products={products.map((r) => ({ id: r.id, label: r.name ?? r.id.slice(0, 8) }))}
+          onClose={() => setShowGenerateModal(false)}
+          onSubmit={handleGenerate}
+        />
       )}
     </div>
   )

@@ -29,7 +29,7 @@ function LoginCard() {
           Welcome to VLAD
         </h1>
         <p className="text-sm text-muted">
-          Login to VLAD with your{' '}
+          Login with your{' '}
           <span className="font-medium text-foreground">@redo.com</span> email
         </p>
       </div>

@@ -12,6 +12,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { TARGET_URL, MERCHANT_TARGET_URL } from "@/app/config";
 import { type WebcamSettings, DEFAULT_WEBCAM_SETTINGS } from "@/types/webcam";
+import { emailToName } from "@/lib/nameUtils";
+import { buildBaseSlug } from "@/lib/share/slug";
 
 export const runtime = "nodejs";
 
@@ -56,7 +58,7 @@ export async function POST(request: Request) {
   }
 
   const merchant = merchantRes.data as {
-    id: string; merchant_id: string | null; mouse_events_url: string;
+    id: string; name: string; merchant_id: string | null; mouse_events_url: string;
     webcam_url: string | null; metadata: Record<string, unknown>;
   };
 
@@ -78,13 +80,16 @@ export async function POST(request: Request) {
   }
 
   const product = productRes.data as {
-    id: string; product_name: string | null; mouse_events_url: string;
+    id: string; name: string; product_name: string | null; mouse_events_url: string;
     webcam_url: string | null; metadata: Record<string, unknown>;
   };
 
   const userId = session.email;
   const jobId = randomUUID().slice(0, 8);
   const outputSessionName = `merge_${jobId}`;
+
+  const { firstName, lastName } = emailToName(session.email);
+  const presenterSlug = buildBaseSlug([firstName, lastName]);
 
   // Download recordings from R2 to compute keyframes for the payload
   const workDir = path.join(tmpdir(), `vlad-merge-prep-${jobId}`);
@@ -155,6 +160,9 @@ export async function POST(request: Request) {
       productRecordingId: product.id,
       merchantId: merchant.merchant_id,
       productName: product.product_name,
+      merchantRecordingName: merchant.name,
+      productRecordingName: product.name,
+      presenterSlug,
       merchant: merchantPayload,
       product: productPayload,
       settings: { ...DEFAULT_MERGE_JOB_SETTINGS },
@@ -193,7 +201,7 @@ export async function GET(request: Request) {
 
   if (state === "completed") {
     const raw = job.returnvalue;
-    const result = (typeof raw === "string" ? JSON.parse(raw) : raw) as { videoUrl: string; renderId: string | undefined };
+    const result = (typeof raw === "string" ? JSON.parse(raw) : raw) as { videoUrl: string; renderId: string };
     const presignedUrl = await getPresignedUrl(result.videoUrl);
     return NextResponse.json({
       status: "done",

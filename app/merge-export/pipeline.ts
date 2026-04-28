@@ -170,9 +170,11 @@ export async function runProductOnlyJob(
 
         const status = (job as { status?: string }).status
         if (status === 'done') {
-          const renderId = (job as { renderId?: string }).renderId
+          // Worker contract: a 'done' produce job always carries a renderId
+          // when mergeRenderInsert was set. BullMQ would have marked the job
+          // failed otherwise, taking us into the 'error' branch below.
+          const renderId = (job as { renderId: string }).renderId
           const videoR2Key = (job as { videoR2Key?: string }).videoR2Key ?? ''
-          if (!renderId) return reject(new Error('Worker did not return a render id.'))
           return resolve({ renderId, videoR2Key })
         }
         if (status === 'error') {

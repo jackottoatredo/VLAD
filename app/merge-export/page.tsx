@@ -26,6 +26,9 @@ type Render = {
   id: string
   brand: string | null
   video_url: string | null
+  slug: string | null
+  poster_key: string | null
+  gif_key: string | null
   status: 'pending' | 'rendering' | 'done' | 'error'
   progress: number
   seen: boolean
@@ -72,7 +75,7 @@ export default function MergeExportPage() {
   const [showGenerateModal, setShowGenerateModal] = useState(false)
   const [activeTasks, setActiveTasks] = useState<ActiveTask[]>([])
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string; kind: 'recording' | 'render' } | null>(null)
-  const [previewTarget, setPreviewTarget] = useState<{ title: string; videoUrl?: string | null; renderId?: string; downloadName?: string; onEdit?: () => void; trimStartSec?: number; trimEndSec?: number } | null>(null)
+  const [previewTarget, setPreviewTarget] = useState<{ title: string; videoUrl?: string | null; renderId?: string; downloadName?: string; onEdit?: () => void; trimStartSec?: number; trimEndSec?: number; slug?: string | null } | null>(null)
 
   async function handleDelete() {
     if (!deleteTarget) return
@@ -420,7 +423,8 @@ export default function MergeExportPage() {
 
                       function openActivePreview() {
                         if (isNew) markSeen(task.renderId!)
-                        setPreviewTarget({ title: `Export: ${task.brand}`, videoUrl: renders.find((r) => r.id === task.renderId)?.video_url, renderId: task.renderId, downloadName: task.brand })
+                        const dbRow = renders.find((r) => r.id === task.renderId)
+                        setPreviewTarget({ title: `Export: ${task.brand}`, videoUrl: dbRow?.video_url, renderId: task.renderId, downloadName: task.brand, slug: dbRow?.slug })
                       }
 
                       return (
@@ -491,7 +495,7 @@ export default function MergeExportPage() {
 
                     function openDbPreview() {
                       if (isNew) markSeen(r.id)
-                      setPreviewTarget({ title: `Export: ${label}`, videoUrl: r.video_url, renderId: r.id, downloadName: label })
+                      setPreviewTarget({ title: `Export: ${label}`, videoUrl: r.video_url, renderId: r.id, downloadName: label, slug: r.slug })
                     }
 
                     return (
@@ -537,6 +541,7 @@ export default function MergeExportPage() {
           downloadName={previewTarget.downloadName}
           trimStartSec={previewTarget.trimStartSec}
           trimEndSec={previewTarget.trimEndSec}
+          slug={previewTarget.slug}
           onClose={() => setPreviewTarget(null)}
           onEdit={previewTarget.onEdit}
           onDelete={previewTarget.renderId ? () => {

@@ -1,13 +1,18 @@
 "use client";
 
 import { useTheme } from "next-themes";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
 export default function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
+  const pathname = usePathname();
 
   useEffect(() => setMounted(true), []);
+
+  // Public share pages render in their own theme — suppress the toggle.
+  if (pathname?.startsWith("/v/")) return null;
 
   const isDark = mounted && resolvedTheme === "dark";
 

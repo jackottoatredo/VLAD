@@ -10,7 +10,7 @@ import { createReplayAction } from "@/lib/render/actions";
 import { produceSessionVideo, type ProduceResult } from "@/lib/render/produce";
 import { mergeVideoFiles } from "@/lib/render/merge";
 import { downloadRecording } from "@/lib/render/download";
-import { extractPosterFrame5 } from "@/lib/render/poster";
+import { extractPoster } from "@/lib/render/poster";
 import { extractSquarePoster } from "@/lib/render/posterSquare";
 import { extractPreviewGif } from "@/lib/render/gif";
 import { uploadToR2, downloadFromR2 } from "@/lib/storage/r2";
@@ -29,6 +29,7 @@ async function generateAndUploadShareAssets(
   finalVideoPath: string,
   videoR2Key: string,
   workDir: string,
+  noWebcamRenderR2Key: string,
 ): Promise<{ posterKey: string; posterSquareKey: string; gifKey: string }> {
   const dirOnR2 = path.posix.dirname(videoR2Key);
   const posterKey = `${dirOnR2}/poster.jpg`;
@@ -38,9 +39,14 @@ async function generateAndUploadShareAssets(
   const posterLocal = path.join(workDir, "poster.jpg");
   const posterSquareLocal = path.join(workDir, "poster_square.jpg");
   const gifLocal = path.join(workDir, "preview.gif");
+  // The no-webcam render is the source for the og:image so the square card
+  // shows the screen content, not a portrait of the presenter.
+  const noWebcamLocal = path.join(workDir, "render-no-webcam.mp4");
 
-  await extractPosterFrame5(finalVideoPath, posterLocal);
-  await extractSquarePoster(finalVideoPath, posterSquareLocal);
+  await downloadFromR2(noWebcamRenderR2Key, noWebcamLocal);
+
+  await extractPoster(finalVideoPath, posterLocal);
+  await extractSquarePoster(noWebcamLocal, posterSquareLocal);
   await extractPreviewGif(finalVideoPath, gifLocal);
 
   const [posterBuf, posterSquareBuf, gifBuf] = await Promise.all([
@@ -189,6 +195,7 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceJo
         result.finalPath,
         result.finalR2Key,
         path.dirname(result.finalPath),
+        result.renderR2Key,
       );
       const baseSlug = buildBaseSlug([
         d.mergeRenderInsert.presenterSlug,
@@ -359,11 +366,13 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
     await uploadToR2(r2Key, fileBuffer, "video/mp4");
 
     // Generate poster + preview gif from the merged file and upload sibling
-    // to the mp4. Slug is derived from presenter + recording names.
+    // to the mp4. og:image uses the merchant render (no webcam) so the
+    // square preview card shows the screen, not the presenter's face.
     const { posterKey, posterSquareKey, gifKey } = await generateAndUploadShareAssets(
       mergedPath,
       r2Key,
       mergeOutputDir,
+      merchantResult.renderR2Key,
     );
     const baseSlug = buildBaseSlug([
       d.presenterSlug,

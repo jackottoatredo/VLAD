@@ -65,7 +65,7 @@ export default function MediaPlayer({
           {emptyAction && (
             <button
               onClick={emptyAction.onClick}
-              className="rounded-md bg-foreground px-4 py-1.5 text-sm font-medium text-background shadow-sm hover:opacity-80"
+              className="rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-white shadow-sm hover:opacity-80"
             >
               {emptyAction.label}
             </button>

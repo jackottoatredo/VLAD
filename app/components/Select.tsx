@@ -126,7 +126,7 @@ export default function Select({
                     o.disabled
                       ? 'cursor-not-allowed text-muted opacity-50'
                       : active
-                        ? 'bg-background text-foreground'
+                        ? 'bg-accent-soft text-foreground'
                         : 'text-muted hover:bg-background hover:text-foreground'
                   }`}
                 >

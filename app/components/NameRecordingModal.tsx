@@ -109,7 +109,7 @@ export default function NameRecordingModal({
         <button
           onClick={handleSubmit}
           disabled={!trimmedSuffix || existsWarning || busy}
-          className="rounded-md bg-foreground px-4 py-1.5 text-sm font-medium text-background hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed"
+          className="rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-white hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {busy ? 'Saving…' : submitLabel}
         </button>

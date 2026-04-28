@@ -293,7 +293,7 @@ export default function PreviewStep({ navBack, navForward }: Props) {
           <button
             onClick={handlePlayAll}
             disabled={!allDone}
-            className="w-full rounded-md bg-foreground px-4 py-1.5 text-sm font-medium text-background shadow-sm hover:opacity-80 disabled:opacity-50"
+            className="w-full rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-white shadow-sm hover:opacity-80 disabled:opacity-50"
           >
             Play All
           </button>

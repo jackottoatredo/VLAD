@@ -64,7 +64,7 @@ export default function WebcamControls({ settings, onChange, disabled }: Props) 
                 disabled={disabled}
                 className={`flex-1 px-2 py-1 text-xs font-medium transition-colors disabled:opacity-50 ${
                   settings.webcamMode === opt.value
-                    ? 'bg-foreground text-background'
+                    ? 'bg-accent text-white'
                     : 'bg-surface text-muted hover:bg-background'
                 }`}
               >

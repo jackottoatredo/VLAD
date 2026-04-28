@@ -106,7 +106,7 @@ export default function MultiSelect({ options, selected, onChange, placeholder =
               >
                 <span className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border ${
                   selected.has(o.value)
-                    ? 'border-foreground bg-foreground text-background'
+                    ? 'border-accent bg-accent text-white'
                     : 'border-border'
                 }`}>
                   {selected.has(o.value) && <span className="text-[10px] leading-none">✓</span>}

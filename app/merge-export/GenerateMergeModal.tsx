@@ -636,7 +636,7 @@ export default function GenerateMergeModal({ merchants, products, onClose, onSub
         <button
           type="submit"
           disabled={!!blockingMessage}
-          className="w-full rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background transition-colors hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
+          className="w-full rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
         >
           Start {submitCount} rendering task{submitCount === 1 ? '' : 's'}
         </button>
@@ -646,9 +646,9 @@ export default function GenerateMergeModal({ merchants, products, onClose, onSub
 }
 
 const PRESET_OPTIONS: { key: PresetKey; title: string; subtitle: string }[] = [
-  { key: 'p1', title: 'Intro + Product', subtitle: 'Video intro, audio product, shared position' },
-  { key: 'p2', title: 'Product Only', subtitle: 'Use recording webcam settings' },
-  { key: 'custom', title: 'Custom', subtitle: 'Set every field by hand' },
+  { key: 'p1', title: 'Intro + Product', subtitle: 'Join intro with product recording, webcam transitions from on to audio only.' },
+  { key: 'p2', title: 'Product Only', subtitle: 'No custom intro, only product recording, webcam on the whole time.' },
+  { key: 'custom', title: 'Custom', subtitle: 'Full control over composition and settings' },
 ]
 
 function PresetPicker({ onPick }: { onPick: (k: PresetKey) => void }) {
@@ -659,7 +659,7 @@ function PresetPicker({ onPick }: { onPick: (k: PresetKey) => void }) {
           key={p.key}
           type="button"
           onClick={() => onPick(p.key)}
-          className="flex flex-col items-start gap-1 rounded-lg border border-border bg-background p-3 text-left transition-colors hover:border-foreground"
+          className="flex flex-col items-start gap-1 rounded-lg border border-border bg-background p-3 text-left transition-colors hover:border-accent"
         >
           <p className="text-sm font-semibold text-foreground">{p.title}</p>
           <p className="text-xs leading-tight text-muted">{p.subtitle}</p>

@@ -87,7 +87,7 @@ export default function BugReportModal({ onClose }: Props) {
             <button
               onClick={handleSubmit}
               disabled={!canSubmit}
-              className="rounded-lg bg-foreground px-3 py-1.5 text-sm text-background transition-opacity hover:opacity-90 disabled:opacity-40"
+              className="rounded-lg bg-accent px-3 py-1.5 text-sm text-white transition-opacity hover:opacity-90 disabled:opacity-40"
             >
               {submitting ? "Submitting…" : "Submit"}
             </button>

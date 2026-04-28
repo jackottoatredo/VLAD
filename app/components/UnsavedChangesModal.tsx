@@ -26,7 +26,7 @@ export default function UnsavedChangesModal({
         <button
           onClick={onSaveDraft}
           disabled={busy}
-          className="rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background shadow-sm hover:opacity-80 disabled:opacity-40"
+          className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white shadow-sm hover:opacity-80 disabled:opacity-40"
         >
           Save as Draft
         </button>

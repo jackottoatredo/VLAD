@@ -116,7 +116,7 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
               className={`w-full rounded-md px-4 py-1.5 text-sm font-medium shadow-sm disabled:opacity-40 disabled:cursor-not-allowed ${
                 recording.isRecording
                   ? 'bg-red-600 text-white hover:bg-red-700'
-                  : 'bg-foreground text-background hover:opacity-80'
+                  : 'bg-accent text-white hover:opacity-80'
               }`}
             >
               {isCountingDown ? 'Starting…' : recording.isRecording ? 'Stop Recording' : 'Start Recording'}

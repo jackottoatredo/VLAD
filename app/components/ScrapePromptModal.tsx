@@ -22,7 +22,7 @@ export default function ScrapePromptModal({ onClose }: Props) {
           href={SCRAPE_TOOL_URL}
           target="_blank"
           rel="noreferrer"
-          className="w-full rounded-md bg-foreground px-4 py-1.5 text-center text-sm font-medium text-background hover:opacity-80"
+          className="w-full rounded-md bg-accent px-4 py-1.5 text-center text-sm font-medium text-white hover:opacity-80"
         >
           Open scrape tool
         </a>

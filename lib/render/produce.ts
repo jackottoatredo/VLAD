@@ -53,6 +53,8 @@ export type ProduceResult = {
   compositeR2Key: string;
   trimmedR2Key: string | null;
   finalR2Key: string;
+  /** Local path of the final video on disk — caller is responsible for cleanup. */
+  finalPath: string;
 };
 
 async function trimVideoFile(
@@ -182,6 +184,7 @@ export async function produceSessionVideo(options: ProduceOptions): Promise<Prod
   );
 
   const finalR2Key = trimResult?.trimmedR2Key ?? compositeR2Key;
+  const finalPath = trimResult?.trimmedPath ?? compositeOutputPath;
 
   return {
     renderR2Key,
@@ -189,5 +192,6 @@ export async function produceSessionVideo(options: ProduceOptions): Promise<Prod
     compositeR2Key,
     trimmedR2Key: trimResult?.trimmedR2Key ?? null,
     finalR2Key,
+    finalPath,
   };
 }

@@ -37,11 +37,17 @@ export async function uploadToR2(
 
 export async function getPresignedUrl(
   key: string,
-  expiresIn = 3600
+  expiresIn = 3600,
+  options?: { contentType?: string; contentDisposition?: string },
 ): Promise<string> {
   return getSignedUrl(
     r2Client,
-    new GetObjectCommand({ Bucket: BUCKET, Key: key }),
+    new GetObjectCommand({
+      Bucket: BUCKET,
+      Key: key,
+      ResponseContentType: options?.contentType,
+      ResponseContentDisposition: options?.contentDisposition,
+    }),
     { expiresIn }
   );
 }

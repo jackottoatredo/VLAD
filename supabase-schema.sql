@@ -37,9 +37,16 @@ create table vlad_renders (
   merchant_recording_id   uuid references vlad_recordings(id) on delete set null,
   brand                   text,
   video_url               text,
+  slug                    text,
+  poster_key              text,
+  gif_key                 text,
   status                  text not null default 'pending' check (status in ('pending', 'rendering', 'done', 'error')),
   progress                int default 0,
   seen                    boolean not null default false,
   stale                   boolean not null default false,
   created_at              timestamptz default now()
 );
+
+create unique index vlad_renders_slug_unique
+  on vlad_renders (slug)
+  where slug is not null;

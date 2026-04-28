@@ -22,6 +22,9 @@ export default function HamburgerMenu() {
   const { data: session } = useSession();
   const { tryNavigate } = useNavigationGuard();
 
+  // Public share pages are for external recipients; suppress internal nav.
+  if (pathname?.startsWith("/v/")) return null;
+
   return (
     <>
       <div className="fixed top-4 left-4 z-50 flex items-center gap-2">

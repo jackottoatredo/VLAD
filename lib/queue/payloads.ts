@@ -70,6 +70,10 @@ export type ProduceJobPayload = {
     productRecordingId: string;
     /** Display label stored on vlad_renders.brand (typically merchant brandName). */
     brand: string | null;
+    /** Recording.name of the product, used to build the share slug. */
+    productRecordingName: string;
+    /** Slugified presenter component (e.g. "jack-otto"), used as a slug prefix. */
+    presenterSlug: string;
   } | null;
 };
 
@@ -128,6 +132,11 @@ export type MergeJobPayload = {
   productRecordingId: string;
   merchantId: string | null;
   productName: string | null;
+
+  // Display names + presenter, used to build the share slug at insert time.
+  merchantRecordingName: string;
+  productRecordingName: string;
+  presenterSlug: string;
 
   merchant: MergeRecordingPayload;
   product: MergeRecordingPayload;

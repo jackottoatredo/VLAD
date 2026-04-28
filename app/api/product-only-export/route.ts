@@ -9,6 +9,8 @@ import type { ProduceJobPayload } from "@/lib/queue/payloads";
 import { downloadBufferFromR2 } from "@/lib/storage/r2";
 import { findCachedRender } from "@/lib/cache/render-cache";
 import { supabase } from "@/lib/db/supabase";
+import { emailToName } from "@/lib/nameUtils";
+import { buildBaseSlug } from "@/lib/share/slug";
 
 export const runtime = "nodejs";
 
@@ -155,6 +157,9 @@ export async function POST(request: Request) {
     ? `${merchant.brandName}-${product.name}`
     : merchant.brandName;
 
+  const { firstName, lastName } = emailToName(session.email);
+  const presenterSlug = buildBaseSlug([firstName, lastName]);
+
   // Cache lookup — if we've already rendered this exact (product, brand, webcam, trim)
   // we can skip the render entirely and just create a vlad_renders row pointing at it.
   const cached = await findCachedRender(userId, productRecordingId, urlHash, mouseHash, wcFP, tKey, "full");
@@ -216,6 +221,8 @@ export async function POST(request: Request) {
       mergeRenderInsert: {
         productRecordingId,
         brand: renderLabel,
+        productRecordingName: product.name,
+        presenterSlug,
       },
     } satisfies ProduceJobPayload,
     {

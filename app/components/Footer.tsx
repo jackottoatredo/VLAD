@@ -1,6 +1,7 @@
 "use client";
 
 import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import { useState } from 'react'
 import BugReportModal from './BugReportModal'
 import FeatureRequestModal from './FeatureRequestModal'
@@ -8,6 +9,10 @@ import FeatureRequestModal from './FeatureRequestModal'
 export default function Footer() {
   const [bugOpen, setBugOpen] = useState(false)
   const [featureOpen, setFeatureOpen] = useState(false)
+  const pathname = usePathname()
+
+  // Public share pages are for external recipients; suppress internal links.
+  if (pathname?.startsWith('/v/')) return null
 
   const linkClass = 'text-muted hover:text-foreground transition-colors'
   const separatorClass = 'text-border'

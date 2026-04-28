@@ -10,10 +10,73 @@ import { createReplayAction } from "@/lib/render/actions";
 import { produceSessionVideo, type ProduceResult } from "@/lib/render/produce";
 import { mergeVideoFiles } from "@/lib/render/merge";
 import { downloadRecording } from "@/lib/render/download";
+import { extractPosterFrame5 } from "@/lib/render/poster";
+import { extractPreviewGif } from "@/lib/render/gif";
 import { uploadToR2, downloadFromR2 } from "@/lib/storage/r2";
 import { supabase } from "@/lib/db/supabase";
 import { updateRenderCache } from "@/lib/cache/render-cache";
+import { buildBaseSlug, reserveUniqueSlug } from "@/lib/share/slug";
 import { VIDEO_WIDTH, VIDEO_HEIGHT, RENDER_ZOOM, DEFAULT_FPS } from "@/app/config";
+
+// ---------------------------------------------------------------------------
+// Share-asset generation: poster + preview GIF, sibling to the final video.
+// Uploads both to R2 and returns the R2 keys. Called by both merge and
+// produce-only flows once the final video is on disk.
+// ---------------------------------------------------------------------------
+
+async function generateAndUploadShareAssets(
+  finalVideoPath: string,
+  videoR2Key: string,
+  workDir: string,
+): Promise<{ posterKey: string; gifKey: string }> {
+  const dirOnR2 = path.posix.dirname(videoR2Key);
+  const posterKey = `${dirOnR2}/poster.jpg`;
+  const gifKey = `${dirOnR2}/preview.gif`;
+
+  const posterLocal = path.join(workDir, "poster.jpg");
+  const gifLocal = path.join(workDir, "preview.gif");
+
+  await extractPosterFrame5(finalVideoPath, posterLocal);
+  await extractPreviewGif(finalVideoPath, gifLocal);
+
+  const [posterBuf, gifBuf] = await Promise.all([
+    readFile(posterLocal),
+    readFile(gifLocal),
+  ]);
+
+  await Promise.all([
+    uploadToR2(posterKey, posterBuf, "image/jpeg"),
+    uploadToR2(gifKey, gifBuf, "image/gif"),
+  ]);
+
+  return { posterKey, gifKey };
+}
+
+// Insert a vlad_renders row with a unique slug. Retries on 23505 (slug race)
+// up to 3 times by re-reserving the next available suffix.
+async function insertRenderWithSlug(
+  baseSlug: string,
+  row: Omit<Record<string, unknown>, "slug"> & {
+    user_id: string;
+    video_url: string;
+    poster_key: string;
+    gif_key: string;
+  },
+): Promise<{ renderId: string; slug: string }> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const slug = await reserveUniqueSlug(baseSlug);
+    const { data, error } = await supabase
+      .from("vlad_renders")
+      .insert({ ...row, slug })
+      .select("id")
+      .single();
+    if (!error && data) return { renderId: data.id, slug };
+    if (error?.code !== "23505") {
+      throw new Error(`vlad_renders insert failed: ${error?.message ?? "no row returned"}`);
+    }
+  }
+  throw new Error(`vlad_renders insert failed: slug retries exhausted for base "${baseSlug}"`);
+}
 
 // ---------------------------------------------------------------------------
 // Produce job processor
@@ -107,31 +170,36 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceJo
       }
     }
 
-    // Product-only merge-export path: insert a vlad_renders row tying this
-    // branded render back to its product recording. merchant_recording_id stays
-    // null since there's no intro recording in this flow. A failed insert
-    // throws so BullMQ marks the job failed and the UI gets a real error
-    // rather than a silent "completed" with no DB row.
+    // Product-only merge-export path: generate share assets and insert a
+    // vlad_renders row tying this branded render back to its product
+    // recording. merchant_recording_id stays null since there's no intro
+    // recording in this flow. A failed insert throws so BullMQ marks the job
+    // failed and the UI gets a real error rather than a silent "completed"
+    // with no DB row.
     let renderId: string | undefined;
-    if (d.mergeRenderInsert && result.finalR2Key) {
-      const { data: renderRow, error } = await supabase
-        .from("vlad_renders")
-        .insert({
-          user_id: d.userId,
-          product_recording_id: d.mergeRenderInsert.productRecordingId,
-          merchant_recording_id: null,
-          brand: d.mergeRenderInsert.brand,
-          video_url: result.finalR2Key,
-          status: "done",
-          progress: 100,
-          seen: false,
-        })
-        .select("id")
-        .single();
-      if (error || !renderRow) {
-        throw new Error(`vlad_renders insert failed: ${error?.message ?? "no row returned"}`);
-      }
-      renderId = renderRow.id;
+    if (d.mergeRenderInsert && result.finalR2Key && result.finalPath) {
+      const { posterKey, gifKey } = await generateAndUploadShareAssets(
+        result.finalPath,
+        result.finalR2Key,
+        path.dirname(result.finalPath),
+      );
+      const baseSlug = buildBaseSlug([
+        d.mergeRenderInsert.presenterSlug,
+        d.mergeRenderInsert.productRecordingName,
+      ]);
+      const inserted = await insertRenderWithSlug(baseSlug, {
+        user_id: d.userId,
+        product_recording_id: d.mergeRenderInsert.productRecordingId,
+        merchant_recording_id: null,
+        brand: d.mergeRenderInsert.brand,
+        video_url: result.finalR2Key,
+        poster_key: posterKey,
+        gif_key: gifKey,
+        status: "done",
+        progress: 100,
+        seen: false,
+      });
+      renderId = inserted.renderId;
     }
 
     return { ...result, renderId };
@@ -282,27 +350,35 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
     const fileBuffer = await readFile(mergedPath);
     await uploadToR2(r2Key, fileBuffer, "video/mp4");
 
-    // Save to DB. A failed insert throws so BullMQ marks the job failed and
-    // the UI gets a real error rather than a silent "complete" with no DB row.
-    const { data: renderRow, error: insertError } = await supabase
-      .from("vlad_renders")
-      .insert({
-        user_id: userId,
-        merchant_recording_id: d.merchantRecordingId,
-        product_recording_id: d.productRecordingId,
-        brand: d.brand,
-        video_url: r2Key,
-        status: "done",
-        progress: 100,
-        seen: false,
-      })
-      .select("id")
-      .single();
-    if (insertError || !renderRow) {
-      throw new Error(`vlad_renders insert failed: ${insertError?.message ?? "no row returned"}`);
-    }
+    // Generate poster + preview gif from the merged file and upload sibling
+    // to the mp4. Slug is derived from presenter + recording names.
+    const { posterKey, gifKey } = await generateAndUploadShareAssets(
+      mergedPath,
+      r2Key,
+      mergeOutputDir,
+    );
+    const baseSlug = buildBaseSlug([
+      d.presenterSlug,
+      d.merchantRecordingName,
+      d.productRecordingName,
+    ]);
 
-    return { videoUrl: r2Key, renderId: renderRow.id };
+    // A failed insert throws so BullMQ marks the job failed and the UI gets
+    // a real error rather than a silent "complete" with no DB row.
+    const { renderId } = await insertRenderWithSlug(baseSlug, {
+      user_id: userId,
+      merchant_recording_id: d.merchantRecordingId,
+      product_recording_id: d.productRecordingId,
+      brand: d.brand,
+      video_url: r2Key,
+      poster_key: posterKey,
+      gif_key: gifKey,
+      status: "done",
+      progress: 100,
+      seen: false,
+    });
+
+    return { videoUrl: r2Key, renderId };
   } finally {
     rm(workDir, { recursive: true, force: true }).catch(() => {});
   }

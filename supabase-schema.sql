@@ -39,6 +39,7 @@ create table vlad_renders (
   video_url               text,
   slug                    text,
   poster_key              text,
+  poster_square_key       text,
   gif_key                 text,
   status                  text not null default 'pending' check (status in ('pending', 'rendering', 'done', 'error')),
   progress                int default 0,

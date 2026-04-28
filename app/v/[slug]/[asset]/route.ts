@@ -33,6 +33,15 @@ function resolveAsset(asset: string, row: ShareRow): Resolved | null {
         contentDisposition: `attachment; filename="${safe}.mp4"`,
       };
     }
+    case "download-gif": {
+      if (!row.gif_key) return null;
+      const safe = (row.brand ?? "demo").replace(/[^a-z0-9_\-]/gi, "-").replace(/-+/g, "-");
+      return {
+        key: row.gif_key,
+        contentType: "image/gif",
+        contentDisposition: `attachment; filename="${safe}.gif"`,
+      };
+    }
     default:
       return null;
   }

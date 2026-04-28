@@ -19,7 +19,9 @@ import { VIDEO_WIDTH, VIDEO_HEIGHT, RENDER_ZOOM, DEFAULT_FPS } from "@/app/confi
 // Produce job processor
 // ---------------------------------------------------------------------------
 
-async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceResult> {
+type ProduceJobResult = ProduceResult & { renderId?: string };
+
+async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceJobResult> {
   const d = job.data;
 
   const replayAction = createReplayAction(d.keyframes, d.durationMs);
@@ -105,7 +107,31 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceRe
       }
     }
 
-    return result;
+    // Product-only merge-export path: insert a vlad_renders row tying this
+    // branded render back to its product recording. merchant_recording_id stays
+    // null since there's no intro recording in this flow.
+    let renderId: string | undefined;
+    if (d.mergeRenderInsert && result.finalR2Key) {
+      const { data: renderRow, error } = await supabase
+        .from("vlad_renders")
+        .insert({
+          product_recording_id: d.mergeRenderInsert.productRecordingId,
+          merchant_recording_id: null,
+          brand: d.mergeRenderInsert.brand,
+          video_url: result.finalR2Key,
+          status: "done",
+          progress: 100,
+          seen: false,
+        })
+        .select("id")
+        .single();
+      if (error) {
+        console.error(`[worker] vlad_renders insert failed for product-only job ${job.id}:`, error.message);
+      }
+      renderId = renderRow?.id;
+    }
+
+    return { ...result, renderId };
   } finally {
     rm(warmStartDir, { recursive: true, force: true }).catch(() => {});
   }

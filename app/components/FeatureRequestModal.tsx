@@ -61,7 +61,7 @@ export default function FeatureRequestModal({ onClose }: Props) {
           onChange={(e) => setText(e.target.value)}
           placeholder="Describe the feature you'd like…"
           rows={6}
-          className="block w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-foreground/20"
+          className="block w-full resize-y rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-black px-3 py-2 text-sm text-slate-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500 shadow-inner outline-none focus:border-gray-400 dark:focus:border-gray-500"
         />
 
         {error && (
@@ -87,7 +87,7 @@ export default function FeatureRequestModal({ onClose }: Props) {
             <button
               onClick={handleSubmit}
               disabled={!canSubmit}
-              className="rounded-lg bg-foreground px-3 py-1.5 text-sm text-background transition-opacity hover:opacity-90 disabled:opacity-40"
+              className="rounded-lg bg-accent px-3 py-1.5 text-sm text-white transition-opacity hover:opacity-90 disabled:opacity-40"
             >
               {submitting ? "Submitting…" : "Submit"}
             </button>

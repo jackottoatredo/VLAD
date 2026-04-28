@@ -85,7 +85,7 @@ export default function NameRecordingModal({
             setSuffix(sanitizeSuffix(e.target.value))
             setExistsWarning(false)
           }}
-          className="flex-1 rounded-md border border-border bg-surface px-3 py-1.5 text-foreground outline-none"
+          className="flex-1 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-black px-3 py-1.5 text-slate-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500 shadow-inner outline-none focus:border-gray-400 dark:focus:border-gray-500"
         />
       </div>
 
@@ -109,7 +109,7 @@ export default function NameRecordingModal({
         <button
           onClick={handleSubmit}
           disabled={!trimmedSuffix || existsWarning || busy}
-          className="rounded-md bg-foreground px-4 py-1.5 text-sm font-medium text-background hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed"
+          className="rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-white hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {busy ? 'Saving…' : submitLabel}
         </button>

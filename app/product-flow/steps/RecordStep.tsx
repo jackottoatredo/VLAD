@@ -6,6 +6,7 @@ import Markdown from '@/app/components/Markdown'
 import RecordingFrame from '@/app/record/RecordingFrame'
 import WebcamOverlay from '@/app/record/WebcamOverlay'
 import WebcamControls from '@/app/components/WebcamControls'
+import Select from '@/app/components/Select'
 import RecordConfirmOverlay from '@/app/components/RecordConfirmOverlay'
 import { useUser } from '@/app/contexts/UserContext'
 import { useProductFlow } from '@/app/contexts/ProductFlowContext'
@@ -145,17 +146,13 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
         <div className="flex flex-col gap-3">
           <div className="flex flex-col gap-2">
             <p className="text-xs font-medium text-muted">Product</p>
-            <select
+            <Select
+              options={PRODUCTS.map((p) => ({ value: p.safe, label: p.label }))}
               value={product}
-              onChange={(e) => setProduct(e.target.value)}
+              onChange={setProduct}
+              placeholder="Select product…"
               disabled={recording.isRecording || overlayVisible}
-              className="w-full rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground shadow-sm outline-none focus:border-muted disabled:opacity-50"
-            >
-              <option value="">Select product…</option>
-              {PRODUCTS.map((p) => (
-                <option key={p.safe} value={p.safe}>{p.label}</option>
-              ))}
-            </select>
+            />
           </div>
 
           <hr className="border-border" />
@@ -174,7 +171,7 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
             className={`w-full rounded-md px-4 py-1.5 text-sm font-medium shadow-sm disabled:opacity-40 disabled:cursor-not-allowed ${
               recording.isRecording
                 ? 'bg-red-600 text-white hover:bg-red-700'
-                : 'bg-foreground text-background hover:opacity-80'
+                : 'bg-accent text-white hover:opacity-80'
             }`}
           >
             {isCountingDown ? 'Starting…' : recording.isRecording ? 'Stop Recording' : 'Start Recording'}

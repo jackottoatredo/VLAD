@@ -32,6 +32,7 @@ create table vlad_recordings (
 
 create table vlad_renders (
   id                      uuid primary key default gen_random_uuid(),
+  user_id                 text references vlad_users(id) not null,
   product_recording_id    uuid references vlad_recordings(id) on delete set null,
   merchant_recording_id   uuid references vlad_recordings(id) on delete set null,
   brand                   text,

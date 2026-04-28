@@ -15,6 +15,7 @@ export async function GET() {
   const { data, error } = await supabase
     .from("vlad_renders")
     .select(RENDER_FIELDS)
+    .eq("user_id", session.email)
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -52,6 +53,7 @@ export async function POST(request: Request) {
   const { data, error } = await supabase
     .from("vlad_renders")
     .insert({
+      user_id: session.email,
       merchant_recording_id: body.merchantRecordingId,
       product_recording_id: body.productRecordingId,
       brand,
@@ -90,7 +92,8 @@ export async function PATCH(request: Request) {
   const { error } = await supabase
     .from("vlad_renders")
     .update({ seen: true })
-    .eq("id", body.id);
+    .eq("id", body.id)
+    .eq("user_id", session.email);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -119,7 +122,8 @@ export async function DELETE(request: Request) {
   const { error } = await supabase
     .from("vlad_renders")
     .delete()
-    .eq("id", body.id);
+    .eq("id", body.id)
+    .eq("user_id", session.email);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

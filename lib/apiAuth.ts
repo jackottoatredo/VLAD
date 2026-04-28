@@ -13,8 +13,3 @@ export function requireBearerToken(request: Request): boolean {
   const token = authHeader.slice(7);
   return token === process.env.INTERNAL_API_SECRET;
 }
-
-/** Sanitize email for use in filesystem paths. */
-export function sanitizePresenter(email: string): string {
-  return email.replace(/[^a-z0-9_\-]/gi, "_").toLowerCase();
-}

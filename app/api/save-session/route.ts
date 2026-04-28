@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireSession, sanitizePresenter } from "@/lib/apiAuth";
+import { requireSession } from "@/lib/apiAuth";
 import { uploadToR2 } from "@/lib/storage/r2";
 
 export const runtime = "nodejs";
@@ -26,10 +26,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Missing or invalid flowId." }, { status: 400 });
   }
 
-  const safePresenter = sanitizePresenter(session.email);
-  const payload = { ...record, presenter: session.email, flowId };
+  const payload = { ...record, userId: session.email, flowId };
   const jsonBuffer = Buffer.from(JSON.stringify(payload, null, 2), "utf-8");
-  const r2Key = `sessions/${safePresenter}/${flowId}/mouse.json`;
+  const r2Key = `sessions/${session.email}/${flowId}/mouse.json`;
 
   await uploadToR2(r2Key, jsonBuffer, "application/json");
 

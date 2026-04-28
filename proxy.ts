@@ -9,7 +9,7 @@ export async function proxy(request: NextRequest) {
   });
 
   if (!token) {
-    const signInUrl = new URL("/api/auth/signin", request.url);
+    const signInUrl = new URL("/login", request.url);
     signInUrl.searchParams.set("callbackUrl", request.url);
     return NextResponse.redirect(signInUrl);
   }
@@ -18,5 +18,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/((?!api|login|_next/static|_next/image|favicon.ico).*)"],
 };

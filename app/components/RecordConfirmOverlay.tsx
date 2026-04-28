@@ -35,7 +35,7 @@ export default function RecordConfirmOverlay({
           <button
             onClick={onContinue}
             disabled={continueDisabled}
-            className="rounded-md bg-foreground px-4 py-1.5 text-sm font-medium text-background shadow-sm hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-white shadow-sm hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {continueLabel}
           </button>

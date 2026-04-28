@@ -2,13 +2,12 @@
 
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useState } from 'react'
-import Modal from '@/app/components/Modal'
 import DeleteModal from '@/app/components/DeleteModal'
-import MultiSelect from '@/app/components/MultiSelect'
 import PreviewModal from '@/app/components/PreviewModal'
 import Markdown from '@/app/components/Markdown'
 import { mergeExport as mergeExportInstructions } from '@/app/copy/instructions'
-import { initialSteps, runMergeJob } from './pipeline'
+import { initialSteps, initialProductOnlySteps, runMergeJob, runProductOnlyJob } from './pipeline'
+import GenerateMergeModal, { type MergeFormState } from './GenerateMergeModal'
 
 type Recording = {
   id: string
@@ -36,9 +35,14 @@ type Render = {
 
 type ActiveTask = {
   key: string
+  /** Discriminates retry routing — 'merge' fans through /api/merge-export, 'product-only' through /api/product-only-export. */
+  kind: 'merge' | 'product-only'
   brand: string
+  /** Set for kind='merge'. Empty string for product-only. */
   merchantRecordingId: string
   productRecordingId: string
+  /** Set for kind='product-only' so retries can reconstruct the call. */
+  merchantBrand?: { websiteUrl: string; brandName: string }
   /** Per-step progress (0-100) */
   steps: { label: string; progress: number }[]
   /** Set once the DB row is created */
@@ -66,8 +70,6 @@ export default function MergeExportPage() {
   const [selectedMerchants, setSelectedMerchants] = useState<Set<string>>(new Set())
   const [selectedProduct, setSelectedProduct] = useState<string | null>(null)
   const [showGenerateModal, setShowGenerateModal] = useState(false)
-  const [modalMerchants, setModalMerchants] = useState<Set<string>>(new Set())
-  const [modalProduct, setModalProduct] = useState('')
   const [activeTasks, setActiveTasks] = useState<ActiveTask[]>([])
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string; kind: 'recording' | 'render' } | null>(null)
   const [previewTarget, setPreviewTarget] = useState<{ title: string; videoUrl?: string | null; renderId?: string; downloadName?: string; onEdit?: () => void; trimStartSec?: number; trimEndSec?: number } | null>(null)
@@ -161,6 +163,7 @@ export default function MergeExportPage() {
 
     const task: ActiveTask = {
       key,
+      kind: 'merge',
       brand,
       merchantRecordingId,
       productRecordingId,
@@ -192,15 +195,62 @@ export default function MergeExportPage() {
     }
   }
 
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    const prodId = modalProduct
-    for (const merchantId of modalMerchants) {
-      runTask(merchantId, prodId)
+  async function runProductOnlyTask(
+    productRecordingId: string,
+    merchantBrand: { websiteUrl: string; brandName: string },
+  ) {
+    const merchantLabelText = merchantBrand.brandName || merchantBrand.websiteUrl
+    const productLabelText = productLabel(productRecordingId)
+    const brand = `${merchantLabelText}-${productLabelText}`
+    const key = `prod-${productRecordingId}-${merchantBrand.websiteUrl}-${Date.now()}`
+
+    const task: ActiveTask = {
+      key,
+      kind: 'product-only',
+      brand,
+      merchantRecordingId: '',
+      productRecordingId,
+      merchantBrand,
+      steps: initialProductOnlySteps(),
     }
+
+    setActiveTasks((prev) => [...prev, task])
+
+    try {
+      const result = await runProductOnlyJob(productRecordingId, merchantBrand, (steps) => {
+        setActiveTasks((prev) => prev.map((t) => (t.key === key ? { ...t, steps } : t)))
+      })
+      setActiveTasks((prev) =>
+        prev.map((t) => (t.key === key ? { ...t, renderId: result.renderId } : t)),
+      )
+      fetchRenders()
+    } catch {
+      setActiveTasks((prev) =>
+        prev.map((t) => (t.key === key ? { ...t, error: 'Render failed' } : t)),
+      )
+    }
+  }
+
+  function handleGenerate(state: MergeFormState) {
+    if (state.preset === 'p1' && state.intro.enabled && state.product.enabled) {
+      const prodId = state.product.productRecordingId
+      for (const merchantId of state.intro.merchantRecordingIds) {
+        runTask(merchantId, prodId)
+      }
+    } else if (state.preset === 'p2' && state.product.enabled) {
+      const prodId = state.product.productRecordingId
+      // Only dispatch DB-matched merchants whose scrape is complete. Pending /
+      // incomplete scrapes and free-text URL chips need a finished scrape
+      // first, so they're held back and surfaced via the chip's tooltip
+      // action. The modal's button count mirrors this filter.
+      for (const chip of state.product.brandMerchants) {
+        if (chip.kind === 'merchant' && chip.status === 'complete') {
+          runProductOnlyTask(prodId, { websiteUrl: chip.websiteUrl, brandName: chip.brandName })
+        }
+      }
+    }
+    // Custom preset is banner-blocked at the modal level; nothing to do here.
     setShowGenerateModal(false)
-    setModalMerchants(new Set())
-    setModalProduct('')
   }
 
   return (
@@ -390,7 +440,11 @@ export default function MergeExportPage() {
                                 onClick={(e) => {
                                   e.stopPropagation()
                                   setActiveTasks((prev) => prev.filter((t) => t.key !== task.key))
-                                  runTask(task.merchantRecordingId, task.productRecordingId)
+                                  if (task.kind === 'product-only' && task.merchantBrand) {
+                                    runProductOnlyTask(task.productRecordingId, task.merchantBrand)
+                                  } else {
+                                    runTask(task.merchantRecordingId, task.productRecordingId)
+                                  }
                                 }}
                                 className="text-xs text-muted hover:text-foreground"
                               >
@@ -501,41 +555,12 @@ export default function MergeExportPage() {
       )}
 
       {showGenerateModal && (
-        <Modal title="Generate New Video" onClose={() => { setShowGenerateModal(false); setModalMerchants(new Set()); setModalProduct(''); }}>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-muted">Merchant Intros</label>
-              <MultiSelect
-                options={merchants.map((r) => ({ value: r.id, label: r.name ?? r.id.slice(0, 8) }))}
-                selected={modalMerchants}
-                onChange={setModalMerchants}
-                placeholder="Select merchant intros"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-muted">Product Recording</label>
-              <select
-                value={modalProduct}
-                onChange={(e) => setModalProduct(e.target.value)}
-                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-muted"
-              >
-                <option value="">Select a product recording</option>
-                {products.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.name ?? r.id.slice(0, 8)}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <button
-              type="submit"
-              disabled={modalMerchants.size === 0 || !modalProduct}
-              className="w-full rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background transition-colors hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Start {modalMerchants.size || 0} rendering task{modalMerchants.size === 1 ? '' : 's'}
-            </button>
-          </form>
-        </Modal>
+        <GenerateMergeModal
+          merchants={merchants.map((r) => ({ id: r.id, label: r.name ?? r.id.slice(0, 8) }))}
+          products={products.map((r) => ({ id: r.id, label: r.name ?? r.id.slice(0, 8) }))}
+          onClose={() => setShowGenerateModal(false)}
+          onSubmit={handleGenerate}
+        />
       )}
     </div>
   )

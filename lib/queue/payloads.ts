@@ -9,7 +9,7 @@ export type ProduceJobPayload = {
   type: "produce";
 
   // Identity
-  presenter: string;
+  userId: string;
   safeId: string;
   dirName: string;
 
@@ -59,6 +59,18 @@ export type ProduceJobPayload = {
    * a draft. No-op if the row doesn't exist.
    */
   flowId?: string | null;
+
+  /**
+   * When set, the worker inserts a vlad_renders row after the produce
+   * completes. Used by the merge-export's product-only flow, where one product
+   * recording fans out into N renders — one per merchant brand. Distinct from
+   * `flowId` (which backfills vlad_recordings).
+   */
+  mergeRenderInsert?: {
+    productRecordingId: string;
+    /** Display label stored on vlad_renders.brand (typically merchant brandName). */
+    brand: string | null;
+  } | null;
 };
 
 /**
@@ -107,7 +119,7 @@ export type MergeRecordingPayload = {
 export type MergeJobPayload = {
   type: "merge";
 
-  presenter: string;
+  userId: string;
   brand: string | null;
   outputSessionName: string;
 

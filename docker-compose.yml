@@ -1,0 +1,33 @@
+# Local verification stack — mirrors Railway deployment
+# Usage: docker compose up --build
+# Then open http://localhost:3000
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  web:
+    build: .
+    ports:
+      - "3000:3000"
+    env_file: .env.local
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - NODE_ENV=production
+    depends_on:
+      - redis
+
+  worker:
+    build: .
+    command: ["npm", "run", "worker"]
+    env_file: .env.local
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - WORKER_CONCURRENCY=2
+      - NODE_ENV=production
+    depends_on:
+      - redis

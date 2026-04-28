@@ -193,7 +193,7 @@ export async function GET(request: Request) {
 
   if (state === "completed") {
     const raw = job.returnvalue;
-    const result = (typeof raw === "string" ? JSON.parse(raw) : raw) as { videoUrl: string; renderId: string | undefined };
+    const result = (typeof raw === "string" ? JSON.parse(raw) : raw) as { videoUrl: string; renderId: string };
     const presignedUrl = await getPresignedUrl(result.videoUrl);
     return NextResponse.json({
       status: "done",

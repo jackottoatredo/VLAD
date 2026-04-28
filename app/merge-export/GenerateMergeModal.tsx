@@ -350,8 +350,14 @@ export default function GenerateMergeModal({ merchants, products, onClose, onSub
   const isProductOnlyFlow =
     state.preset === 'p2' ||
     (state.preset === 'custom' && !state.intro.enabled && state.product.enabled)
+  // Only DB-matched merchants whose scrape is complete are renderable. Pending
+  // / incomplete scrapes and free-text URL chips can't fan out yet — they need
+  // a complete scrape first (triggered via the chip tooltip).
+  const renderableBrandMerchants = state.product.brandMerchants.filter(
+    (c) => c.kind === 'merchant' && c.status === 'complete',
+  )
   const productOnlyNeedsMerchants =
-    isProductOnlyFlow && state.product.brandMerchants.length === 0
+    isProductOnlyFlow && renderableBrandMerchants.length === 0
   // Circular reference: both sections "match" the other → render can't resolve.
   const circularMode =
     bothEnabled && state.intro.modeSource === 'other' && state.product.modeSource === 'other'
@@ -387,21 +393,28 @@ export default function GenerateMergeModal({ merchants, products, onClose, onSub
     staleMessage = 'Product webcam mode is set to match intro, but intro is disabled.'
   else if (productStalePosition)
     staleMessage = 'Product webcam position is set to match intro, but intro is disabled.'
-  const blockingMessage = !sectionsValid
-    ? 'Enable at least one section.'
-    : !introValid
-      ? 'Pick at least one merchant intro.'
-      : !productValid
-        ? 'Pick a product recording.'
-        : productOnlyNeedsMerchants
-          ? 'Pick at least one merchant brand.'
-          : circularMessage
-            ? circularMessage
-            : staleMessage
-              ? staleMessage
-              : !bothEnabled
-                ? 'Single-section rendering is not yet supported by the pipeline.'
-                : null
+  // Custom rendering pipeline lands later — block submit and show a banner.
+  const customNotSupported = state.preset === 'custom'
+  // The product-only pipeline (p2 OR custom-with-intro-off-product-on) is
+  // supported. Intro-only is still unimplemented.
+  const introOnlyUnsupported = state.intro.enabled && !state.product.enabled
+  const blockingMessage = customNotSupported
+    ? 'Custom rendering is coming soon — use Intro + Product or Product Only for now.'
+    : !sectionsValid
+      ? 'Enable at least one section.'
+      : !introValid
+        ? 'Pick at least one merchant intro.'
+        : !productValid
+          ? 'Pick a product recording.'
+          : productOnlyNeedsMerchants
+            ? 'Pick at least one merchant with a completed scrape.'
+            : circularMessage
+              ? circularMessage
+              : staleMessage
+                ? staleMessage
+                : introOnlyUnsupported
+                  ? 'Intro-only rendering is not yet supported by the pipeline.'
+                  : null
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -414,7 +427,11 @@ export default function GenerateMergeModal({ merchants, products, onClose, onSub
   }
 
   const introCount = state.intro.enabled ? state.intro.merchantRecordingIds.length : 0
-  const submitCount = bothEnabled ? introCount : 0
+  const submitCount = bothEnabled
+    ? introCount
+    : isProductOnlyFlow
+      ? renderableBrandMerchants.length
+      : 0
 
   const isCustom = state.preset === 'custom'
 
@@ -480,7 +497,6 @@ export default function GenerateMergeModal({ merchants, products, onClose, onSub
 
         {!isCustom && state.preset === 'p2' && (
           <div className="space-y-3">
-            {productField}
             <div>
               <label className={FIELD_LABEL}>Merchants</label>
               <MerchantChipInput
@@ -494,11 +510,15 @@ export default function GenerateMergeModal({ merchants, products, onClose, onSub
                 placeholder="Type to search or paste comma-separated values…"
               />
             </div>
+            {productField}
           </div>
         )}
 
         {isCustom && (
           <>
+            <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+              Custom rendering is coming soon. Use <span className="font-medium">Intro + Product</span> or <span className="font-medium">Product Only</span> to render now.
+            </div>
             <Section
               title="Intro"
               enabled={state.intro.enabled}

@@ -6,7 +6,7 @@ import DeleteModal from '@/app/components/DeleteModal'
 import PreviewModal from '@/app/components/PreviewModal'
 import Markdown from '@/app/components/Markdown'
 import { mergeExport as mergeExportInstructions } from '@/app/copy/instructions'
-import { initialSteps, runMergeJob } from './pipeline'
+import { initialSteps, initialProductOnlySteps, runMergeJob, runProductOnlyJob } from './pipeline'
 import GenerateMergeModal, { type MergeFormState } from './GenerateMergeModal'
 
 type Recording = {
@@ -35,9 +35,14 @@ type Render = {
 
 type ActiveTask = {
   key: string
+  /** Discriminates retry routing — 'merge' fans through /api/merge-export, 'product-only' through /api/product-only-export. */
+  kind: 'merge' | 'product-only'
   brand: string
+  /** Set for kind='merge'. Empty string for product-only. */
   merchantRecordingId: string
   productRecordingId: string
+  /** Set for kind='product-only' so retries can reconstruct the call. */
+  merchantBrand?: { websiteUrl: string; brandName: string }
   /** Per-step progress (0-100) */
   steps: { label: string; progress: number }[]
   /** Set once the DB row is created */
@@ -158,6 +163,7 @@ export default function MergeExportPage() {
 
     const task: ActiveTask = {
       key,
+      kind: 'merge',
       brand,
       merchantRecordingId,
       productRecordingId,
@@ -189,17 +195,61 @@ export default function MergeExportPage() {
     }
   }
 
+  async function runProductOnlyTask(
+    productRecordingId: string,
+    merchantBrand: { websiteUrl: string; brandName: string },
+  ) {
+    const merchantLabelText = merchantBrand.brandName || merchantBrand.websiteUrl
+    const productLabelText = productLabel(productRecordingId)
+    const brand = `${merchantLabelText}-${productLabelText}`
+    const key = `prod-${productRecordingId}-${merchantBrand.websiteUrl}-${Date.now()}`
+
+    const task: ActiveTask = {
+      key,
+      kind: 'product-only',
+      brand,
+      merchantRecordingId: '',
+      productRecordingId,
+      merchantBrand,
+      steps: initialProductOnlySteps(),
+    }
+
+    setActiveTasks((prev) => [...prev, task])
+
+    try {
+      const result = await runProductOnlyJob(productRecordingId, merchantBrand, (steps) => {
+        setActiveTasks((prev) => prev.map((t) => (t.key === key ? { ...t, steps } : t)))
+      })
+      setActiveTasks((prev) =>
+        prev.map((t) => (t.key === key ? { ...t, renderId: result.renderId } : t)),
+      )
+      fetchRenders()
+    } catch {
+      setActiveTasks((prev) =>
+        prev.map((t) => (t.key === key ? { ...t, error: 'Render failed' } : t)),
+      )
+    }
+  }
+
   function handleGenerate(state: MergeFormState) {
-    // First-draft wiring: pipeline does not yet consume the new settings, so
-    // they are logged for review only. The validation in GenerateMergeModal
-    // already blocks submission unless both intro and product are enabled.
-    console.log('[merge-export] form state:', state)
-    if (state.intro.enabled && state.product.enabled) {
+    if (state.preset === 'p1' && state.intro.enabled && state.product.enabled) {
       const prodId = state.product.productRecordingId
       for (const merchantId of state.intro.merchantRecordingIds) {
         runTask(merchantId, prodId)
       }
+    } else if (state.preset === 'p2' && state.product.enabled) {
+      const prodId = state.product.productRecordingId
+      // Only dispatch DB-matched merchants whose scrape is complete. Pending /
+      // incomplete scrapes and free-text URL chips need a finished scrape
+      // first, so they're held back and surfaced via the chip's tooltip
+      // action. The modal's button count mirrors this filter.
+      for (const chip of state.product.brandMerchants) {
+        if (chip.kind === 'merchant' && chip.status === 'complete') {
+          runProductOnlyTask(prodId, { websiteUrl: chip.websiteUrl, brandName: chip.brandName })
+        }
+      }
     }
+    // Custom preset is banner-blocked at the modal level; nothing to do here.
     setShowGenerateModal(false)
   }
 
@@ -390,7 +440,11 @@ export default function MergeExportPage() {
                                 onClick={(e) => {
                                   e.stopPropagation()
                                   setActiveTasks((prev) => prev.filter((t) => t.key !== task.key))
-                                  runTask(task.merchantRecordingId, task.productRecordingId)
+                                  if (task.kind === 'product-only' && task.merchantBrand) {
+                                    runProductOnlyTask(task.productRecordingId, task.merchantBrand)
+                                  } else {
+                                    runTask(task.merchantRecordingId, task.productRecordingId)
+                                  }
                                 }}
                                 className="text-xs text-muted hover:text-foreground"
                               >

@@ -23,12 +23,13 @@ export async function GET(_request: Request, { params }: { params: Promise<{ job
 
   if (state === "completed") {
     const raw = job.returnvalue;
-    const result = (typeof raw === "string" ? JSON.parse(raw) : raw) as ProduceResult;
+    const result = (typeof raw === "string" ? JSON.parse(raw) : raw) as ProduceResult & { renderId?: string };
     const videoUrl = await getPresignedUrl(result.finalR2Key);
     return NextResponse.json({
       status: "done",
       videoUrl,
       videoR2Key: result.finalR2Key,
+      renderId: result.renderId,
     });
   }
 

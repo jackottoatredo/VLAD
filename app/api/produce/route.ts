@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createHash, randomUUID } from "node:crypto";
-import { requireSession, sanitizePresenter } from "@/lib/apiAuth";
+import { requireSession } from "@/lib/apiAuth";
 import { DEFAULT_FPS, VIDEO_WIDTH, VIDEO_HEIGHT, RENDER_ZOOM } from "@/app/config";
 import { eventsToKeyframes } from "@/lib/render/keyframes";
 import { type WebcamSettings, DEFAULT_WEBCAM_SETTINGS } from "@/types/webcam";
@@ -76,15 +76,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Missing url." }, { status: 400 });
   }
 
-  const presenter = sanitizePresenter(session.email);
+  const userId = session.email;
   const url = body.url.trim();
-  const dirName = `${presenter}_${flowId}`;
+  const dirName = `${userId}_${flowId}`;
 
   // Mouse + webcam source keys. If an existing vlad_recordings row owns this flowId,
   // prefer its stored URLs (handles reopened saved/draft recordings whose source
   // files may live at either sessions/ or recordings/).
-  let mouseR2Key = `sessions/${presenter}/${flowId}/mouse.json`;
-  let webcamR2Key: string | null = `sessions/${presenter}/${flowId}/webcam.webm`;
+  let mouseR2Key = `sessions/${userId}/${flowId}/mouse.json`;
+  let webcamR2Key: string | null = `sessions/${userId}/${flowId}/webcam.webm`;
 
   const { data: existingRow } = await supabase
     .from("vlad_recordings")
@@ -159,7 +159,7 @@ export async function POST(request: Request) {
   const tKey = trimKey(trimStartSec, trimEndSec);
 
   // Check Redis cache for cached artifacts (keyed on flowId via safeId)
-  const cached = await findCachedRender(presenter, flowId, urlHash, mouseHash, wcFP, tKey, tier);
+  const cached = await findCachedRender(userId, flowId, urlHash, mouseHash, wcFP, tKey, tier);
 
   // Fully cached — presign and return
   if (cached.trimmedR2Key) {
@@ -177,7 +177,7 @@ export async function POST(request: Request) {
 
   const job = await jobsQueue.add("produce", {
     type: "produce",
-    presenter,
+    userId,
     safeId: flowId,
     dirName,
     url,

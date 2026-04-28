@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { supabase } from "@/lib/db/supabase";
-import { requireSession, sanitizePresenter } from "@/lib/apiAuth";
+import { requireSession } from "@/lib/apiAuth";
 import { downloadRecording } from "@/lib/render/download";
 import { eventsToKeyframes } from "@/lib/render/keyframes";
 import { jobsQueue } from "@/lib/queue/connection";
@@ -82,7 +82,7 @@ export async function POST(request: Request) {
     webcam_url: string | null; metadata: Record<string, unknown>;
   };
 
-  const presenter = sanitizePresenter(session.email);
+  const userId = session.email;
   const jobId = randomUUID().slice(0, 8);
   const outputSessionName = `merge_${jobId}`;
 
@@ -148,7 +148,7 @@ export async function POST(request: Request) {
 
     const job = await jobsQueue.add("merge", {
       type: "merge",
-      presenter,
+      userId,
       brand,
       outputSessionName,
       merchantRecordingId: merchant.id,

@@ -5,7 +5,7 @@ import {
   downloadBufferFromR2,
   getPresignedUrl,
 } from "@/lib/storage/r2";
-import { requireSession, sanitizePresenter } from "@/lib/apiAuth";
+import { requireSession } from "@/lib/apiAuth";
 
 export const runtime = "nodejs";
 
@@ -20,7 +20,7 @@ type RequestBody = {
   merchantId?: unknown;
   metadata?: unknown;
   webcamSettings?: unknown;
-  /** R2 key of the rendered preview video (e.g. composites/presenter/session/file.mp4) */
+  /** R2 key of the rendered preview video (e.g. composites/userId/session/file.mp4) */
   previewVideoR2Key?: unknown;
 };
 
@@ -31,7 +31,7 @@ type RequestBody = {
  *   - Finalize draft (draft → saved)
  *   - Re-save of existing saved recording (edit-save) → marks downstream renders stale
  *
- * Raw mouse + webcam stay at sessions/{presenter}/{flowId}/ and are referenced by
+ * Raw mouse + webcam stay at sessions/{userId}/{flowId}/ and are referenced by
  * that path. Preview (when provided) is copied to recordings/{flowId}/preview.mp4.
  */
 export async function POST(request: Request) {
@@ -66,8 +66,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid type." }, { status: 400 });
   }
 
-  const safePresenter = sanitizePresenter(session.email);
-
   const { data: existing } = await supabase
     .from("vlad_recordings")
     .select("id, user_id, status, name, preview_url, mouse_events_url, webcam_url")
@@ -92,15 +90,15 @@ export async function POST(request: Request) {
 
   // Preserve existing URLs if the row already exists (important for old
   // saved recordings whose mouse/webcam live at recordings/{id}/ rather than
-  // sessions/{presenter}/{flowId}/). For new inserts we use the session path.
+  // sessions/{userId}/{flowId}/). For new inserts we use the session path.
   let mouseR2Key: string;
   let webcamR2Key: string | null;
   if (existing && existing.mouse_events_url) {
     mouseR2Key = existing.mouse_events_url;
     webcamR2Key = typeof existing.webcam_url === "string" && existing.webcam_url ? existing.webcam_url : null;
   } else {
-    mouseR2Key = `sessions/${safePresenter}/${flowId}/mouse.json`;
-    const sessionWebcamKey = `sessions/${safePresenter}/${flowId}/webcam.webm`;
+    mouseR2Key = `sessions/${session.email}/${flowId}/mouse.json`;
+    const sessionWebcamKey = `sessions/${session.email}/${flowId}/webcam.webm`;
     let webcamExists = false;
     try {
       await downloadBufferFromR2(sessionWebcamKey);

@@ -50,7 +50,7 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceJo
   try {
     const result = await produceSessionVideo({
       url: d.url,
-      presenter: d.presenter,
+      userId: d.userId,
       sessionName: d.dirName,
       width: d.width,
       height: d.height,
@@ -85,7 +85,7 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceJo
     });
 
     // Update Redis render cache
-    await updateRenderCache(d.presenter, d.safeId, d.urlHash, d.mouseHash, d.wcFingerprint, d.trimKeyStr, d.preview ? "preview" : "full", {
+    await updateRenderCache(d.userId, d.safeId, d.urlHash, d.mouseHash, d.wcFingerprint, d.trimKeyStr, d.preview ? "preview" : "full", {
       renderR2Key: result.renderR2Key,
       renderDurationMs: result.renderDurationMs,
       compositeR2Key: result.compositeR2Key,
@@ -115,6 +115,7 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceJo
       const { data: renderRow, error } = await supabase
         .from("vlad_renders")
         .insert({
+          user_id: d.userId,
           product_recording_id: d.mergeRenderInsert.productRecordingId,
           merchant_recording_id: null,
           brand: d.mergeRenderInsert.brand,
@@ -148,7 +149,7 @@ type MergeResult = {
 
 async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> {
   const d = job.data;
-  const presenter = d.presenter;
+  const userId = d.userId;
   const jobId = job.id ?? randomUUID().slice(0, 8);
 
   const stepLabels = [
@@ -201,7 +202,7 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
 
     const merchantResult = await produceSessionVideo({
       url: d.merchant.url,
-      presenter,
+      userId,
       sessionName: d.merchant.sessionName,
       width: d.merchant.width,
       height: d.merchant.height,
@@ -231,7 +232,7 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
 
     const productResult = await produceSessionVideo({
       url: d.product.url,
-      presenter,
+      userId,
       sessionName: d.product.sessionName,
       width: d.product.width,
       height: d.product.height,
@@ -275,7 +276,7 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
     completeStep(4);
 
     // Upload merged video to R2
-    const r2Key = `merges/${presenter}/${d.outputSessionName}/${path.basename(mergedPath)}`;
+    const r2Key = `merges/${userId}/${d.outputSessionName}/${path.basename(mergedPath)}`;
     const fileBuffer = await readFile(mergedPath);
     await uploadToR2(r2Key, fileBuffer, "video/mp4");
 
@@ -283,6 +284,7 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
     const { data: renderRow } = await supabase
       .from("vlad_renders")
       .insert({
+        user_id: userId,
         merchant_recording_id: d.merchantRecordingId,
         product_recording_id: d.productRecordingId,
         brand: d.brand,

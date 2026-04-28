@@ -12,7 +12,7 @@ import { VIRTUAL_PREVIEW_SCALE_FACTOR, PREVIEW_DOWNSCALE_FACTOR } from "@/app/co
 const FFMPEG_BIN = resolvedFfmpegPath ?? "ffmpeg";
 
 export type ProduceOptions = {
-  presenter: string;
+  userId: string;
   sessionName: string;
   url: string;
   width: number;
@@ -57,7 +57,7 @@ export type ProduceResult = {
 
 async function trimVideoFile(
   composedPath: string,
-  presenter: string,
+  userId: string,
   sessionName: string,
   trimStartSec: number | undefined,
   trimEndSec: number | undefined,
@@ -68,7 +68,7 @@ async function trimVideoFile(
 
   const trimmedName = `${sessionName}-trimmed-${Date.now()}-${randomUUID().slice(0, 8)}.mp4`;
   const trimmedPath = path.join(path.dirname(composedPath), trimmedName);
-  const r2Key = `trims/${presenter}/${sessionName}/${trimmedName}`;
+  const r2Key = `trims/${userId}/${sessionName}/${trimmedName}`;
 
   // Frame-accurate trim via re-encode. The previous implementation used
   // `-c copy` with fast-seek (`-ss` before `-i`), which keyframe-aligns the
@@ -123,7 +123,7 @@ export async function produceSessionVideo(options: ProduceOptions): Promise<Prod
   if (step <= 1) {
     const renderResult = await renderUrlToMp4({
       url: options.url,
-      presenter: options.presenter,
+      userId: options.userId,
       sessionName: options.sessionName,
       width: options.width,
       height: options.height,
@@ -159,7 +159,7 @@ export async function produceSessionVideo(options: ProduceOptions): Promise<Prod
       : 1;
 
     const composeResult = await compositeSessionVideo({
-      presenter: options.presenter,
+      userId: options.userId,
       sessionName: options.sessionName,
       screenVideoPath: renderOutputPath,
       durationMs: renderDurationMs,
@@ -177,7 +177,7 @@ export async function produceSessionVideo(options: ProduceOptions): Promise<Prod
 
   // ---- Step 3: Trim ----
   const trimResult = await trimVideoFile(
-    compositeOutputPath, options.presenter, options.sessionName,
+    compositeOutputPath, options.userId, options.sessionName,
     options.trimStartSec, options.trimEndSec,
   );
 

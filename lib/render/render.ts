@@ -13,7 +13,7 @@ import { VIRTUAL_PREVIEW_SCALE_FACTOR, PREVIEW_DOWNSCALE_FACTOR } from "@/app/co
 
 export type RenderOptions = {
   url: string;
-  presenter: string;
+  userId: string;
   sessionName: string;
   width: number;
   height: number;
@@ -222,7 +222,7 @@ export async function renderUrlToMp4(options: RenderOptions): Promise<RenderResu
 
   const fileName = `${options.sessionName}-${Date.now()}-${randomUUID().slice(0, 8)}.mp4`;
   const outputPath = path.join(tempDir, fileName);
-  const r2Key = `renders/${options.presenter}/${options.sessionName}/${fileName}`;
+  const r2Key = `renders/${options.userId}/${options.sessionName}/${fileName}`;
 
   const browser = await chromium.launch({
     headless: true,

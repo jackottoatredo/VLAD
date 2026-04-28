@@ -9,7 +9,7 @@ export type ProduceJobPayload = {
   type: "produce";
 
   // Identity
-  presenter: string;
+  userId: string;
   safeId: string;
   dirName: string;
 
@@ -119,7 +119,7 @@ export type MergeRecordingPayload = {
 export type MergeJobPayload = {
   type: "merge";
 
-  presenter: string;
+  userId: string;
   brand: string | null;
   outputSessionName: string;
 

@@ -13,8 +13,8 @@ const redis = (g.__cacheRedis ??= new Redis({
 
 export type QualityTier = "preview" | "full";
 
-function cacheKey(presenter: string, safeId: string, urlHash: string, tier: QualityTier): string {
-  return `cache:${presenter}:${safeId}:${urlHash}:${tier}`;
+function cacheKey(userId: string, safeId: string, urlHash: string, tier: QualityTier): string {
+  return `cache:${userId}:${safeId}:${urlHash}:${tier}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -34,7 +34,7 @@ export type CachedRender = {
  * Returns the earliest pipeline step that needs to run, plus any cached R2 keys.
  */
 export async function findCachedRender(
-  presenter: string,
+  userId: string,
   safeId: string,
   urlHash: string,
   mouseHash: string,
@@ -42,7 +42,7 @@ export async function findCachedRender(
   trimKey: string,
   tier: QualityTier,
 ): Promise<CachedRender> {
-  const key = cacheKey(presenter, safeId, urlHash, tier);
+  const key = cacheKey(userId, safeId, urlHash, tier);
   const data = await redis.hgetall(key);
 
   // No cache entry, or mouse events changed → full render
@@ -88,7 +88,7 @@ export type RenderCacheResult = {
  * Store render artifacts in Redis cache after a successful render.
  */
 export async function updateRenderCache(
-  presenter: string,
+  userId: string,
   safeId: string,
   urlHash: string,
   mouseHash: string,
@@ -97,7 +97,7 @@ export async function updateRenderCache(
   tier: QualityTier,
   result: RenderCacheResult,
 ): Promise<void> {
-  const key = cacheKey(presenter, safeId, urlHash, tier);
+  const key = cacheKey(userId, safeId, urlHash, tier);
 
   const fields: Record<string, string> = {
     mouseHash,
@@ -119,16 +119,16 @@ export async function updateRenderCache(
 // ---------------------------------------------------------------------------
 
 /**
- * Remove all cached artifacts for a given presenter + identifier + URL.
+ * Remove all cached artifacts for a given user + identifier + URL.
  * Call when mouse events change (new recording replaces old one).
  */
 export async function invalidateRenderCache(
-  presenter: string,
+  userId: string,
   safeId: string,
   urlHash: string,
 ): Promise<void> {
   await redis.del(
-    cacheKey(presenter, safeId, urlHash, "preview"),
-    cacheKey(presenter, safeId, urlHash, "full"),
+    cacheKey(userId, safeId, urlHash, "preview"),
+    cacheKey(userId, safeId, urlHash, "full"),
   );
 }

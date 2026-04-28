@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createHash, randomUUID } from "node:crypto";
-import { requireSession, sanitizePresenter } from "@/lib/apiAuth";
+import { requireSession } from "@/lib/apiAuth";
 import { DEFAULT_FPS, VIDEO_WIDTH, VIDEO_HEIGHT, RENDER_ZOOM, TARGET_URL } from "@/app/config";
 import { eventsToKeyframes } from "@/lib/render/keyframes";
 import { type WebcamSettings, DEFAULT_WEBCAM_SETTINGS } from "@/types/webcam";
@@ -144,7 +144,7 @@ export async function POST(request: Request) {
   const cleanedBrandUrl = merchant.websiteUrl.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
   const renderUrl = `${TARGET_URL}?product=${encodeURIComponent(product.product_name ?? "")}&brand=${encodeURIComponent(cleanedBrandUrl)}`;
 
-  const presenter = sanitizePresenter(session.email);
+  const userId = session.email;
   const urlHash = hashUrl(renderUrl);
   const mouseHash = hashBuffer(mouseBuffer);
   const wcFP = webcamFingerprint(webcamSettings);
@@ -157,11 +157,12 @@ export async function POST(request: Request) {
 
   // Cache lookup — if we've already rendered this exact (product, brand, webcam, trim)
   // we can skip the render entirely and just create a vlad_renders row pointing at it.
-  const cached = await findCachedRender(presenter, productRecordingId, urlHash, mouseHash, wcFP, tKey, "full");
+  const cached = await findCachedRender(userId, productRecordingId, urlHash, mouseHash, wcFP, tKey, "full");
   if (cached.trimmedR2Key) {
     const { data: renderRow, error: rErr } = await supabase
       .from("vlad_renders")
       .insert({
+        user_id: userId,
         product_recording_id: productRecordingId,
         merchant_recording_id: null,
         brand: renderLabel,
@@ -179,13 +180,13 @@ export async function POST(request: Request) {
   }
 
   const newJobId = randomUUID().slice(0, 8);
-  const dirName = `${presenter}_product-only_${productRecordingId}_${urlHash}`;
+  const dirName = `${userId}_product-only_${productRecordingId}_${urlHash}`;
 
   const job = await jobsQueue.add(
     "produce",
     {
       type: "produce",
-      presenter,
+      userId,
       safeId: productRecordingId,
       dirName,
       url: renderUrl,

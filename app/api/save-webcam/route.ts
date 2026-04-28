@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireSession, sanitizePresenter } from "@/lib/apiAuth";
+import { requireSession } from "@/lib/apiAuth";
 import { uploadToR2 } from "@/lib/storage/r2";
 
 export const runtime = "nodejs";
@@ -30,9 +30,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Missing video data." }, { status: 400 });
   }
 
-  const safePresenter = sanitizePresenter(session.email);
   const buffer = Buffer.from(await video.arrayBuffer());
-  const r2Key = `sessions/${safePresenter}/${flowId}/webcam.webm`;
+  const r2Key = `sessions/${session.email}/${flowId}/webcam.webm`;
 
   await uploadToR2(r2Key, buffer, "video/webm");
 

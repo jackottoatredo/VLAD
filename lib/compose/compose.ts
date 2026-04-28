@@ -23,7 +23,7 @@ const BORDER_G = 77;
 const BORDER_B = 30;
 
 export type ComposeOptions = {
-  presenter: string;
+  userId: string;
   sessionName: string;
   screenVideoPath: string;   // absolute fs path to the Playwright MP4 — ffmpeg input 0
   durationMs: number;        // render duration — used to compute progress without ffprobe
@@ -192,7 +192,7 @@ function buildFilterComplex(vertical: WebcamVertical, horizontal: WebcamHorizont
 }
 
 export async function compositeSessionVideo(options: ComposeOptions): Promise<ComposeResult> {
-  const { presenter, sessionName, screenVideoPath, durationMs, onProgress } = options;
+  const { userId, sessionName, screenVideoPath, durationMs, onProgress } = options;
   const settings = options.webcamSettings ?? DEFAULT_WEBCAM_SETTINGS;
   const webcamPath = options.webcamPath ?? null;
   const hasWebcam = settings.webcamMode !== 'off' && !!webcamPath && existsSync(webcamPath);
@@ -201,7 +201,7 @@ export async function compositeSessionVideo(options: ComposeOptions): Promise<Co
   const outputDir = path.dirname(screenVideoPath);
   const fileName = `${sessionName}-final-${Date.now()}-${randomUUID().slice(0, 8)}.mp4`;
   const outputPath = path.join(outputDir, fileName);
-  const r2Key = `composites/${presenter}/${sessionName}/${fileName}`;
+  const r2Key = `composites/${userId}/${sessionName}/${fileName}`;
 
   // Two branches produce a file with identical stream parameters (libx264 yuv420p +
   // aac 48kHz stereo). Even the "no webcam" path synthesizes silent audio so the

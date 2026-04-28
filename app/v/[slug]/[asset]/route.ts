@@ -11,6 +11,7 @@ type ShareRow = {
   brand: string | null;
   video_url: string | null;
   poster_key: string | null;
+  poster_square_key: string | null;
   gif_key: string | null;
 };
 
@@ -22,6 +23,8 @@ function resolveAsset(asset: string, row: ShareRow): Resolved | null {
       return row.video_url ? { key: row.video_url, contentType: "video/mp4" } : null;
     case "poster.jpg":
       return row.poster_key ? { key: row.poster_key, contentType: "image/jpeg" } : null;
+    case "poster_square.jpg":
+      return row.poster_square_key ? { key: row.poster_square_key, contentType: "image/jpeg" } : null;
     case "preview.gif":
       return row.gif_key ? { key: row.gif_key, contentType: "image/gif" } : null;
     case "download": {
@@ -55,7 +58,7 @@ export async function GET(
 
   const { data, error } = await supabase
     .from("vlad_renders")
-    .select("brand, video_url, poster_key, gif_key")
+    .select("brand, video_url, poster_key, poster_square_key, gif_key")
     .eq("slug", slug)
     .single();
 

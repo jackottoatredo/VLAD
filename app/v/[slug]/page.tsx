@@ -11,6 +11,7 @@ type ShareRow = {
   slug: string;
   video_url: string | null;
   poster_key: string | null;
+  poster_square_key: string | null;
   gif_key: string | null;
 };
 
@@ -18,7 +19,7 @@ type ShareRow = {
 const fetchShareRow = cache(async (slug: string): Promise<ShareRow | null> => {
   const { data, error } = await supabase
     .from("vlad_renders")
-    .select("brand, slug, video_url, poster_key, gif_key")
+    .select("brand, slug, video_url, poster_key, poster_square_key, gif_key")
     .eq("slug", slug)
     .single();
   if (error || !data) return null;
@@ -44,13 +45,25 @@ export async function generateMetadata({
   const baseUrl = await resolveBaseUrl();
   const title = row.brand ?? "Demo";
   const url = `${baseUrl}/v/${slug}`;
-  // Prefer the animated GIF where supported (Slack, iMessage, Apple Mail,
-  // Discord, Twitter/X all animate it). Static-only renderers fall back to
-  // the GIF's first frame; if that ever looks bad we'd switch to poster.jpg.
-  const gifUrl = row.gif_key ? `${baseUrl}/v/${slug}/preview.gif` : null;
-  const posterUrl = row.poster_key ? `${baseUrl}/v/${slug}/poster.jpg` : null;
-  const ogImage = gifUrl ?? posterUrl ?? undefined;
-  const ogImageType = gifUrl ? "image/gif" : "image/jpeg";
+  // Square 1200x1200 poster works in every preview card (iMessage, WhatsApp,
+  // Slack, Twitter/X, LinkedIn, Discord) without center-crop artifacts. Pre-
+  // square rows fall back to the 16:9 poster, which still beats no preview.
+  const ogImageEntry: { url: string; type: string; width: number; height: number } | null =
+    row.poster_square_key
+      ? {
+          url: `${baseUrl}/v/${slug}/poster_square.jpg`,
+          type: "image/jpeg",
+          width: 1200,
+          height: 1200,
+        }
+      : row.poster_key
+        ? {
+            url: `${baseUrl}/v/${slug}/poster.jpg`,
+            type: "image/jpeg",
+            width: 480,
+            height: 270,
+          }
+        : null;
 
   return {
     title,
@@ -58,14 +71,12 @@ export async function generateMetadata({
       title,
       url,
       type: "website",
-      images: ogImage
-        ? [{ url: ogImage, type: ogImageType, width: 480, height: 270 }]
-        : [],
+      images: ogImageEntry ? [ogImageEntry] : [],
     },
     twitter: {
       card: "summary_large_image",
       title,
-      images: ogImage ? [ogImage] : [],
+      images: ogImageEntry ? [ogImageEntry.url] : [],
     },
   };
 }

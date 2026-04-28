@@ -11,6 +11,7 @@ import { produceSessionVideo, type ProduceResult } from "@/lib/render/produce";
 import { mergeVideoFiles } from "@/lib/render/merge";
 import { downloadRecording } from "@/lib/render/download";
 import { extractPosterFrame5 } from "@/lib/render/poster";
+import { extractSquarePoster } from "@/lib/render/posterSquare";
 import { extractPreviewGif } from "@/lib/render/gif";
 import { uploadToR2, downloadFromR2 } from "@/lib/storage/r2";
 import { supabase } from "@/lib/db/supabase";
@@ -28,28 +29,33 @@ async function generateAndUploadShareAssets(
   finalVideoPath: string,
   videoR2Key: string,
   workDir: string,
-): Promise<{ posterKey: string; gifKey: string }> {
+): Promise<{ posterKey: string; posterSquareKey: string; gifKey: string }> {
   const dirOnR2 = path.posix.dirname(videoR2Key);
   const posterKey = `${dirOnR2}/poster.jpg`;
+  const posterSquareKey = `${dirOnR2}/poster_square.jpg`;
   const gifKey = `${dirOnR2}/preview.gif`;
 
   const posterLocal = path.join(workDir, "poster.jpg");
+  const posterSquareLocal = path.join(workDir, "poster_square.jpg");
   const gifLocal = path.join(workDir, "preview.gif");
 
   await extractPosterFrame5(finalVideoPath, posterLocal);
+  await extractSquarePoster(finalVideoPath, posterSquareLocal);
   await extractPreviewGif(finalVideoPath, gifLocal);
 
-  const [posterBuf, gifBuf] = await Promise.all([
+  const [posterBuf, posterSquareBuf, gifBuf] = await Promise.all([
     readFile(posterLocal),
+    readFile(posterSquareLocal),
     readFile(gifLocal),
   ]);
 
   await Promise.all([
     uploadToR2(posterKey, posterBuf, "image/jpeg"),
+    uploadToR2(posterSquareKey, posterSquareBuf, "image/jpeg"),
     uploadToR2(gifKey, gifBuf, "image/gif"),
   ]);
 
-  return { posterKey, gifKey };
+  return { posterKey, posterSquareKey, gifKey };
 }
 
 // Insert a vlad_renders row with a unique slug. Retries on 23505 (slug race)
@@ -60,6 +66,7 @@ async function insertRenderWithSlug(
     user_id: string;
     video_url: string;
     poster_key: string;
+    poster_square_key: string;
     gif_key: string;
   },
 ): Promise<{ renderId: string; slug: string }> {
@@ -178,7 +185,7 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceJo
     // with no DB row.
     let renderId: string | undefined;
     if (d.mergeRenderInsert && result.finalR2Key && result.finalPath) {
-      const { posterKey, gifKey } = await generateAndUploadShareAssets(
+      const { posterKey, posterSquareKey, gifKey } = await generateAndUploadShareAssets(
         result.finalPath,
         result.finalR2Key,
         path.dirname(result.finalPath),
@@ -194,6 +201,7 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceJo
         brand: d.mergeRenderInsert.brand,
         video_url: result.finalR2Key,
         poster_key: posterKey,
+        poster_square_key: posterSquareKey,
         gif_key: gifKey,
         status: "done",
         progress: 100,
@@ -352,7 +360,7 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
 
     // Generate poster + preview gif from the merged file and upload sibling
     // to the mp4. Slug is derived from presenter + recording names.
-    const { posterKey, gifKey } = await generateAndUploadShareAssets(
+    const { posterKey, posterSquareKey, gifKey } = await generateAndUploadShareAssets(
       mergedPath,
       r2Key,
       mergeOutputDir,
@@ -372,6 +380,7 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
       brand: d.brand,
       video_url: r2Key,
       poster_key: posterKey,
+      poster_square_key: posterSquareKey,
       gif_key: gifKey,
       status: "done",
       progress: 100,

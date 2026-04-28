@@ -17,7 +17,7 @@ type Props = {
   onEdit?: () => void
 }
 
-type CopyAction = 'link' | 'email'
+type CopyAction = 'link' | 'gif'
 
 function formatTime(sec: number) {
   if (!Number.isFinite(sec) || sec < 0) return '0:00'
@@ -137,31 +137,17 @@ export default function PreviewModal({
     }
   }
 
-  async function copyEmailSnippet() {
+  function downloadGif() {
     if (!slug) {
-      console.warn('[PreviewModal] copyEmailSnippet: no slug yet (worker wiring pending)')
+      console.warn('[PreviewModal] downloadGif: no slug yet (worker wiring pending)')
       return
     }
-    try {
-      const origin = window.location.origin
-      const shareUrl = `${origin}/v/${slug}`
-      const gifUrl = `${origin}/v/${slug}/preview.gif`
-      const altText = (title || 'demo').replace(/[&<>"']/g, (c) => ({
-        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-      }[c] as string))
-      // Bulletproof email markup: explicit width+border=0+display:block so
-      // Outlook desktop (which ignores most CSS on <img>) still renders the GIF
-      // as a clean clickable link with no phantom whitespace.
-      const html = `<a href="${shareUrl}"><img src="${gifUrl}" alt="${altText}" border="0" style="display:block;max-width:480px;width:100%;height:auto" width="480"></a>`
-      const item = new ClipboardItem({
-        'text/html': new Blob([html], { type: 'text/html' }),
-        'text/plain': new Blob([shareUrl], { type: 'text/plain' }),
-      })
-      await navigator.clipboard.write([item])
-      flashCopied('email')
-    } catch (err) {
-      console.error('Failed to copy email snippet:', err)
-    }
+    const a = document.createElement('a')
+    a.href = `/v/${slug}/download-gif`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    flashCopied('gif')
   }
 
   return (
@@ -233,14 +219,14 @@ export default function PreviewModal({
           )}
         </button>
         <button
-          onClick={copyEmailSnippet}
-          title="Copy email snippet (clickable GIF)"
-          className={`transition-colors ${copied === 'email' ? 'text-green-500' : 'text-muted hover:text-foreground'}`}
+          onClick={downloadGif}
+          title="Download GIF preview"
+          className={`transition-colors ${copied === 'gif' ? 'text-green-500' : 'text-muted hover:text-foreground'}`}
         >
-          {copied === 'email' ? (
+          {copied === 'gif' ? (
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
           ) : (
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
           )}
         </button>
         {downloadUrl && (

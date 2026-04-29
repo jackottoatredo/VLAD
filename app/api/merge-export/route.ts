@@ -163,6 +163,7 @@ export async function POST(request: Request) {
       merchantRecordingName: merchant.name,
       productRecordingName: product.name,
       presenterSlug,
+      brandUrl: merchantBrandUrl || null,
       merchant: merchantPayload,
       product: productPayload,
       settings: { ...DEFAULT_MERGE_JOB_SETTINGS },

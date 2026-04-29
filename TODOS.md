@@ -5,15 +5,17 @@
 - [x] Job Creation form support for no intro.
 - [x] Clean Links
 - [o] Email Templates
+- [x] opengraph links
+- [x] share page
 - [ ] Engagment Stats
 - [ ] Transcription and AI Trend evaluations
 - [ ] Improved Audio Icon
 - [ ] Mixed webcam rendering + transitions
 - [x] 404 page update
-- [ ] scrub fix on video previews
 - [ ] Admin privileges
 - [ ] Cross-link to beta version
 - [ ] auto scrape with chomp api call
+- [ ] naming overhaul
 
 ## Beta Test Comments
 

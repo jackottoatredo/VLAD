@@ -12,7 +12,7 @@ export const runtime = "nodejs";
 // Override the site-level description from app/layout.tsx, which is internal
 // product copy ("Video Language Automated Demo recording interface.") and
 // shouldn't appear in unfurls of public share pages.
-const SHARE_DESCRIPTION = "REDO preview made just for you";
+const SHARE_DESCRIPTION = "a REDO product preview made just for you";
 
 type ShareRow = {
   brand: string | null;

@@ -61,12 +61,18 @@ export type ProduceJobPayload = {
   flowId?: string | null;
 
   /**
-   * When set, the worker inserts a vlad_renders row after the produce
-   * completes. Used by the merge-export's product-only flow, where one product
-   * recording fans out into N renders — one per merchant brand. Distinct from
-   * `flowId` (which backfills vlad_recordings).
+   * When set, the worker UPDATEs the pre-stubbed vlad_renders row identified
+   * by `renderId` after the produce completes. Used by the merge-export's
+   * product-only flow, where one product recording fans out into N renders —
+   * one per merchant brand. Distinct from `flowId` (which backfills
+   * vlad_recordings).
+   *
+   * The row is created at job-enqueue time by /api/product-only-export with
+   * status='rendering' so the UI can resume polling on reload.
    */
   mergeRenderInsert?: {
+    /** Pre-stubbed vlad_renders.id — worker UPDATEs this row on completion. */
+    renderId: string;
     productRecordingId: string;
     /** Display label stored on vlad_renders.brand (typically merchant brandName). */
     brand: string | null;
@@ -130,6 +136,8 @@ export type MergeJobPayload = {
   type: "merge";
 
   userId: string;
+  /** Pre-stubbed vlad_renders.id — worker UPDATEs this row on completion. */
+  renderId: string;
   brand: string | null;
   outputSessionName: string;
 

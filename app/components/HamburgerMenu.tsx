@@ -6,6 +6,7 @@ import { signOut, useSession } from "next-auth/react";
 import BugReportModal from "./BugReportModal";
 import FeatureRequestModal from "./FeatureRequestModal";
 import { useNavigationGuard } from "@/app/contexts/NavigationGuardContext";
+import { APP_ENV, PROD_URL, BETA_URL } from "@/app/config";
 
 const links = [
   { href: "/", label: "Home" },
@@ -54,6 +55,9 @@ export default function HamburgerMenu() {
           className="text-lg font-bold tracking-tight text-foreground"
         >
           VLAD
+          {APP_ENV !== "prod" && (
+            <span className="ml-1 italic font-normal">{APP_ENV}</span>
+          )}
         </button>
 
         {open && (
@@ -125,6 +129,50 @@ export default function HamburgerMenu() {
               >
                 Slack
               </a>
+
+              {APP_ENV === "prod" && (
+                <>
+                  <div className="my-1 border-t border-border" />
+                  <a
+                    href={BETA_URL}
+                    onClick={() => setOpen(false)}
+                    className="block w-full px-4 py-1.5 text-left text-xs text-muted transition-colors hover:bg-background hover:text-foreground"
+                  >
+                    Try beta
+                  </a>
+                </>
+              )}
+              {APP_ENV === "beta" && (
+                <>
+                  <div className="my-1 border-t border-border" />
+                  <a
+                    href={PROD_URL}
+                    onClick={() => setOpen(false)}
+                    className="block w-full px-4 py-1.5 text-left text-xs text-muted transition-colors hover:bg-background hover:text-foreground"
+                  >
+                    Exit beta
+                  </a>
+                </>
+              )}
+              {APP_ENV === "dev" && (
+                <>
+                  <div className="my-1 border-t border-border" />
+                  <a
+                    href={PROD_URL}
+                    onClick={() => setOpen(false)}
+                    className="block w-full px-4 py-1.5 text-left text-xs text-muted transition-colors hover:bg-background hover:text-foreground"
+                  >
+                    Prod
+                  </a>
+                  <a
+                    href={BETA_URL}
+                    onClick={() => setOpen(false)}
+                    className="block w-full px-4 py-1.5 text-left text-xs text-muted transition-colors hover:bg-background hover:text-foreground"
+                  >
+                    Beta
+                  </a>
+                </>
+              )}
             </nav>
           </>
         )}

@@ -6,7 +6,6 @@ import { downloadRecording } from "@/lib/render/download";
 import { eventsToKeyframes } from "@/lib/render/keyframes";
 import { jobsQueue } from "@/lib/queue/connection";
 import { DEFAULT_MERGE_JOB_SETTINGS, type MergeJobPayload, type MergeRecordingPayload } from "@/lib/queue/payloads";
-import { getPresignedUrl } from "@/lib/storage/r2";
 import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -101,6 +100,34 @@ export async function POST(request: Request) {
   const { firstName, lastName } = emailToName(session.email);
   const presenterSlug = buildBaseSlug([firstName, lastName]);
 
+  // Stub the vlad_renders row at job-enqueue time. The UI hydrates this on
+  // mount so an in-progress render survives page reloads — without the stub,
+  // refresh wipes the only client-side reference to the job. The worker
+  // UPDATEs this same row when the job completes (status='done', video_url,
+  // slug, share assets). On failure, worker.on('failed') marks status='error'.
+  const { data: stub, error: stubErr } = await supabase
+    .from("vlad_renders")
+    .insert({
+      user_id: userId,
+      job_id: jobId,
+      job_request: { endpoint: "/api/merge-export", body },
+      merchant_recording_id: merchant.id,
+      product_recording_id: product.id,
+      brand,
+      brand_name: merchantBrandName,
+      brand_url: merchantBrandUrl || null,
+      product_name: product.product_name,
+      status: "rendering",
+      progress: 0,
+      seen: false,
+    })
+    .select("id")
+    .single();
+  if (stubErr || !stub) {
+    return NextResponse.json({ error: "Failed to create render row." }, { status: 500 });
+  }
+  const renderId = stub.id as string;
+
   // Download recordings from R2 to compute keyframes for the payload
   const workDir = path.join(tmpdir(), `vlad-merge-prep-${jobId}`);
   const merchantPrepDir = path.join(workDir, "merchant");
@@ -164,6 +191,7 @@ export async function POST(request: Request) {
     const job = await jobsQueue.add("merge", {
       type: "merge",
       userId,
+      renderId,
       brand,
       outputSessionName,
       merchantRecordingId: merchant.id,
@@ -183,68 +211,12 @@ export async function POST(request: Request) {
       priority: 5,
     });
 
-    return NextResponse.json({ jobId: job.id });
+    return NextResponse.json({ jobId: job.id, renderId });
   } finally {
     // Clean up prep temp dir (only downloaded mouse JSON for keyframe computation)
     const { rm } = await import("node:fs/promises");
     rm(workDir, { recursive: true, force: true }).catch(() => {});
   }
-}
-
-export async function GET(request: Request) {
-  const session = await requireSession();
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { searchParams } = new URL(request.url);
-  const jobId = searchParams.get("jobId");
-
-  if (!jobId) {
-    return NextResponse.json({ error: "Missing jobId." }, { status: 400 });
-  }
-
-  const job = await jobsQueue.getJob(jobId);
-  if (!job) {
-    return NextResponse.json({ error: "Job not found." }, { status: 404 });
-  }
-
-  const state = await job.getState();
-
-  if (state === "completed") {
-    const raw = job.returnvalue;
-    const result = (typeof raw === "string" ? JSON.parse(raw) : raw) as { videoUrl: string; renderId: string };
-    const presignedUrl = await getPresignedUrl(result.videoUrl);
-    return NextResponse.json({
-      status: "done",
-      currentStep: 4,
-      stepProgress: [100, 100, 100, 100, 100],
-      stepLabels: ["Rendering intro", "Compositing intro", "Rendering product", "Compositing product", "Merging"],
-      videoUrl: presignedUrl,
-      renderId: result.renderId,
-    });
-  }
-
-  if (state === "failed") {
-    return NextResponse.json({
-      status: "error",
-      error: job.failedReason ?? "Merge failed.",
-    });
-  }
-
-  // Active or waiting — return progress
-  const progress = job.progress;
-  if (progress && typeof progress === "object" && "status" in (progress as Record<string, unknown>)) {
-    return NextResponse.json(progress);
-  }
-
-  // Job queued but not started yet
-  return NextResponse.json({
-    status: "running",
-    currentStep: 0,
-    stepProgress: [0, 0, 0, 0, 0],
-    stepLabels: ["Rendering intro", "Compositing intro", "Rendering product", "Compositing product", "Merging"],
-  });
 }
 
 function extractWebcamSettings(meta: Record<string, unknown>): WebcamSettings {

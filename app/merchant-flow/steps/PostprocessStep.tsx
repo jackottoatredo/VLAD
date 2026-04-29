@@ -9,10 +9,17 @@ import { useUser } from '@/app/contexts/UserContext'
 import { useMerchantFlow } from '@/app/contexts/MerchantFlowContext'
 import { merchantPostprocess } from '@/app/copy/instructions'
 import NameRecordingModal from '@/app/components/NameRecordingModal'
+import type { JobProgress, JobStep } from '@/lib/queue/progress'
 
 const POLL_MS = 500
 
-type LoadingStage = { label: string; progress: number }
+type LoadingStage = JobStep
+
+const INITIAL_STAGES: LoadingStage[] = [
+  { label: 'Rendering', progress: 0 },
+  { label: 'Compositing', progress: 0 },
+  { label: 'Clipping', progress: 0 },
+]
 
 type Props = {
   navBack?: NavButton | null
@@ -25,9 +32,7 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
   const { merchantId, brandName, websiteUrl: merchantUrl, webcamSettings, trimStartSec, trimEndSec, postprocessVideoUrl, flowId, name: existingName, postprocessJobId, origin } = flow
 
   const [videoUrl, setVideoUrl] = useState<string | null>(postprocessVideoUrl)
-  const initialLoading: LoadingStage[] | null = postprocessVideoUrl
-    ? null
-    : [{ label: 'Rendering', progress: 0 }, { label: 'Compositing', progress: 0 }]
+  const initialLoading: LoadingStage[] | null = postprocessVideoUrl ? null : INITIAL_STAGES
   const [loading, setLoading] = useState<LoadingStage[] | null>(initialLoading)
   const [error, setError] = useState<string | null>(null)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
@@ -41,17 +46,15 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
     flow.setTrim(start, end)
   }, [flow])
 
-  // Polling
+  // Polling — consumes the unified JobProgress contract from /api/jobs/:jobId.
   useEffect(() => {
     pollRef.current = setInterval(async () => {
       const jobId = jobIdRef.current
       if (!jobId) return
       try {
-        const res = await fetch(`/api/render-progress/${jobId}`)
-        const job = (await res.json()) as {
-          status: string; rendered?: number; composited?: number; total?: number;
-          videoUrl?: string; videoR2Key?: string; message?: string;
-        }
+        const res = await fetch(`/api/jobs/${jobId}`)
+        if (!res.ok) return
+        const job = (await res.json()) as JobProgress
         if (job.status === 'done' && job.videoUrl) {
           jobIdRef.current = null
           flow.setPostprocessVideoUrl(job.videoUrl, job.videoR2Key)
@@ -61,12 +64,8 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
           jobIdRef.current = null
           setError(job.message ?? 'Processing failed.')
           setLoading(null)
-        } else if (job.status === 'rendering') {
-          const pct = job.total && job.total > 0 ? (job.rendered ?? 0) / job.total * 100 : 0
-          setLoading([{ label: 'Rendering', progress: pct }, { label: 'Compositing', progress: 0 }])
-        } else if (job.status === 'compositing') {
-          const pct = job.total && job.total > 0 ? (job.composited ?? 0) / job.total * 100 : 0
-          setLoading([{ label: 'Rendering', progress: 100 }, { label: 'Compositing', progress: pct }])
+        } else if (job.status === 'running') {
+          setLoading(job.steps)
         }
       } catch { /* transient */ }
     }, POLL_MS)
@@ -80,7 +79,7 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
     if (!postprocessJobId || postprocessVideoUrl) return
     if (jobIdRef.current === postprocessJobId) return
     jobIdRef.current = postprocessJobId
-    setLoading([{ label: 'Rendering', progress: 0 }, { label: 'Compositing', progress: 0 }])
+    setLoading(INITIAL_STAGES)
   }, [postprocessJobId, postprocessVideoUrl])
 
   // Auto-render only for reopened flows. New-recording flows rely on
@@ -99,7 +98,7 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
     if (!presenter || !merchantId || !flowId) return
     setError(null)
     setVideoUrl(null)
-    setLoading([{ label: 'Rendering', progress: 0 }, { label: 'Compositing', progress: 0 }])
+    setLoading(INITIAL_STAGES)
     jobIdRef.current = null
 
     const targetUrl = merchantUrl

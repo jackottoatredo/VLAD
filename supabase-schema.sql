@@ -48,9 +48,14 @@ create table vlad_renders (
   progress                int default 0,
   seen                    boolean not null default false,
   stale                   boolean not null default false,
+  job_id                  text,
+  job_request             jsonb,
   created_at              timestamptz default now()
 );
 
 create unique index vlad_renders_slug_unique
   on vlad_renders (slug)
   where slug is not null;
+
+create index vlad_renders_job_id_idx
+  on vlad_renders (job_id) where job_id is not null;

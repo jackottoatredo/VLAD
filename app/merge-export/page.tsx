@@ -1,12 +1,20 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import DeleteModal from '@/app/components/DeleteModal'
 import PreviewModal from '@/app/components/PreviewModal'
 import Markdown from '@/app/components/Markdown'
 import { mergeExport as mergeExportInstructions } from '@/app/copy/instructions'
-import { initialSteps, initialProductOnlySteps, runMergeJob, runProductOnlyJob } from './pipeline'
+import {
+  initialMergeSteps,
+  initialProductOnlySteps,
+  startMergeJob,
+  startProductOnlyJob,
+  pollJob,
+  JobMissingError,
+  type PipelineStep,
+} from './pipeline'
 import GenerateMergeModal, { type MergeFormState } from './GenerateMergeModal'
 
 type Recording = {
@@ -22,6 +30,8 @@ type Recording = {
   updated_at: string
 }
 
+type JobRequest = { endpoint: string; body: unknown }
+
 type Render = {
   id: string
   brand: string | null
@@ -33,26 +43,16 @@ type Render = {
   progress: number
   seen: boolean
   stale: boolean
+  job_id: string | null
+  job_request: JobRequest | null
   created_at: string
+  /** Transient — populated by the poll loop while status === 'rendering'. Not from DB. */
+  liveSteps?: PipelineStep[]
 }
 
-type ActiveTask = {
-  key: string
-  /** Discriminates retry routing — 'merge' fans through /api/merge-export, 'product-only' through /api/product-only-export. */
-  kind: 'merge' | 'product-only'
-  brand: string
-  /** Set for kind='merge'. Empty string for product-only. */
-  merchantRecordingId: string
-  productRecordingId: string
-  /** Set for kind='product-only' so retries can reconstruct the call. */
-  merchantBrand?: { websiteUrl: string; brandName: string }
-  /** Per-step progress (0-100) */
-  steps: { label: string; progress: number }[]
-  /** Set once the DB row is created */
-  renderId?: string
-  /** Optimistically set when user clicks to dismiss "new" */
-  markedSeen?: boolean
-  error?: string
+function initialStepsForEndpoint(endpoint: string | null | undefined): PipelineStep[] {
+  if (endpoint === '/api/product-only-export') return initialProductOnlySteps()
+  return initialMergeSteps()
 }
 
 export default function MergeExportPage() {
@@ -73,9 +73,12 @@ export default function MergeExportPage() {
   const [selectedMerchants, setSelectedMerchants] = useState<Set<string>>(new Set())
   const [selectedProduct, setSelectedProduct] = useState<string | null>(null)
   const [showGenerateModal, setShowGenerateModal] = useState(false)
-  const [activeTasks, setActiveTasks] = useState<ActiveTask[]>([])
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string; kind: 'recording' | 'render' } | null>(null)
   const [previewTarget, setPreviewTarget] = useState<{ title: string; videoUrl?: string | null; renderId?: string; downloadName?: string; onEdit?: () => void; trimStartSec?: number; trimEndSec?: number; slug?: string | null } | null>(null)
+
+  // Tracks renderIds currently being polled so the resume effect doesn't
+  // double up when the polling tick mutates the renders array.
+  const pollingRef = useRef<Set<string>>(new Set())
 
   async function handleDelete() {
     if (!deleteTarget) return
@@ -90,18 +93,12 @@ export default function MergeExportPage() {
       setProducts((prev) => prev.filter((r) => r.id !== deleteTarget.id))
     } else {
       setRenders((prev) => prev.filter((r) => r.id !== deleteTarget.id))
-      setActiveTasks((prev) => prev.filter((t) => t.renderId !== deleteTarget.id))
     }
     setDeleteTarget(null)
   }
 
   function markSeen(id: string) {
     setRenders((prev) => prev.map((r) => (r.id === id ? { ...r, seen: true } : r)))
-    // Also update the active task if it holds this render
-    setActiveTasks((prev) => prev.map((t) => {
-      if (t.renderId !== id) return t
-      return { ...t, markedSeen: true }
-    }))
     fetch('/api/renders', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -112,7 +109,18 @@ export default function MergeExportPage() {
   const fetchRenders = useCallback(() => {
     fetch('/api/renders')
       .then((r) => r.json())
-      .then((d) => setRenders(d.renders ?? []))
+      .then((d) => {
+        const rows = (d.renders ?? []) as Render[]
+        // Seed liveSteps for any row that's still rendering so the progress
+        // bar appears immediately on mount instead of waiting for the first
+        // poll tick. The bar count comes from the original POST endpoint.
+        const seeded = rows.map((r) =>
+          r.status === 'rendering' && !r.liveSteps
+            ? { ...r, liveSteps: initialStepsForEndpoint(r.job_request?.endpoint) }
+            : r,
+        )
+        setRenders(seeded)
+      })
   }, [])
 
   useEffect(() => {
@@ -124,6 +132,42 @@ export default function MergeExportPage() {
       .then((d) => setProducts(d.recordings ?? []))
     fetchRenders()
   }, [fetchRenders])
+
+  // Resume / start polling for any rendering row with a job_id. Idempotent
+  // via pollingRef — the same renderId is never polled twice even though
+  // this effect re-runs on every render-state mutation (including live
+  // progress ticks).
+  useEffect(() => {
+    for (const r of renders) {
+      if (r.status !== 'rendering' || !r.job_id) continue
+      if (pollingRef.current.has(r.id)) continue
+      pollingRef.current.add(r.id)
+
+      const renderId = r.id
+      pollJob(r.job_id, (steps) => {
+        setRenders((prev) => prev.map((rr) => (rr.id === renderId ? { ...rr, liveSteps: steps } : rr)))
+      })
+        .then(() => {
+          pollingRef.current.delete(renderId)
+          // Refresh from DB to pick up the worker's UPDATE (video_url, slug,
+          // poster, status='done').
+          fetchRenders()
+        })
+        .catch((err) => {
+          pollingRef.current.delete(renderId)
+          if (err instanceof JobMissingError) {
+            // Orphan: BullMQ job is gone (worker crash, Redis evict). Mark the
+            // row as failed so the UI shows Failed + Retry.
+            fetch('/api/renders', {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: renderId, status: 'error' }),
+            })
+          }
+          setRenders((prev) => prev.map((rr) => (rr.id === renderId ? { ...rr, status: 'error' } : rr)))
+        })
+    }
+  }, [renders, fetchRenders])
 
   function toggleMerchant(id: string) {
     setSelectedMerchants((prev) => {
@@ -149,7 +193,6 @@ export default function MergeExportPage() {
     const meta = recording.metadata ?? {}
     const trimStartSec = typeof meta.trimStartSec === 'number' ? meta.trimStartSec : undefined
     const trimEndSec = typeof meta.trimEndSec === 'number' ? meta.trimEndSec : undefined
-    // Pass the R2 key directly — PreviewModal streams via /api/stream?key=...
     setPreviewTarget({
       title,
       videoUrl: recording.preview_url,
@@ -160,41 +203,37 @@ export default function MergeExportPage() {
     })
   }
 
+  // Optimistically insert a stub Render row matching what the API just created
+  // so the UI shows the in-progress task immediately. The poll-resume effect
+  // picks it up via pollingRef on the next render.
+  function insertOptimistic(renderId: string, jobId: string, brand: string, endpoint: string, body: unknown) {
+    const optimistic: Render = {
+      id: renderId,
+      brand,
+      video_url: null,
+      slug: null,
+      poster_key: null,
+      gif_key: null,
+      status: 'rendering',
+      progress: 0,
+      seen: false,
+      stale: false,
+      job_id: jobId,
+      job_request: { endpoint, body },
+      created_at: new Date().toISOString(),
+      liveSteps: initialStepsForEndpoint(endpoint),
+    }
+    setRenders((prev) => [optimistic, ...prev])
+  }
+
   async function runTask(merchantRecordingId: string, productRecordingId: string) {
     const brand = `${merchantLabel(merchantRecordingId)}-${productLabel(productRecordingId)}`
-    const key = `${merchantRecordingId}-${productRecordingId}-${Date.now()}`
-
-    const task: ActiveTask = {
-      key,
-      kind: 'merge',
-      brand,
-      merchantRecordingId,
-      productRecordingId,
-      steps: initialSteps(),
-    }
-
-    setActiveTasks((prev) => [...prev, task])
-
     try {
-      const result = await runMergeJob(
-        merchantRecordingId,
-        productRecordingId,
-        brand,
-        (steps) => {
-          setActiveTasks((prev) =>
-            prev.map((t) => (t.key === key ? { ...t, steps } : t))
-          )
-        },
-      )
-
-      // Stash the DB id so the unified list can swap the active entry for the DB row
-      setActiveTasks((prev) => prev.map((t) => (t.key === key ? { ...t, renderId: result.renderId } : t)))
-      // Refresh renders from DB to pick up the new entry
-      fetchRenders()
+      const { jobId, renderId } = await startMergeJob(merchantRecordingId, productRecordingId, brand)
+      insertOptimistic(renderId, jobId, brand, '/api/merge-export', { merchantRecordingId, productRecordingId, brand })
     } catch {
-      setActiveTasks((prev) =>
-        prev.map((t) => (t.key === key ? { ...t, error: 'Render failed' } : t))
-      )
+      // The user has no row to retry — surface an inline error via a transient
+      // failed entry would require a fake id. Rely on the modal-level UX.
     }
   }
 
@@ -205,33 +244,47 @@ export default function MergeExportPage() {
     const merchantLabelText = merchantBrand.brandName || merchantBrand.websiteUrl
     const productLabelText = productLabel(productRecordingId)
     const brand = `${merchantLabelText}-${productLabelText}`
-    const key = `prod-${productRecordingId}-${merchantBrand.websiteUrl}-${Date.now()}`
-
-    const task: ActiveTask = {
-      key,
-      kind: 'product-only',
-      brand,
-      merchantRecordingId: '',
-      productRecordingId,
-      merchantBrand,
-      steps: initialProductOnlySteps(),
-    }
-
-    setActiveTasks((prev) => [...prev, task])
-
     try {
-      const result = await runProductOnlyJob(productRecordingId, merchantBrand, (steps) => {
-        setActiveTasks((prev) => prev.map((t) => (t.key === key ? { ...t, steps } : t)))
-      })
-      setActiveTasks((prev) =>
-        prev.map((t) => (t.key === key ? { ...t, renderId: result.renderId } : t)),
-      )
-      fetchRenders()
+      const result = await startProductOnlyJob(productRecordingId, merchantBrand)
+      if ('cached' in result && result.cached) {
+        // Cache hit — server inserted a 'done' row directly. Refresh.
+        fetchRenders()
+        return
+      }
+      const { jobId, renderId } = result
+      insertOptimistic(renderId, jobId, brand, '/api/product-only-export', { productRecordingId, merchantBrand })
     } catch {
-      setActiveTasks((prev) =>
-        prev.map((t) => (t.key === key ? { ...t, error: 'Render failed' } : t)),
-      )
+      /* see runTask comment */
     }
+  }
+
+  async function retry(render: Render) {
+    if (!render.job_request) return
+    const { endpoint, body } = render.job_request
+    // Drop the failed row first so the retried task replaces it visually.
+    setRenders((prev) => prev.filter((r) => r.id !== render.id))
+    fetch('/api/renders', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: render.id }),
+    })
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) return
+      const data = (await res.json()) as
+        | { cached: true; renderId: string; videoR2Key: string }
+        | { jobId: string; renderId: string }
+      if ('cached' in data && data.cached === true) {
+        fetchRenders()
+        return
+      }
+      const job = data as { jobId: string; renderId: string }
+      insertOptimistic(job.renderId, job.jobId, render.brand ?? 'Render', endpoint, body)
+    } catch { /* swallow */ }
   }
 
   function handleGenerate(state: MergeFormState) {
@@ -392,143 +445,84 @@ export default function MergeExportPage() {
                 </button>
               </div>
               <div className="flex-1 overflow-y-auto">
-                {(() => {
-                  // Build a unified list: active tasks first, then DB renders that aren't already represented by an active task
-                  const completedIds = new Set(activeTasks.map((t) => t.renderId).filter(Boolean))
-                  type ExportEntry =
-                    | { kind: 'active'; task: ActiveTask }
-                    | { kind: 'db'; render: Render }
-                  const entries: ExportEntry[] = [
-                    ...activeTasks.map((task): ExportEntry => ({ kind: 'active', task })),
-                    ...renders
-                      .filter((r) => !completedIds.has(r.id))
-                      .map((render): ExportEntry => ({ kind: 'db', render })),
-                  ]
+                {renders.length === 0 && (
+                  <p className="px-4 py-3 text-xs text-muted opacity-70">No exports yet.</p>
+                )}
+                {renders.map((r) => {
+                  const label = r.brand ?? r.id.slice(0, 8)
+                  const isNew = r.status === 'done' && !r.seen
+                  const isInProgress = r.status === 'rendering' || r.status === 'pending'
+                  const steps = r.liveSteps ?? initialStepsForEndpoint(r.job_request?.endpoint)
+                  const currentStep = isInProgress
+                    ? steps.find((s) => s.progress < 100) ?? steps[steps.length - 1]
+                    : null
 
-                  if (entries.length === 0) {
-                    return <p className="px-4 py-3 text-xs text-muted opacity-70">No exports yet.</p>
+                  function openPreview() {
+                    if (r.status !== 'done') return
+                    if (isNew) markSeen(r.id)
+                    setPreviewTarget({ title: `Export: ${label}`, videoUrl: r.video_url, renderId: r.id, downloadName: label, slug: r.slug })
                   }
 
-                  return entries.map((entry, i) => {
-                    const border = ' border-b border-border'
+                  return (
+                    <div
+                      key={r.id}
+                      className="group relative flex h-10 items-center justify-between border-b border-border px-4 transition-colors hover:bg-background"
+                      onDoubleClick={openPreview}
+                    >
+                      <span className="flex min-w-0 flex-1 items-center gap-2">
+                        {isNew && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-foreground" />}
+                        <p className="min-w-0 truncate text-sm text-muted">{label}</p>
+                      </span>
 
-                    if (entry.kind === 'active') {
-                      const { task } = entry
-                      const inProgress = !task.renderId && !task.error
-                      const currentStep = inProgress
-                        ? task.steps.find((s) => s.progress < 100) ?? task.steps[task.steps.length - 1]
-                        : null
-                      const isNew = task.renderId && !task.markedSeen
-                      const isComplete = !!task.renderId
-
-                      function openActivePreview() {
-                        if (isNew) markSeen(task.renderId!)
-                        const dbRow = renders.find((r) => r.id === task.renderId)
-                        setPreviewTarget({ title: `Export: ${task.brand}`, videoUrl: dbRow?.video_url, renderId: task.renderId, downloadName: task.brand, slug: dbRow?.slug })
-                      }
-
-                      return (
-                        <div
-                          key={task.key}
-                          className={`group relative flex h-10 items-center justify-between px-4 transition-colors hover:bg-background${border}`}
-                          onDoubleClick={isComplete ? openActivePreview : undefined}
-                        >
-                          <span className="flex min-w-0 items-center gap-2">
-                            {isNew && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-foreground" />}
-                            <p className="min-w-0 truncate text-sm text-muted">{task.brand}</p>
-                          </span>
-                          {task.error ? (
-                            <span className="ml-3 flex shrink-0 items-center gap-2">
-                              <span className="text-xs text-red-500">Failed</span>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  setActiveTasks((prev) => prev.filter((t) => t.key !== task.key))
-                                  if (task.kind === 'product-only' && task.merchantBrand) {
-                                    runProductOnlyTask(task.productRecordingId, task.merchantBrand)
-                                  } else {
-                                    runTask(task.merchantRecordingId, task.productRecordingId)
-                                  }
-                                }}
-                                className="text-xs text-muted hover:text-foreground"
-                              >
-                                Retry
-                              </button>
-                            </span>
-                          ) : currentStep ? (
-                            <span className="ml-3 shrink-0 text-xs text-muted opacity-70">{currentStep.label}</span>
-                          ) : isComplete ? (
-                            <span className="ml-3 flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                              <button
-                                onClick={(e) => { e.stopPropagation(); openActivePreview() }}
-                                className="text-muted hover:text-foreground"
-                              >
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                              </button>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: task.renderId!, name: task.brand, kind: 'render' }) }}
-                                className="text-muted hover:text-red-500"
-                              >
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
-                              </button>
-                            </span>
-                          ) : null}
-                          {inProgress && (
-                            <div className="absolute bottom-0 left-0 right-0 flex h-[2px] gap-[2px]">
-                              {task.steps.map((step) => (
-                                <div key={step.label} className="flex-1 bg-border">
-                                  <div
-                                    className="h-full bg-muted transition-all duration-100"
-                                    style={{ width: `${Math.round(step.progress)}%` }}
-                                  />
-                                </div>
-                              ))}
-                            </div>
+                      {r.status === 'error' ? (
+                        <span className="ml-3 flex shrink-0 items-center gap-2">
+                          <span className="text-xs text-red-500">Failed</span>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); retry(r) }}
+                            className="text-xs text-muted hover:text-foreground"
+                          >
+                            Retry
+                          </button>
+                        </span>
+                      ) : isInProgress && currentStep ? (
+                        <span className="ml-3 shrink-0 text-xs text-muted opacity-70">{currentStep.label}</span>
+                      ) : r.status === 'done' ? (
+                        <>
+                          {r.stale && (
+                            <span className="mr-2 shrink-0 rounded border border-amber-500/50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-amber-600 dark:text-amber-400">Outdated</span>
                           )}
+                          <span className="ml-1 flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); openPreview() }}
+                              className="text-muted hover:text-foreground"
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: r.id, name: label, kind: 'render' }) }}
+                              className="text-muted hover:text-red-500"
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                            </button>
+                          </span>
+                        </>
+                      ) : null}
+
+                      {isInProgress && (
+                        <div className="absolute bottom-0 left-0 right-0 flex h-[2px] gap-[2px]">
+                          {steps.map((step) => (
+                            <div key={step.label} className="flex-1 bg-border">
+                              <div
+                                className="h-full bg-muted transition-all duration-100"
+                                style={{ width: `${Math.round(step.progress)}%` }}
+                              />
+                            </div>
+                          ))}
                         </div>
-                      )
-                    }
-
-                    const { render: r } = entry
-                    const isNew = !r.seen
-                    const label = r.brand ?? r.id.slice(0, 8)
-
-                    function openDbPreview() {
-                      if (isNew) markSeen(r.id)
-                      setPreviewTarget({ title: `Export: ${label}`, videoUrl: r.video_url, renderId: r.id, downloadName: label, slug: r.slug })
-                    }
-
-                    return (
-                      <div
-                        key={r.id}
-                        className={`group flex h-10 items-center justify-between px-4 transition-colors hover:bg-background${border}`}
-                        onDoubleClick={openDbPreview}
-                      >
-                        <span className="flex min-w-0 flex-1 items-center gap-2">
-                          {isNew && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-foreground" />}
-                          <p className="min-w-0 truncate text-sm text-muted">{label}</p>
-                        </span>
-                        {r.stale && (
-                          <span className="mr-2 shrink-0 rounded border border-amber-500/50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-amber-600 dark:text-amber-400">Outdated</span>
-                        )}
-                        <span className="ml-1 flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                          <button
-                            onClick={(e) => { e.stopPropagation(); openDbPreview() }}
-                            className="text-muted hover:text-foreground"
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                          </button>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: r.id, name: label, kind: 'render' }) }}
-                            className="text-muted hover:text-red-500"
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
-                          </button>
-                        </span>
-                      </div>
-                    )
-                  })
-                })()}
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             </div>
         </div>

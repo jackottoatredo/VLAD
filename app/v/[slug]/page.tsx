@@ -140,7 +140,7 @@ export default async function SharePage({
 
   return (
     <main className="force-light share-fill-on-landscape flex min-h-screen flex-1 items-center justify-center bg-background px-4 py-10 text-foreground">
-      <div className="w-full max-w-6xl lg:max-w-[60vw]">
+      <div className="share-wrapper-on-landscape w-full max-w-6xl lg:max-w-[60vw]">
         {brandName && productLabel ? (
           <header className="share-hide-on-landscape mb-5 text-center">
             <h1 className="text-3xl font-bold leading-tight text-foreground sm:text-4xl">

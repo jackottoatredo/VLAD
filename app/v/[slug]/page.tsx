@@ -45,23 +45,23 @@ export async function generateMetadata({
   const baseUrl = await resolveBaseUrl();
   const title = row.brand ?? "Demo";
   const url = `${baseUrl}/v/${slug}`;
-  // Square 1200x1200 poster works in every preview card (iMessage, WhatsApp,
-  // Slack, Twitter/X, LinkedIn, Discord) without center-crop artifacts. Pre-
-  // square rows fall back to the 16:9 poster, which still beats no preview.
+  // og:image is the no-webcam render's first frame at native 16:9. Older
+  // rows without poster_square_key fall back to the with-webcam poster,
+  // which is also 16:9 — same dimensions.
   const ogImageEntry: { url: string; type: string; width: number; height: number } | null =
     row.poster_square_key
       ? {
           url: `${baseUrl}/v/${slug}/poster_square.jpg`,
           type: "image/jpeg",
-          width: 1200,
-          height: 1200,
+          width: 1920,
+          height: 1080,
         }
       : row.poster_key
         ? {
             url: `${baseUrl}/v/${slug}/poster.jpg`,
             type: "image/jpeg",
-            width: 480,
-            height: 270,
+            width: 1920,
+            height: 1080,
           }
         : null;
 

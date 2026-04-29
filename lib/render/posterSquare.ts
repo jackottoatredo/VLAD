@@ -4,24 +4,17 @@ import { resolvedFfmpegPath } from "@/lib/render/render";
 
 const FFMPEG_BIN = resolvedFfmpegPath ?? "ffmpeg";
 
-const SQUARE_SIZE = 1200;
-
-// 1200x1200 from the center of frame 1. Caller MUST pass the no-webcam
-// render so the og:image isn't a portrait of the presenter — for og cards
-// the screen content reads better as a thumbnail. Center-cropped (not
-// letterboxed) so the card has no black bars.
+// First frame of the source at native resolution (no crop, no scale).
+// Caller MUST pass the no-webcam render so the og:image shows screen
+// content rather than a portrait of the presenter. File/function names
+// are historical — this used to produce a square; the "square" concept
+// was dropped in favor of the native 16:9 frame.
 export async function extractSquarePoster(
   videoPath: string,
   outputJpgPath: string,
 ): Promise<{ posterPath: string; bytes: number }> {
-  const filter = [
-    `crop=ih:ih:(iw-ih)/2:0`,
-    `scale=${SQUARE_SIZE}:${SQUARE_SIZE}`,
-  ].join(",");
-
   const args = [
     "-i", videoPath,
-    "-vf", filter,
     "-frames:v", "1",
     "-q:v", "2",
     "-y",

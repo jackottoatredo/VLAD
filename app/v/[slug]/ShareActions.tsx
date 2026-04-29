@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { BOOK_DEMO_URL } from '@/app/config'
 
 type Props = {
   slug: string
@@ -36,7 +37,7 @@ export default function ShareActions({ slug, downloadHref, interactiveDemoUrl }:
     <div className="mt-6 flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-center">
       <a href={downloadHref} className={secondary}>
         <DownloadIcon />
-        <span>Download video</span>
+        <span>Download Video</span>
       </a>
       <button
         type="button"
@@ -44,15 +45,19 @@ export default function ShareActions({ slug, downloadHref, interactiveDemoUrl }:
         className={`${secondary} ${copied ? 'text-green-600 dark:text-green-500' : ''}`}
       >
         {copied ? <CheckIcon /> : <LinkIcon />}
-        <span>{copied ? 'Copied' : 'Copy link'}</span>
+        <span>{copied ? 'Copied' : 'Copy Link'}</span>
       </button>
+      <a href={BOOK_DEMO_URL} target="_blank" rel="noreferrer" className={secondary}>
+        <CalendarIcon />
+        <span>Book a Demo</span>
+      </a>
       <a
         href={exploreHref}
         target={isExternal ? '_blank' : undefined}
         rel={isExternal ? 'noreferrer' : undefined}
         className={primary}
       >
-        <span>Explore interactive demo</span>
+        <span>Explore Your Interactive Preview</span>
         <LongArrowIcon />
       </a>
     </div>
@@ -74,6 +79,17 @@ function LinkIcon() {
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
       <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+    </svg>
+  )
+}
+
+function CalendarIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+      <line x1="16" y1="2" x2="16" y2="6" />
+      <line x1="8" y1="2" x2="8" y2="6" />
+      <line x1="3" y1="10" x2="21" y2="10" />
     </svg>
   )
 }

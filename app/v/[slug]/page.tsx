@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { supabase } from "@/lib/db/supabase";
 import { INTERACTIVE_DEMO_BASE_URL } from "@/app/config";
+import { findProductLabel } from "@/lib/products";
 import ShareActions from "./ShareActions";
 
 export const runtime = "nodejs";
@@ -30,6 +31,36 @@ const fetchShareRow = cache(async (slug: string): Promise<ShareRow | null> => {
   return data as ShareRow;
 });
 
+// "mammut.com" → "Mammut", "and-collar.com" → "And Collar"
+function brandNameFromUrl(brandUrl: string): string {
+  const root = brandUrl.split(".")[0] ?? brandUrl;
+  if (!root) return brandUrl;
+  return root
+    .split("-")
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+function deriveTitleParts(row: ShareRow): {
+  brandName: string | null;
+  productLabel: string | null;
+} {
+  const brandName = row.brand_url ? brandNameFromUrl(row.brand_url) : null;
+  const safeProduct = row.product_name?.trim() || null;
+  // Fall back to the raw safe form if the catalog has drifted from old rows.
+  const productLabel = safeProduct ? findProductLabel(safeProduct) ?? safeProduct : null;
+  return { brandName, productLabel };
+}
+
+function buildShareTitle(row: ShareRow): string {
+  const { brandName, productLabel } = deriveTitleParts(row);
+  if (brandName && productLabel) {
+    return `Hey ${brandName}, see what REDO ${productLabel} can do for you`;
+  }
+  return row.brand ?? "Demo";
+}
+
 async function resolveBaseUrl(): Promise<string> {
   const h = await headers();
   const host = h.get("host") ?? "localhost:3000";
@@ -47,7 +78,7 @@ export async function generateMetadata({
   if (!row) return { title: "Not Found" };
 
   const baseUrl = await resolveBaseUrl();
-  const title = row.brand ?? "Demo";
+  const title = buildShareTitle(row);
   const url = `${baseUrl}/v/${slug}`;
   // og:image is the no-webcam render's first frame at native 16:9, zoomed
   // in to hide the rounded white border. Older rows without poster_square_key
@@ -94,7 +125,8 @@ export default async function SharePage({
   const row = await fetchShareRow(slug);
   if (!row || !row.video_url) notFound();
 
-  const title = row.brand ?? "Demo";
+  const { brandName, productLabel } = deriveTitleParts(row);
+  const fallbackTitle = buildShareTitle(row);
   const videoSrc = `/v/${slug}/video.mp4`;
   const posterSrc = row.poster_key ? `/v/${slug}/poster.jpg` : undefined;
   const downloadHref = `/v/${slug}/download`;
@@ -107,9 +139,21 @@ export default async function SharePage({
     : null;
 
   return (
-    <main className="flex flex-1 items-center justify-center px-4 py-10">
+    <main className="force-light flex min-h-screen flex-1 items-center justify-center bg-background px-4 py-10 text-foreground">
       <div className="w-full max-w-6xl lg:max-w-[60vw]">
-        <h1 className="mb-4 text-center text-2xl font-semibold text-foreground">{title}</h1>
+        {brandName && productLabel ? (
+          <header className="mb-5 text-center">
+            <h1 className="text-3xl font-bold leading-tight text-foreground sm:text-4xl">
+              Hey {brandName},
+            </h1>
+            <p className="mt-1 text-lg text-foreground sm:text-xl">
+              see what <strong className="font-semibold">REDO</strong> {productLabel} can do for{" "}
+              <strong className="font-semibold">you</strong>
+            </p>
+          </header>
+        ) : (
+          <h1 className="mb-5 text-center text-2xl font-semibold text-foreground">{fallbackTitle}</h1>
+        )}
         <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow-md">
           <video
             src={videoSrc}

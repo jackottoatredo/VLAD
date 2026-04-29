@@ -24,6 +24,20 @@
   --scrollbar-thumb: #3f3f46;
 }
 
+/* Re-declares the light theme tokens for a subtree. Used on the public share
+   page so external recipients see a consistent light layout regardless of
+   the presenter's theme preference. */
+.force-light {
+  --background: #f4f4f5;
+  --surface: #ffffff;
+  --foreground: #18181b;
+  --muted: #a1a1aa;
+  --border: #e4e4e7;
+  --accent: #f97316;
+  --accent-soft: rgba(249, 115, 22, 0.2);
+  --scrollbar-thumb: #d4d4d8;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-surface: var(--surface);

@@ -12,21 +12,7 @@ import { useUser } from '@/app/contexts/UserContext'
 import { useProductFlow } from '@/app/contexts/ProductFlowContext'
 import { productRecord } from '@/app/copy/instructions'
 import { EAGER_PREVIEW_RENDERING, PREVIEW_BRANDS, TARGET_URL } from '@/app/config'
-
-const PRODUCTS = [
-  { label: 'Returns & Claims', safe: 'returns-claims' },
-  { label: 'Chargebacks', safe: 'chargebacks' },
-  { label: 'Recover', safe: 'recover' },
-  { label: 'Checkout Optimization', safe: 'checkout-optimization' },
-  { label: 'Email & SMS', safe: 'email-sms' },
-  { label: 'Order Editing', safe: 'order-editing' },
-  { label: 'Shipping & Fulfillment', safe: 'shipping-fulfillment' },
-  { label: 'Order Tracking', safe: 'order-tracking' },
-  { label: 'AI Sales Support', safe: 'ai-sales-support' },
-  { label: 'Warranties', safe: 'warranties' },
-  { label: 'Inventory Management', safe: 'inventory-management' },
-  { label: 'Agentic Catalog', safe: 'agentic-catalog' },
-]
+import { PRODUCTS } from '@/lib/products'
 
 type Props = {
   recording: ReturnType<typeof import('@/app/hooks/useRecording').useRecording>

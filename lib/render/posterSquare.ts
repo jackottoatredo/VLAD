@@ -4,20 +4,24 @@ import { resolvedFfmpegPath } from "@/lib/render/render";
 
 const FFMPEG_BIN = resolvedFfmpegPath ?? "ffmpeg";
 
-const SQUARE_SIZE = 1200;
+// Zoom factor for the og:image. > 1 zooms into the center of frame 1 to
+// hide the white rounded border around the rendered video. 1.0 = full
+// source frame, 1.3 ≈ 23% trimmed from each edge. Tune until the image
+// looks right after platforms with aggressive crops (iMessage, WhatsApp)
+// finish their own crop on top.
+const POSTER_ZOOM = 1.3;
 
-// 1200x1200 from the center of frame 1. Caller MUST pass the no-webcam
-// render so the og:image isn't a portrait of the presenter — for og cards
-// the screen content reads better as a thumbnail. Center-cropped (not
-// letterboxed) so the card has no black bars.
+// File and function names are historical (used to be a square crop). Now
+// outputs a frame at the source aspect ratio (16:9) zoomed in by
+// POSTER_ZOOM. Caller MUST pass the no-webcam render so the og:image
+// shows the screen content, not a portrait of the presenter.
 export async function extractSquarePoster(
   videoPath: string,
   outputJpgPath: string,
 ): Promise<{ posterPath: string; bytes: number }> {
-  const filter = [
-    `crop=ih:ih:(iw-ih)/2:0`,
-    `scale=${SQUARE_SIZE}:${SQUARE_SIZE}`,
-  ].join(",");
+  // Upscale by POSTER_ZOOM, then crop the center back to the source size.
+  // Output keeps source dimensions; only the framing changes.
+  const filter = `scale=iw*${POSTER_ZOOM}:ih*${POSTER_ZOOM},crop=iw/${POSTER_ZOOM}:ih/${POSTER_ZOOM}`;
 
   const args = [
     "-i", videoPath,

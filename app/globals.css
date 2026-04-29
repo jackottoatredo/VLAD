@@ -24,6 +24,20 @@
   --scrollbar-thumb: #3f3f46;
 }
 
+/* Re-declares the light theme tokens for a subtree. Used on the public share
+   page so external recipients see a consistent light layout regardless of
+   the presenter's theme preference. */
+.force-light {
+  --background: #f4f4f5;
+  --surface: #ffffff;
+  --foreground: #18181b;
+  --muted: #a1a1aa;
+  --border: #e4e4e7;
+  --accent: #f97316;
+  --accent-soft: rgba(249, 115, 22, 0.2);
+  --scrollbar-thumb: #d4d4d8;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-surface: var(--surface);
@@ -45,4 +59,35 @@ body {
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+/* Public share page in mobile landscape (phones held sideways): collapse the
+   title + button chrome and size the video to 95dvh by 16:9, keeping the
+   rounded frame + drop shadow around it. Tablets in landscape have height
+   ≥ 700px and aren't affected. dvh tracks Safari's collapsing URL bar where
+   regular vh doesn't. */
+@media (orientation: landscape) and (max-height: 500px) {
+  .share-fill-on-landscape {
+    padding: 0 !important;
+  }
+  .share-hide-on-landscape {
+    display: none !important;
+  }
+  /* Outer wrapper shrinks to its content so the framed video can be centered
+     by the parent flex container instead of being stretched to max-w-6xl. */
+  .share-wrapper-on-landscape {
+    width: auto;
+    max-width: 100vw;
+  }
+  .share-frame-on-landscape {
+    width: fit-content;
+    max-width: 100vw;
+  }
+  .share-video-on-landscape {
+    aspect-ratio: 16 / 9;
+    height: 95dvh;
+    width: auto;
+    max-width: 100vw;
+    display: block;
+  }
 }

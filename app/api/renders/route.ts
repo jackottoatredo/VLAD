@@ -4,7 +4,7 @@ import { requireSession } from "@/lib/apiAuth";
 
 export const runtime = "nodejs";
 
-const RENDER_FIELDS = "id, product_recording_id, merchant_recording_id, brand, video_url, slug, poster_key, gif_key, status, progress, seen, stale, created_at";
+const RENDER_FIELDS = "id, product_recording_id, merchant_recording_id, brand, video_url, slug, poster_key, gif_key, status, progress, seen, stale, job_id, job_request, created_at";
 
 export async function GET() {
   const session = await requireSession();
@@ -72,15 +72,25 @@ export async function POST(request: Request) {
   return NextResponse.json({ render: data });
 }
 
+type PatchBody = {
+  id?: unknown;
+  /**
+   * When 'error', marks the row as failed — used by the UI to recover from
+   * orphan in-progress rows whose BullMQ job has been evicted (worker crash,
+   * Redis flush). Default behavior (no status field) sets seen=true.
+   */
+  status?: unknown;
+};
+
 export async function PATCH(request: Request) {
   const session = await requireSession();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  let body: { id?: unknown };
+  let body: PatchBody;
   try {
-    body = (await request.json()) as { id?: unknown };
+    body = (await request.json()) as PatchBody;
   } catch {
     return NextResponse.json({ error: "Invalid JSON." }, { status: 400 });
   }
@@ -89,9 +99,12 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "Missing id." }, { status: 400 });
   }
 
+  const update: Record<string, unknown> =
+    body.status === "error" ? { status: "error" } : { seen: true };
+
   const { error } = await supabase
     .from("vlad_renders")
-    .update({ seen: true })
+    .update(update)
     .eq("id", body.id)
     .eq("user_id", session.email);
 

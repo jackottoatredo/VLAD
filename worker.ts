@@ -5,12 +5,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { REDIS_CONNECTION, QUEUE_NAME } from "@/lib/queue/connection";
 import type { JobPayload, ProduceJobPayload, MergeJobPayload } from "@/lib/queue/payloads";
-import type { ProduceProgress, MergeJobProgress } from "@/lib/queue/progress";
+import type { JobProgress, JobStep } from "@/lib/queue/progress";
 import { createReplayAction } from "@/lib/render/actions";
 import { produceSessionVideo, type ProduceResult } from "@/lib/render/produce";
 import { mergeVideoFiles } from "@/lib/render/merge";
 import { downloadRecording } from "@/lib/render/download";
-import { extractPosterFrame5 } from "@/lib/render/poster";
+import { extractPoster } from "@/lib/render/poster";
+import { extractSquarePoster } from "@/lib/render/posterSquare";
 import { extractPreviewGif } from "@/lib/render/gif";
 import { uploadToR2, downloadFromR2 } from "@/lib/storage/r2";
 import { supabase } from "@/lib/db/supabase";
@@ -28,54 +29,72 @@ async function generateAndUploadShareAssets(
   finalVideoPath: string,
   videoR2Key: string,
   workDir: string,
-): Promise<{ posterKey: string; gifKey: string }> {
+  noWebcamRenderR2Key: string,
+): Promise<{ posterKey: string; posterSquareKey: string; gifKey: string }> {
   const dirOnR2 = path.posix.dirname(videoR2Key);
   const posterKey = `${dirOnR2}/poster.jpg`;
+  const posterSquareKey = `${dirOnR2}/poster_square.jpg`;
   const gifKey = `${dirOnR2}/preview.gif`;
 
   const posterLocal = path.join(workDir, "poster.jpg");
+  const posterSquareLocal = path.join(workDir, "poster_square.jpg");
   const gifLocal = path.join(workDir, "preview.gif");
+  // The no-webcam render is the source for the og:image so the square card
+  // shows the screen content, not a portrait of the presenter.
+  const noWebcamLocal = path.join(workDir, "render-no-webcam.mp4");
 
-  await extractPosterFrame5(finalVideoPath, posterLocal);
+  await downloadFromR2(noWebcamRenderR2Key, noWebcamLocal);
+
+  await extractPoster(finalVideoPath, posterLocal);
+  await extractSquarePoster(noWebcamLocal, posterSquareLocal);
   await extractPreviewGif(finalVideoPath, gifLocal);
 
-  const [posterBuf, gifBuf] = await Promise.all([
+  const [posterBuf, posterSquareBuf, gifBuf] = await Promise.all([
     readFile(posterLocal),
+    readFile(posterSquareLocal),
     readFile(gifLocal),
   ]);
 
   await Promise.all([
     uploadToR2(posterKey, posterBuf, "image/jpeg"),
+    uploadToR2(posterSquareKey, posterSquareBuf, "image/jpeg"),
     uploadToR2(gifKey, gifBuf, "image/gif"),
   ]);
 
-  return { posterKey, gifKey };
+  return { posterKey, posterSquareKey, gifKey };
 }
 
-// Insert a vlad_renders row with a unique slug. Retries on 23505 (slug race)
-// up to 3 times by re-reserving the next available suffix.
-async function insertRenderWithSlug(
+// UPDATE the pre-stubbed vlad_renders row, reserving a unique slug. Retries on
+// 23505 (slug race) up to 3 times by re-reserving the next available suffix.
+// The row was inserted at job-enqueue time with status='rendering' so the UI
+// could resume polling on reload; this flips it to status='done'.
+async function updateRenderWithSlug(
+  renderId: string,
   baseSlug: string,
-  row: Omit<Record<string, unknown>, "slug"> & {
-    user_id: string;
+  fields: {
     video_url: string;
     poster_key: string;
+    poster_square_key: string;
     gif_key: string;
   },
-): Promise<{ renderId: string; slug: string }> {
+): Promise<{ slug: string }> {
   for (let attempt = 0; attempt < 3; attempt++) {
     const slug = await reserveUniqueSlug(baseSlug);
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from("vlad_renders")
-      .insert({ ...row, slug })
-      .select("id")
-      .single();
-    if (!error && data) return { renderId: data.id, slug };
-    if (error?.code !== "23505") {
-      throw new Error(`vlad_renders insert failed: ${error?.message ?? "no row returned"}`);
+      .update({
+        ...fields,
+        slug,
+        status: "done",
+        progress: 100,
+      })
+      .eq("id", renderId);
+    if (!error) return { slug };
+    if (error.code !== "23505") {
+      throw new Error(`vlad_renders update failed: ${error.message}`);
     }
   }
-  throw new Error(`vlad_renders insert failed: slug retries exhausted for base "${baseSlug}"`);
+  throw new Error(`vlad_renders update failed: slug retries exhausted for base "${baseSlug}"`);
 }
 
 // ---------------------------------------------------------------------------
@@ -84,10 +103,21 @@ async function insertRenderWithSlug(
 
 type ProduceJobResult = ProduceResult & { renderId?: string };
 
+const PRODUCE_STEP_LABELS = ["Rendering", "Compositing", "Clipping"] as const;
+
+function makeProduceSteps(): JobStep[] {
+  return PRODUCE_STEP_LABELS.map((label) => ({ label, progress: 0 }));
+}
+
 async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceJobResult> {
   const d = job.data;
 
   const replayAction = createReplayAction(d.keyframes, d.durationMs);
+
+  const steps = makeProduceSteps();
+  function report(currentStep: number) {
+    job.updateProgress({ status: "running", currentStep, steps: [...steps] } satisfies JobProgress);
+  }
 
   // For warm-start steps >= 2, download cached render from R2 to a temp path
   let existingRenderOutputPath: string | undefined;
@@ -109,6 +139,11 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceJo
     webcamPath = path.join(warmStartDir, "webcam.webm");
     await downloadFromR2(d.webcamR2Key, webcamPath);
   }
+
+  // Reflect warm-start in initial step state — already-done stages are 100%.
+  if (d.startFromStep >= 2) steps[0].progress = 100;
+  if (d.startFromStep >= 3) steps[1].progress = 100;
+  report(d.startFromStep - 1);
 
   try {
     const result = await produceSessionVideo({
@@ -137,15 +172,26 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceJo
       existingCompositeOutputPath,
 
       onRenderProgress(rendered, total) {
-        job.updateProgress({ status: "rendering", rendered, total } satisfies ProduceProgress);
+        steps[0].progress = total > 0 ? Math.round((rendered / total) * 100) : 0;
+        report(0);
       },
       onRenderComplete() {
-        job.updateProgress({ status: "compositing", composited: 0, total: 0 } satisfies ProduceProgress);
+        steps[0].progress = 100;
+        report(1);
       },
       onComposeProgress(composited, total) {
-        job.updateProgress({ status: "compositing", composited, total } satisfies ProduceProgress);
+        steps[0].progress = 100;
+        steps[1].progress = total > 0 ? Math.round((composited / total) * 100) : 0;
+        report(1);
       },
     });
+
+    // Composite is fully done by the time produceSessionVideo returns; the
+    // remaining work (trim + share-asset upload + DB update) maps to step 2.
+    steps[0].progress = 100;
+    steps[1].progress = 100;
+    steps[2].progress = 50;
+    report(2);
 
     // Update Redis render cache
     await updateRenderCache(d.userId, d.safeId, d.urlHash, d.mouseHash, d.wcFingerprint, d.trimKeyStr, d.preview ? "preview" : "full", {
@@ -170,37 +216,34 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceJo
       }
     }
 
-    // Product-only merge-export path: generate share assets and insert a
-    // vlad_renders row tying this branded render back to its product
-    // recording. merchant_recording_id stays null since there's no intro
-    // recording in this flow. A failed insert throws so BullMQ marks the job
-    // failed and the UI gets a real error rather than a silent "completed"
-    // with no DB row.
+    // Product-only merge-export path: generate share assets and UPDATE the
+    // pre-stubbed vlad_renders row tying this branded render back to its
+    // product recording. The row was created at job-enqueue time with
+    // status='rendering'; we flip it to 'done' here. A failed UPDATE throws
+    // so BullMQ marks the job failed and the UI gets a real error.
     let renderId: string | undefined;
     if (d.mergeRenderInsert && result.finalR2Key && result.finalPath) {
-      const { posterKey, gifKey } = await generateAndUploadShareAssets(
+      const { posterKey, posterSquareKey, gifKey } = await generateAndUploadShareAssets(
         result.finalPath,
         result.finalR2Key,
         path.dirname(result.finalPath),
+        result.renderR2Key,
       );
       const baseSlug = buildBaseSlug([
         d.mergeRenderInsert.presenterSlug,
         d.mergeRenderInsert.productRecordingName,
       ]);
-      const inserted = await insertRenderWithSlug(baseSlug, {
-        user_id: d.userId,
-        product_recording_id: d.mergeRenderInsert.productRecordingId,
-        merchant_recording_id: null,
-        brand: d.mergeRenderInsert.brand,
+      await updateRenderWithSlug(d.mergeRenderInsert.renderId, baseSlug, {
         video_url: result.finalR2Key,
         poster_key: posterKey,
+        poster_square_key: posterSquareKey,
         gif_key: gifKey,
-        status: "done",
-        progress: 100,
-        seen: false,
       });
-      renderId = inserted.renderId;
+      renderId = d.mergeRenderInsert.renderId;
     }
+
+    steps[2].progress = 100;
+    report(2);
 
     return { ...result, renderId };
   } finally {
@@ -217,28 +260,28 @@ type MergeResult = {
   renderId: string;
 };
 
+const MERGE_STEP_LABELS = [
+  "Rendering intro",
+  "Compositing intro",
+  "Rendering product",
+  "Compositing product",
+  "Merging",
+] as const;
+
 async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> {
   const d = job.data;
   const userId = d.userId;
   const jobId = job.id ?? randomUUID().slice(0, 8);
 
-  const stepLabels = [
-    "Rendering intro",
-    "Compositing intro",
-    "Rendering product",
-    "Compositing product",
-    "Merging",
-  ];
-  const stepProgress = stepLabels.map(() => 0);
+  const steps: JobStep[] = MERGE_STEP_LABELS.map((label) => ({ label, progress: 0 }));
 
   function updateStep(stepIndex: number, progress: number) {
-    stepProgress[stepIndex] = progress;
+    steps[stepIndex].progress = progress;
     job.updateProgress({
       status: "running",
       currentStep: stepIndex,
-      stepProgress: [...stepProgress],
-      stepLabels,
-    } satisfies MergeJobProgress);
+      steps: [...steps],
+    } satisfies JobProgress);
   }
 
   function completeStep(stepIndex: number) {
@@ -351,11 +394,13 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
     await uploadToR2(r2Key, fileBuffer, "video/mp4");
 
     // Generate poster + preview gif from the merged file and upload sibling
-    // to the mp4. Slug is derived from presenter + recording names.
-    const { posterKey, gifKey } = await generateAndUploadShareAssets(
+    // to the mp4. og:image uses the merchant render (no webcam) so the
+    // square preview card shows the screen, not the presenter's face.
+    const { posterKey, posterSquareKey, gifKey } = await generateAndUploadShareAssets(
       mergedPath,
       r2Key,
       mergeOutputDir,
+      merchantResult.renderR2Key,
     );
     const baseSlug = buildBaseSlug([
       d.presenterSlug,
@@ -363,22 +408,17 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
       d.productRecordingName,
     ]);
 
-    // A failed insert throws so BullMQ marks the job failed and the UI gets
-    // a real error rather than a silent "complete" with no DB row.
-    const { renderId } = await insertRenderWithSlug(baseSlug, {
-      user_id: userId,
-      merchant_recording_id: d.merchantRecordingId,
-      product_recording_id: d.productRecordingId,
-      brand: d.brand,
+    // UPDATE the pre-stubbed row, flipping it from 'rendering' to 'done'. A
+    // failed update throws so BullMQ marks the job failed and the UI gets a
+    // real error rather than a silent "complete" with no DB update.
+    await updateRenderWithSlug(d.renderId, baseSlug, {
       video_url: r2Key,
       poster_key: posterKey,
+      poster_square_key: posterSquareKey,
       gif_key: gifKey,
-      status: "done",
-      progress: 100,
-      seen: false,
     });
 
-    return { videoUrl: r2Key, renderId };
+    return { videoUrl: r2Key, renderId: d.renderId };
   } finally {
     rm(workDir, { recursive: true, force: true }).catch(() => {});
   }
@@ -415,8 +455,22 @@ worker.on("completed", (job) => {
   console.log(`[worker] Job ${job.id} (${job.data.type}) completed`);
 });
 
-worker.on("failed", (job, err) => {
+worker.on("failed", async (job, err) => {
   console.error(`[worker] Job ${job?.id} (${job?.data.type}) failed:`, err.message);
+  // Mark the corresponding vlad_renders row as 'error' so the UI can show
+  // Failed + Retry without waiting for the polling layer to notice.
+  // Indexed by job_id; a missing row (e.g. /api/produce wizard previews) is
+  // a no-op.
+  if (job?.id) {
+    try {
+      await supabase
+        .from("vlad_renders")
+        .update({ status: "error" })
+        .eq("job_id", job.id);
+    } catch (updateErr) {
+      console.error(`[worker] Failed to mark render row error for job ${job.id}:`, updateErr);
+    }
+  }
 });
 
 console.log(`[worker] Listening on queue "${QUEUE_NAME}" | concurrency=${concurrency} lockDuration=${lockDuration}ms stalledInterval=${stalledInterval}ms`);

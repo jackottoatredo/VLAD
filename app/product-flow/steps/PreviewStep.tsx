@@ -9,6 +9,7 @@ import { useUser } from '@/app/contexts/UserContext'
 import { useProductFlow } from '@/app/contexts/ProductFlowContext'
 import { productPreview } from '@/app/copy/instructions'
 import NameRecordingModal from '@/app/components/NameRecordingModal'
+import type { JobProgress, JobStep } from '@/lib/queue/progress'
 
 const POLL_MS = 500
 const BRANDLESS_SLOT = 'brandless' as const
@@ -17,11 +18,11 @@ const SLOTS: readonly Slot[] = [...PREVIEW_BRANDS, BRANDLESS_SLOT]
 
 type SlotJob = {
   videoUrl: string | null
-  loading: Array<{ label: string; progress: number }> | null
+  loading: JobStep[] | null
   error: string | null
 }
 
-function initialLoadingStages(): Array<{ label: string; progress: number }> {
+function initialLoadingStages(): JobStep[] {
   return [
     { label: 'Rendering', progress: 0 },
     { label: 'Compositing', progress: 0 },
@@ -76,7 +77,7 @@ export default function PreviewStep({ navBack, navForward }: Props) {
   const activeJobsRef = useRef<Map<string, Slot>>(new Map())
   const didAutoGenerate = useRef(false)
 
-  // Polling
+  // Polling — consumes the unified JobProgress contract from /api/jobs/:jobId.
   useEffect(() => {
     const interval = setInterval(async () => {
       const jobs = [...activeJobsRef.current.entries()]
@@ -84,8 +85,9 @@ export default function PreviewStep({ navBack, navForward }: Props) {
       await Promise.all(
         jobs.map(async ([jobId, slot]) => {
           try {
-            const res = await fetch(`/api/render-progress/${jobId}`)
-            const job = (await res.json()) as { status: string; rendered?: number; total?: number; composited?: number; videoUrl?: string; videoR2Key?: string; message?: string }
+            const res = await fetch(`/api/jobs/${jobId}`)
+            if (!res.ok) return
+            const job = (await res.json()) as JobProgress
             if (job.status === 'done' && job.videoUrl) {
               activeJobsRef.current.delete(jobId)
               // Persist brand URLs to context so they survive nav; brandless
@@ -100,12 +102,8 @@ export default function PreviewStep({ navBack, navForward }: Props) {
               activeJobsRef.current.delete(jobId)
               if (slot !== BRANDLESS_SLOT) flow.setBrandJobId(slot, null)
               setSlotJobs((prev) => ({ ...prev, [slot]: { ...prev[slot], loading: null, error: job.message ?? 'Failed.' } }))
-            } else if (job.status === 'rendering') {
-              const pct = job.total && job.total > 0 ? (job.rendered ?? 0) / job.total * 100 : 0
-              setSlotJobs((prev) => ({ ...prev, [slot]: { ...prev[slot], loading: [{ label: 'Rendering', progress: pct }, { label: 'Compositing', progress: 0 }, { label: 'Clipping', progress: 0 }] } }))
-            } else if (job.status === 'compositing') {
-              const pct = job.total && job.total > 0 ? (job.composited ?? 0) / job.total * 100 : 0
-              setSlotJobs((prev) => ({ ...prev, [slot]: { ...prev[slot], loading: [{ label: 'Rendering', progress: 100 }, { label: 'Compositing', progress: pct }, { label: 'Clipping', progress: 0 }] } }))
+            } else if (job.status === 'running') {
+              setSlotJobs((prev) => ({ ...prev, [slot]: { ...prev[slot], loading: job.steps } }))
             }
           } catch { /* transient */ }
         }),

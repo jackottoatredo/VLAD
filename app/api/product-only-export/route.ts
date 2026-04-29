@@ -171,6 +171,9 @@ export async function POST(request: Request) {
         product_recording_id: productRecordingId,
         merchant_recording_id: null,
         brand: renderLabel,
+        brand_name: merchant.brandName || null,
+        brand_url: cleanedBrandUrl,
+        product_name: product.product_name,
         video_url: cached.trimmedR2Key,
         status: "done",
         progress: 100,
@@ -186,6 +189,32 @@ export async function POST(request: Request) {
 
   const newJobId = randomUUID().slice(0, 8);
   const dirName = `${userId}_product-only_${productRecordingId}_${urlHash}`;
+
+  // Stub the vlad_renders row at job-enqueue time so the UI can resume polling
+  // on reload. The worker UPDATEs this row on completion (status='done',
+  // video_url, slug, share assets); worker.on('failed') marks status='error'.
+  const { data: stub, error: stubErr } = await supabase
+    .from("vlad_renders")
+    .insert({
+      user_id: userId,
+      job_id: newJobId,
+      job_request: { endpoint: "/api/product-only-export", body },
+      product_recording_id: productRecordingId,
+      merchant_recording_id: null,
+      brand: renderLabel,
+      brand_name: merchant.brandName || null,
+      brand_url: cleanedBrandUrl,
+      product_name: product.product_name,
+      status: "rendering",
+      progress: 0,
+      seen: false,
+    })
+    .select("id")
+    .single();
+  if (stubErr || !stub) {
+    return NextResponse.json({ error: "Failed to create render row." }, { status: 500 });
+  }
+  const renderId = stub.id as string;
 
   const job = await jobsQueue.add(
     "produce",
@@ -219,10 +248,14 @@ export async function POST(request: Request) {
       preview: false,
       flowId: null,
       mergeRenderInsert: {
+        renderId,
         productRecordingId,
         brand: renderLabel,
         productRecordingName: product.name,
         presenterSlug,
+        brandUrl: cleanedBrandUrl,
+        productName: product.product_name,
+        brandName: merchant.brandName || null,
       },
     } satisfies ProduceJobPayload,
     {
@@ -231,5 +264,5 @@ export async function POST(request: Request) {
     },
   );
 
-  return NextResponse.json({ jobId: job.id ?? newJobId });
+  return NextResponse.json({ jobId: job.id ?? newJobId, renderId });
 }

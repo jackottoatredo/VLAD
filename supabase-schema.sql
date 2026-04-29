@@ -36,17 +36,26 @@ create table vlad_renders (
   product_recording_id    uuid references vlad_recordings(id) on delete set null,
   merchant_recording_id   uuid references vlad_recordings(id) on delete set null,
   brand                   text,
+  brand_name              text,
+  brand_url               text,
+  product_name            text,
   video_url               text,
   slug                    text,
   poster_key              text,
+  poster_square_key       text,
   gif_key                 text,
   status                  text not null default 'pending' check (status in ('pending', 'rendering', 'done', 'error')),
   progress                int default 0,
   seen                    boolean not null default false,
   stale                   boolean not null default false,
+  job_id                  text,
+  job_request             jsonb,
   created_at              timestamptz default now()
 );
 
 create unique index vlad_renders_slug_unique
   on vlad_renders (slug)
   where slug is not null;
+
+create index vlad_renders_job_id_idx
+  on vlad_renders (job_id) where job_id is not null;

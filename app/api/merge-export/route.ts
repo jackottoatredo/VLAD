@@ -62,21 +62,31 @@ export async function POST(request: Request) {
     webcam_url: string | null; metadata: Record<string, unknown>;
   };
 
-  // Resolve the merchant brand URL
+  // Resolve the merchant brand URL + display name. previews.data.brandName is
+  // the human-readable form ("And Collar"); the URL host is the slug-y form
+  // ("and-collar.com"). Old recordings stored merchantUrl in their own metadata
+  // but never the brand name, so we always hit previews when merchant_id is set.
   const merchantMeta = (merchant.metadata ?? {}) as Record<string, unknown>;
   let merchantBrandUrl = typeof merchantMeta.merchantUrl === "string" ? merchantMeta.merchantUrl : "";
+  let merchantBrandName: string | null = null;
 
-  if (!merchantBrandUrl && merchant.merchant_id) {
+  if (merchant.merchant_id) {
     // merchant_id on new recordings is a previews.id uuid. Old slug-form ids
-    // won't match and simply return no row — merge proceeds without a brand param.
+    // won't match and simply return no row — merge proceeds without these.
     const { data: previewRow } = await supabase
       .from("previews")
-      .select("website_url")
+      .select("website_url, data")
       .eq("id", merchant.merchant_id)
       .maybeSingle();
-    const rawUrl = (previewRow as { website_url?: string } | null)?.website_url ?? "";
-    // The iframe brand target rejects URLs with http(s):// — strip before using.
-    merchantBrandUrl = rawUrl.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+    const pRow = previewRow as { website_url?: string; data?: { brandName?: string } | null } | null;
+    if (typeof pRow?.data?.brandName === "string" && pRow.data.brandName) {
+      merchantBrandName = pRow.data.brandName;
+    }
+    if (!merchantBrandUrl) {
+      const rawUrl = pRow?.website_url ?? "";
+      // The iframe brand target rejects URLs with http(s):// — strip before using.
+      merchantBrandUrl = rawUrl.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+    }
   }
 
   const product = productRes.data as {
@@ -164,6 +174,7 @@ export async function POST(request: Request) {
       productRecordingName: product.name,
       presenterSlug,
       brandUrl: merchantBrandUrl || null,
+      brandName: merchantBrandName,
       merchant: merchantPayload,
       product: productPayload,
       settings: { ...DEFAULT_MERGE_JOB_SETTINGS },

@@ -78,6 +78,8 @@ export type ProduceJobPayload = {
     brandUrl: string | null;
     /** Product name (e.g. "Trion 28"); appended as ?product=… on the demo link. */
     productName: string | null;
+    /** Human-readable brand name (e.g. "And Collar"); used in the share-page title. */
+    brandName: string | null;
   } | null;
 };
 
@@ -144,6 +146,8 @@ export type MergeJobPayload = {
 
   /** Cleaned host (e.g. "mammut.com"); used by the share page's "Explore demo" link. */
   brandUrl: string | null;
+  /** Human-readable brand name (e.g. "And Collar"); used in the share-page title. */
+  brandName: string | null;
 
   merchant: MergeRecordingPayload;
   product: MergeRecordingPayload;

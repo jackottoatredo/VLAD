@@ -28,7 +28,7 @@ export default function ShareActions({ slug, downloadHref, interactiveDemoUrl }:
     'inline-flex items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-sm font-medium transition-colors'
   const secondary = `${baseBtn} border border-border bg-surface text-foreground hover:bg-background`
   // `group` lets the trailing arrow translate on hover of the link itself.
-  const primary = `${baseBtn} group bg-orange-500 text-white hover:bg-orange-600`
+  const primary = `${baseBtn} group bg-accent text-white hover:opacity-90`
 
   const exploreHref = interactiveDemoUrl ?? '#'
   const isExternal = !!interactiveDemoUrl

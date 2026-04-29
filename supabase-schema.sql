@@ -36,6 +36,7 @@ create table vlad_renders (
   product_recording_id    uuid references vlad_recordings(id) on delete set null,
   merchant_recording_id   uuid references vlad_recordings(id) on delete set null,
   brand                   text,
+  brand_name              text,
   brand_url               text,
   product_name            text,
   video_url               text,

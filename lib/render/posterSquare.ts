@@ -25,7 +25,6 @@ export async function extractSquarePoster(
 
   const args = [
     "-i", videoPath,
-    "-vf", filter,
     "-frames:v", "1",
     "-q:v", "2",
     "-y",

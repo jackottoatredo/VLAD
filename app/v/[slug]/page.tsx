@@ -80,15 +80,9 @@ export async function generateMetadata({
   const baseUrl = await resolveBaseUrl();
   const title = buildShareTitle(row);
   const url = `${baseUrl}/v/${slug}`;
-<<<<<<< HEAD
-  // og:image is the no-webcam render's first frame at native 16:9. Older
-  // rows without poster_square_key fall back to the with-webcam poster,
-  // which is also 16:9 — same dimensions.
-=======
   // og:image is the no-webcam render's first frame at native 16:9, zoomed
   // in to hide the rounded white border. Older rows without poster_square_key
   // fall back to the with-webcam poster (also 16:9, native dims).
->>>>>>> develop
   const ogImageEntry: { url: string; type: string; width: number; height: number } | null =
     row.poster_square_key
       ? {

@@ -62,9 +62,10 @@ body {
 }
 
 /* Public share page in mobile landscape (phones held sideways): collapse the
-   title + button chrome and let the video fit to viewport height. Tablets in
-   landscape have height ≥ 700px and aren't affected. dvh tracks Safari's
-   collapsing URL bar where regular vh doesn't. */
+   title + button chrome and size the video to 95dvh by 16:9, keeping the
+   rounded frame + drop shadow around it. Tablets in landscape have height
+   ≥ 700px and aren't affected. dvh tracks Safari's collapsing URL bar where
+   regular vh doesn't. */
 @media (orientation: landscape) and (max-height: 500px) {
   .share-fill-on-landscape {
     padding: 0 !important;
@@ -72,16 +73,21 @@ body {
   .share-hide-on-landscape {
     display: none !important;
   }
+  /* Outer wrapper shrinks to its content so the framed video can be centered
+     by the parent flex container instead of being stretched to max-w-6xl. */
+  .share-wrapper-on-landscape {
+    width: auto;
+    max-width: 100vw;
+  }
   .share-frame-on-landscape {
-    border-radius: 0;
-    border-width: 0;
-    box-shadow: none;
+    width: fit-content;
     max-width: 100vw;
   }
   .share-video-on-landscape {
     aspect-ratio: 16 / 9;
-    height: 100dvh;
+    height: 95dvh;
     width: auto;
     max-width: 100vw;
+    display: block;
   }
 }

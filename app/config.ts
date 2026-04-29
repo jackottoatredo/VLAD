@@ -38,3 +38,10 @@ export const INTERACTIVE_DEMO_BASE_URL = "https://redo.com/search/brands/";
 
 // Marketing booking page linked from the share-page "Book a Demo" button.
 export const BOOK_DEMO_URL = "https://redo.com/get-started/demo";
+
+// Deployment environment flag. Set NEXT_PUBLIC_APP_ENV to "dev" | "beta" | "prod".
+// Exposed to the client via the NEXT_PUBLIC_ prefix so UI can render env-aware labels.
+export type AppEnv = "dev" | "beta" | "prod";
+export const APP_ENV = (process.env.NEXT_PUBLIC_APP_ENV ?? "dev") as AppEnv;
+export const PROD_URL = "https://vlad-production.up.railway.app/";
+export const BETA_URL = "https://vlad-app-staged.up.railway.app/";

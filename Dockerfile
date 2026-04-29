@@ -35,6 +35,9 @@ ENV GOOGLE_CLIENT_SECRET=placeholder
 ENV NEXTAUTH_SECRET=placeholder
 ENV NEXTAUTH_URL=http://localhost:3000
 ENV INTERNAL_API_SECRET=placeholder
+# NEXT_PUBLIC_* vars are inlined at build time, so Railway must forward them as build args.
+ARG NEXT_PUBLIC_APP_ENV
+ENV NEXT_PUBLIC_APP_ENV=$NEXT_PUBLIC_APP_ENV
 RUN npm run build
 
 # Stage 3: Production runtime

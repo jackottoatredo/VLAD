@@ -32,3 +32,6 @@ export const EAGER_PREVIEW_RENDERING = true;
 // render reused from the postprocess step.
 export const PREVIEW_BRANDS = ['allbirds.com', 'mammut.com', 'andcollar.com'] as const;
 export type PreviewBrand = (typeof PREVIEW_BRANDS)[number];
+
+// Live brand search page that the share-page "Explore interactive demo →" button opens.
+export const INTERACTIVE_DEMO_BASE_URL = "https://redo.com/search/brands/";

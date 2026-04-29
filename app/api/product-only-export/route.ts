@@ -223,6 +223,8 @@ export async function POST(request: Request) {
         brand: renderLabel,
         productRecordingName: product.name,
         presenterSlug,
+        brandUrl: cleanedBrandUrl,
+        productName: product.product_name,
       },
     } satisfies ProduceJobPayload,
     {

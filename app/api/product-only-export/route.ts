@@ -225,6 +225,7 @@ export async function POST(request: Request) {
         presenterSlug,
         brandUrl: cleanedBrandUrl,
         productName: product.product_name,
+        brandName: merchant.brandName || null,
       },
     } satisfies ProduceJobPayload,
     {

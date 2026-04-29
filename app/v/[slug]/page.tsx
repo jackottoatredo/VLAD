@@ -9,8 +9,14 @@ import ShareActions from "./ShareActions";
 
 export const runtime = "nodejs";
 
+// Override the site-level description from app/layout.tsx, which is internal
+// product copy ("Video Language Automated Demo recording interface.") and
+// shouldn't appear in unfurls of public share pages.
+const SHARE_DESCRIPTION = "REDO preview made just for you";
+
 type ShareRow = {
   brand: string | null;
+  brand_name: string | null;
   slug: string;
   video_url: string | null;
   poster_key: string | null;
@@ -24,7 +30,7 @@ type ShareRow = {
 const fetchShareRow = cache(async (slug: string): Promise<ShareRow | null> => {
   const { data, error } = await supabase
     .from("vlad_renders")
-    .select("brand, slug, video_url, poster_key, poster_square_key, gif_key, brand_url, product_name")
+    .select("brand, brand_name, slug, video_url, poster_key, poster_square_key, gif_key, brand_url, product_name")
     .eq("slug", slug)
     .single();
   if (error || !data) return null;
@@ -42,11 +48,23 @@ function brandNameFromUrl(brandUrl: string): string {
     .join(" ");
 }
 
+// Strip anything that could form an HTML tag or entity. previews.data.brandName
+// is sourced from external scrapes; defensively sanitize before it lands in
+// document <title>, og/twitter meta, or JSX text.
+function sanitizeBrandName(s: string): string {
+  return s.replace(/[<>&"']/g, "").trim();
+}
+
 function deriveTitleParts(row: ShareRow): {
   brandName: string | null;
   productLabel: string | null;
 } {
-  const brandName = row.brand_url ? brandNameFromUrl(row.brand_url) : null;
+  // Prefer the human brand name from previews.data; fall back to the URL
+  // derivation for old rows that pre-date the brand_name column.
+  const rawBrandName =
+    row.brand_name?.trim() ||
+    (row.brand_url ? brandNameFromUrl(row.brand_url) : null);
+  const brandName = rawBrandName ? sanitizeBrandName(rawBrandName) || null : null;
   const safeProduct = row.product_name?.trim() || null;
   // Fall back to the raw safe form if the catalog has drifted from old rows.
   const productLabel = safeProduct ? findProductLabel(safeProduct) ?? safeProduct : null;
@@ -102,8 +120,10 @@ export async function generateMetadata({
 
   return {
     title,
+    description: SHARE_DESCRIPTION,
     openGraph: {
       title,
+      description: SHARE_DESCRIPTION,
       url,
       type: "website",
       images: ogImageEntry ? [ogImageEntry] : [],
@@ -111,6 +131,7 @@ export async function generateMetadata({
     twitter: {
       card: "summary_large_image",
       title,
+      description: SHARE_DESCRIPTION,
       images: ogImageEntry ? [ogImageEntry.url] : [],
     },
   };

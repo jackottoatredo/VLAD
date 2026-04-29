@@ -34,7 +34,7 @@ export default function ShareActions({ slug, downloadHref, interactiveDemoUrl }:
   const isExternal = !!interactiveDemoUrl
 
   return (
-    <div className="mt-6 flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-center">
+    <div className="mt-6 flex flex-col-reverse items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-center">
       <a href={downloadHref} className={secondary}>
         <DownloadIcon />
         <span>Download Video</span>

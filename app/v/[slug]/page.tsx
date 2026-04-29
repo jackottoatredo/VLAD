@@ -139,10 +139,10 @@ export default async function SharePage({
     : null;
 
   return (
-    <main className="force-light flex min-h-screen flex-1 items-center justify-center bg-background px-4 py-10 text-foreground">
+    <main className="force-light share-fill-on-landscape flex min-h-screen flex-1 items-center justify-center bg-background px-4 py-10 text-foreground">
       <div className="w-full max-w-6xl lg:max-w-[60vw]">
         {brandName && productLabel ? (
-          <header className="mb-5 text-center">
+          <header className="share-hide-on-landscape mb-5 text-center">
             <h1 className="text-3xl font-bold leading-tight text-foreground sm:text-4xl">
               Hey {brandName},
             </h1>
@@ -152,18 +152,20 @@ export default async function SharePage({
             </p>
           </header>
         ) : (
-          <h1 className="mb-5 text-center text-2xl font-semibold text-foreground">{fallbackTitle}</h1>
+          <h1 className="share-hide-on-landscape mb-5 text-center text-2xl font-semibold text-foreground">{fallbackTitle}</h1>
         )}
-        <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow-md">
+        <div className="share-frame-on-landscape overflow-hidden rounded-2xl border border-border bg-surface shadow-md">
           <video
             src={videoSrc}
             poster={posterSrc}
             controls
             playsInline
-            className="aspect-video w-full bg-background"
+            className="share-video-on-landscape aspect-video w-full bg-background"
           />
         </div>
-        <ShareActions slug={slug} downloadHref={downloadHref} interactiveDemoUrl={interactiveDemoUrl} />
+        <div className="share-hide-on-landscape">
+          <ShareActions slug={slug} downloadHref={downloadHref} interactiveDemoUrl={interactiveDemoUrl} />
+        </div>
       </div>
     </main>
   );

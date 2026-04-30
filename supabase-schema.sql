@@ -81,3 +81,38 @@ create index vlad_event_log_user_idx
 
 create index vlad_event_log_target_idx
   on vlad_event_log (target_id) where target_id is not null;
+
+-- Append-only public-traffic engagement on /v/[slug] share pages. Separate
+-- from vlad_event_log because the audience (anonymous, public) and schema
+-- (network/UA fields, no user_id) differ. No FK on slug — events outlive
+-- their source render.
+create table vlad_engagement_events (
+  id            uuid primary key default gen_random_uuid(),
+  type          text not null,
+  slug          text not null,
+  host          text,
+  visitor_id    text,
+  ip_hash       text not null,
+  is_bot        boolean not null default false,
+  bot_kind      text,
+  ua_family     text,
+  device_type   text,
+  country       text,
+  region        text,
+  referrer_host text,
+  referrer_kind text,
+  payload       jsonb not null default '{}',
+  created_at    timestamptz not null default now()
+);
+
+create index vlad_engagement_slug_created_idx
+  on vlad_engagement_events (slug, created_at desc);
+
+create index vlad_engagement_type_created_idx
+  on vlad_engagement_events (type, created_at desc);
+
+create index vlad_engagement_humans_idx
+  on vlad_engagement_events (created_at desc) where is_bot = false;
+
+create index vlad_engagement_ip_recent_idx
+  on vlad_engagement_events (ip_hash, created_at desc);

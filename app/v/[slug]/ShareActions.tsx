@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { BOOK_DEMO_URL } from '@/app/config'
+import { useVisitorId } from './useVisitorId'
 
 type Props = {
   slug: string
@@ -10,14 +10,41 @@ type Props = {
   interactiveDemoUrl: string | null
 }
 
+// Fire-and-forget beacon for client-side click events. Errors swallowed —
+// analytics must never break a click.
+function beaconClick(type: 'click_copy_link', slug: string, visitorId: string | null) {
+  try {
+    const body = JSON.stringify({
+      type,
+      slug,
+      originalReferrer: document.referrer || undefined,
+      visitorId: visitorId ?? undefined,
+    })
+    if (typeof navigator.sendBeacon === 'function') {
+      const blob = new Blob([body], { type: 'application/json' })
+      if (navigator.sendBeacon('/api/engagement/event', blob)) return
+    }
+    void fetch('/api/engagement/event', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body,
+      keepalive: true,
+    })
+  } catch {
+    /* swallow */
+  }
+}
+
 export default function ShareActions({ slug, downloadHref, interactiveDemoUrl }: Props) {
   const [copied, setCopied] = useState(false)
+  const visitorId = useVisitorId()
 
   async function copyLink() {
     try {
       const url = `${window.location.origin}/v/${slug}`
       await navigator.clipboard.writeText(url)
       setCopied(true)
+      beaconClick('click_copy_link', slug, visitorId)
       setTimeout(() => setCopied(false), 2000)
     } catch (err) {
       console.error('Failed to copy share link:', err)
@@ -30,8 +57,18 @@ export default function ShareActions({ slug, downloadHref, interactiveDemoUrl }:
   // `group` lets the trailing arrow translate on hover of the link itself.
   const primary = `${baseBtn} group bg-accent text-white hover:opacity-90`
 
-  const exploreHref = interactiveDemoUrl ?? '#'
-  const isExternal = !!interactiveDemoUrl
+  // Both outbound CTAs route through /v/[slug]/go so clicks log
+  // server-side regardless of client JS. interactiveDemoUrl is null
+  // when the share row has no brand_url; in that case we fall back to
+  // a placeholder href so the button still renders. Append visitor_id
+  // when localStorage has resolved so the redirect endpoint can attach
+  // it to the click event.
+  const visitorParam = visitorId ? `&v=${encodeURIComponent(visitorId)}` : ''
+  const bookDemoHref = `/v/${slug}/go?to=book-demo${visitorParam}`
+  const interactiveDemoHref = interactiveDemoUrl
+    ? `/v/${slug}/go?to=interactive-demo${visitorParam}`
+    : '#'
+  const interactiveEnabled = !!interactiveDemoUrl
 
   return (
     <div className="mt-6 flex flex-col-reverse items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-center">
@@ -47,14 +84,14 @@ export default function ShareActions({ slug, downloadHref, interactiveDemoUrl }:
         {copied ? <CheckIcon /> : <LinkIcon />}
         <span>{copied ? 'Copied' : 'Copy Link'}</span>
       </button>
-      <a href={BOOK_DEMO_URL} target="_blank" rel="noreferrer" className={secondary}>
+      <a href={bookDemoHref} target="_blank" rel="noreferrer" className={secondary}>
         <CalendarIcon />
         <span>Book a Demo</span>
       </a>
       <a
-        href={exploreHref}
-        target={isExternal ? '_blank' : undefined}
-        rel={isExternal ? 'noreferrer' : undefined}
+        href={interactiveDemoHref}
+        target={interactiveEnabled ? '_blank' : undefined}
+        rel={interactiveEnabled ? 'noreferrer' : undefined}
         className={primary}
       >
         <span>Explore Your Interactive Preview</span>

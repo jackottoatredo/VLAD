@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/db/supabase";
 import { getPresignedUrl } from "@/lib/storage/r2";
+import { logEngagementEvent } from "@/lib/stats/engagement";
 
 export const runtime = "nodejs";
 
@@ -51,7 +52,7 @@ function resolveAsset(asset: string, row: ShareRow): Resolved | null {
 }
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ slug: string; asset: string }> },
 ) {
   const { slug, asset } = await params;
@@ -69,6 +70,17 @@ export async function GET(
   const resolved = resolveAsset(asset, data as ShareRow);
   if (!resolved) {
     return new NextResponse("Not Found", { status: 404 });
+  }
+
+  // Log only the click-equivalent assets. video.mp4/poster.jpg/preview.gif
+  // fire on every browser load and would drown the signal.
+  if (asset === "download" || asset === "download-gif") {
+    void logEngagementEvent({
+      type: "asset_download",
+      slug,
+      headers: request.headers,
+      payload: { asset },
+    });
   }
 
   const presigned = await getPresignedUrl(resolved.key, ASSET_TTL_SECONDS, {

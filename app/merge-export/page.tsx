@@ -80,20 +80,24 @@ export default function MergeExportPage() {
   // double up when the polling tick mutates the renders array.
   const pollingRef = useRef<Set<string>>(new Set())
 
-  async function handleDelete() {
-    if (!deleteTarget) return
-    const endpoint = deleteTarget.kind === 'recording' ? '/api/recordings' : '/api/renders'
+  async function performDelete(id: string, kind: 'recording' | 'render') {
+    const endpoint = kind === 'recording' ? '/api/recordings' : '/api/renders'
     await fetch(endpoint, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: deleteTarget.id }),
+      body: JSON.stringify({ id }),
     })
-    if (deleteTarget.kind === 'recording') {
-      setMerchants((prev) => prev.filter((r) => r.id !== deleteTarget.id))
-      setProducts((prev) => prev.filter((r) => r.id !== deleteTarget.id))
+    if (kind === 'recording') {
+      setMerchants((prev) => prev.filter((r) => r.id !== id))
+      setProducts((prev) => prev.filter((r) => r.id !== id))
     } else {
-      setRenders((prev) => prev.filter((r) => r.id !== deleteTarget.id))
+      setRenders((prev) => prev.filter((r) => r.id !== id))
     }
+  }
+
+  async function handleDelete() {
+    if (!deleteTarget) return
+    await performDelete(deleteTarget.id, deleteTarget.kind)
     setDeleteTarget(null)
   }
 
@@ -362,9 +366,13 @@ export default function MergeExportPage() {
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                       </button>
                       <button
-                        onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: r.id, name: r.name ?? r.merchant_id ?? r.id.slice(0, 8), kind: 'recording' }) }}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (e.shiftKey) performDelete(r.id, 'recording')
+                          else setDeleteTarget({ id: r.id, name: r.name ?? r.merchant_id ?? r.id.slice(0, 8), kind: 'recording' })
+                        }}
                         className="text-muted hover:text-red-500"
-                        title="Delete"
+                        title="Delete (shift+click to skip confirmation)"
                       >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
                       </button>
@@ -416,9 +424,13 @@ export default function MergeExportPage() {
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                       </button>
                       <button
-                        onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: r.id, name: r.name ?? r.product_name ?? r.id.slice(0, 8), kind: 'recording' }) }}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (e.shiftKey) performDelete(r.id, 'recording')
+                          else setDeleteTarget({ id: r.id, name: r.name ?? r.product_name ?? r.id.slice(0, 8), kind: 'recording' })
+                        }}
                         className="text-muted hover:text-red-500"
-                        title="Delete"
+                        title="Delete (shift+click to skip confirmation)"
                       >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
                       </button>
@@ -499,8 +511,13 @@ export default function MergeExportPage() {
                               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                             </button>
                             <button
-                              onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: r.id, name: label, kind: 'render' }) }}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                if (e.shiftKey) performDelete(r.id, 'render')
+                                else setDeleteTarget({ id: r.id, name: label, kind: 'render' })
+                              }}
                               className="text-muted hover:text-red-500"
+                              title="Delete (shift+click to skip confirmation)"
                             >
                               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
                             </button>

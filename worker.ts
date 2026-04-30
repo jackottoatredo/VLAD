@@ -17,6 +17,8 @@ import { uploadToR2, downloadFromR2 } from "@/lib/storage/r2";
 import { supabase } from "@/lib/db/supabase";
 import { updateRenderCache } from "@/lib/cache/render-cache";
 import { buildBaseSlug, reserveUniqueSlug } from "@/lib/share/slug";
+import { logEvent } from "@/lib/stats/events";
+import { probeVideoDurationSec } from "@/lib/render/probeDuration";
 import { VIDEO_WIDTH, VIDEO_HEIGHT, RENDER_ZOOM, DEFAULT_FPS } from "@/app/config";
 
 // ---------------------------------------------------------------------------
@@ -111,6 +113,19 @@ function makeProduceSteps(): JobStep[] {
 
 async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceJobResult> {
   const d = job.data;
+
+  // Emit render_started only when this produce job is tied to a real
+  // vlad_renders row (the merge-export product-only path). Preview wizard
+  // produces have no render row and shouldn't pollute the dashboard.
+  const startedAt = Date.now();
+  if (d.mergeRenderInsert) {
+    void logEvent({
+      type: "render_started",
+      userId: d.userId,
+      targetId: d.mergeRenderInsert.renderId,
+      payload: { kind: "produce" },
+    });
+  }
 
   const replayAction = createReplayAction(d.keyframes, d.durationMs);
 
@@ -240,6 +255,18 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceJo
         gif_key: gifKey,
       });
       renderId = d.mergeRenderInsert.renderId;
+
+      const videoLengthSec = await probeVideoDurationSec(result.finalPath);
+      void logEvent({
+        type: "render_completed",
+        userId: d.userId,
+        targetId: renderId,
+        payload: {
+          kind: "produce",
+          renderDurationMs: Date.now() - startedAt,
+          videoLengthSec,
+        },
+      });
     }
 
     steps[2].progress = 100;
@@ -272,6 +299,14 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
   const d = job.data;
   const userId = d.userId;
   const jobId = job.id ?? randomUUID().slice(0, 8);
+
+  const startedAt = Date.now();
+  void logEvent({
+    type: "render_started",
+    userId,
+    targetId: d.renderId,
+    payload: { kind: "merge" },
+  });
 
   const steps: JobStep[] = MERGE_STEP_LABELS.map((label) => ({ label, progress: 0 }));
 
@@ -418,6 +453,18 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
       gif_key: gifKey,
     });
 
+    const videoLengthSec = await probeVideoDurationSec(mergedPath);
+    void logEvent({
+      type: "render_completed",
+      userId,
+      targetId: d.renderId,
+      payload: {
+        kind: "merge",
+        renderDurationMs: Date.now() - startedAt,
+        videoLengthSec,
+      },
+    });
+
     return { videoUrl: r2Key, renderId: d.renderId };
   } finally {
     rm(workDir, { recursive: true, force: true }).catch(() => {});
@@ -469,6 +516,20 @@ worker.on("failed", async (job, err) => {
         .eq("job_id", job.id);
     } catch (updateErr) {
       console.error(`[worker] Failed to mark render row error for job ${job.id}:`, updateErr);
+    }
+  }
+  if (job) {
+    const renderId =
+      job.data.type === "merge"
+        ? job.data.renderId
+        : job.data.mergeRenderInsert?.renderId ?? null;
+    if (renderId) {
+      void logEvent({
+        type: "render_failed",
+        userId: job.data.userId,
+        targetId: renderId,
+        payload: { kind: job.data.type, errorMessage: err.message },
+      });
     }
   }
 });

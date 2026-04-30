@@ -66,11 +66,9 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Missing id." }, { status: 400 });
   }
 
-  const { error } = await supabase
-    .from("vlad_recordings")
-    .delete()
-    .eq("id", body.id)
-    .eq("user_id", session.email);
+  let deleteQuery = supabase.from("vlad_recordings").delete().eq("id", body.id);
+  if (session.role !== "admin") deleteQuery = deleteQuery.eq("user_id", session.email);
+  const { error } = await deleteQuery;
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

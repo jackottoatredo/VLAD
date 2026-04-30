@@ -5,7 +5,9 @@ import { notFound } from "next/navigation";
 import { supabase } from "@/lib/db/supabase";
 import { INTERACTIVE_DEMO_BASE_URL } from "@/app/config";
 import { findProductLabel } from "@/lib/products";
+import { logEngagementEvent } from "@/lib/stats/engagement";
 import ShareActions from "./ShareActions";
+import ShareVideoPlayer from "./ShareVideoPlayer";
 
 export const runtime = "nodejs";
 
@@ -146,6 +148,14 @@ export default async function SharePage({
   const row = await fetchShareRow(slug);
   if (!row || !row.video_url) notFound();
 
+  // Fire-and-forget visit log. The page already calls headers() in
+  // generateMetadata, so this stays uncached automatically.
+  void logEngagementEvent({
+    type: "visit",
+    slug,
+    headers: await headers(),
+  });
+
   const { brandName, productLabel } = deriveTitleParts(row);
   const fallbackTitle = buildShareTitle(row);
   const videoSrc = `/v/${slug}/video.mp4`;
@@ -176,11 +186,10 @@ export default async function SharePage({
           <h1 className="share-hide-on-landscape mb-5 text-center text-2xl font-semibold text-foreground">{fallbackTitle}</h1>
         )}
         <div className="share-frame-on-landscape overflow-hidden rounded-2xl border border-border bg-surface shadow-md">
-          <video
+          <ShareVideoPlayer
+            slug={slug}
             src={videoSrc}
             poster={posterSrc}
-            controls
-            playsInline
             className="share-video-on-landscape aspect-video w-full bg-background"
           />
         </div>

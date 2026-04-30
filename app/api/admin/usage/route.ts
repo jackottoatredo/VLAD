@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabase } from "@/lib/db/supabase";
 import { requireSession } from "@/lib/apiAuth";
 import { findProductLabel } from "@/lib/products";
+import { MS_PER_DAY, dayKey, buildDateRange } from "@/lib/stats/dateRange";
 import type { AdminUser } from "@/app/api/admin/users/route";
 
 export const runtime = "nodejs";
@@ -33,6 +34,11 @@ export type ProductSeriesRow = {
   days: { date: string; count: number }[];
 };
 
+export type ProductTotalRow = {
+  product: { key: string; name: string };
+  count: number;
+};
+
 export type UsageResponse = {
   // All series cover the last `seriesDays` days. Cards on the client pick
   // their own window (1..seriesDays) and slice locally.
@@ -51,6 +57,9 @@ export type UsageResponse = {
   // (not the event log) so renders whose source recording was deleted show
   // up as "Unknown".
   productSeries: ProductSeriesRow[];
+  // Truly all-time product totals (not capped at the 90d series window) so
+  // the product pie's "All time" toggle is accurate.
+  productTotalsAllTime: ProductTotalRow[];
   // Lookup map for any user email referenced anywhere in the response.
   users: AdminUser[];
 };
@@ -62,23 +71,7 @@ type EventRow = {
   created_at: string;
 };
 
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const SERIES_DAYS = 90;
-
-function dayKey(iso: string): string {
-  return iso.slice(0, 10);
-}
-
-function buildDateRange(days: number): string[] {
-  const today = new Date();
-  today.setUTCHours(0, 0, 0, 0);
-  const out: string[] = [];
-  for (let i = days - 1; i >= 0; i--) {
-    const d = new Date(today.getTime() - i * MS_PER_DAY);
-    out.push(d.toISOString().slice(0, 10));
-  }
-  return out;
-}
 
 export async function GET(request: Request) {
   const session = await requireSession();
@@ -406,6 +399,34 @@ export async function GET(request: Request) {
     }),
   );
 
+  // Truly all-time per-product totals (no date filter on vlad_renders) so
+  // the product pie's "All time" toggle isn't capped at the 90d window.
+  let allRendersQuery = supabase
+    .from("vlad_renders")
+    .select("vlad_recordings:product_recording_id(product_name)")
+    .eq("status", "done");
+  if (excludeUsers.size > 0) {
+    allRendersQuery = allRendersQuery.not(
+      "user_id",
+      "in",
+      `(${[...excludeUsers].join(",")})`,
+    );
+  }
+  const { data: allRendersData } = await allRendersQuery;
+  type AllRenderRow = { vlad_recordings: { product_name: string | null } | null };
+  const productTotalsMap = new Map<string, { name: string; count: number }>();
+  for (const r of (allRendersData ?? []) as unknown as AllRenderRow[]) {
+    const safe = r.vlad_recordings?.product_name ?? null;
+    const key = safe ?? "_unknown";
+    const name = safe ? findProductLabel(safe) ?? safe : "Unknown";
+    const bucket = productTotalsMap.get(key);
+    if (bucket) bucket.count++;
+    else productTotalsMap.set(key, { name, count: 1 });
+  }
+  const productTotalsAllTime: ProductTotalRow[] = [...productTotalsMap.entries()].map(
+    ([key, { name, count }]) => ({ product: { key, name }, count }),
+  );
+
   const response: UsageResponse = {
     seriesDays: SERIES_DAYS,
     counts: {
@@ -421,6 +442,7 @@ export async function GET(request: Request) {
     efficiencyRatio,
     leaderboardSeries,
     productSeries,
+    productTotalsAllTime,
     users: usersList,
   };
 

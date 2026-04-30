@@ -19,39 +19,43 @@ import {
   Cell,
 } from 'recharts'
 import type { UsageResponse } from '@/app/api/admin/usage/route'
+import { Card, CardHeader, StatBox } from '@/app/admin/_components/Card'
+import { SegmentedControl } from '@/app/admin/_components/SegmentedControl'
+import { TOOLTIP_STYLE, PALETTE } from '@/app/admin/_components/chartTheme'
+import { sliceLast } from '@/app/admin/_components/series'
 
 type WindowDays = 7 | 30 | 90
+type PieWindow = WindowDays | 'all'
 
-const COLOR_DAU = '#3b82f6'      // blue (returning)
-const COLOR_NEW = '#10b981'      // emerald (first-time)
-const COLOR_INTRO = '#3b82f6'    // blue
-const COLOR_PRODUCT = '#10b981'  // emerald
-const COLOR_RENDER = '#8b5cf6'   // violet
-const COLOR_OK = '#10b981'       // emerald
-const COLOR_RATIO = '#f59e0b'    // amber
+const COLOR_DAU = PALETTE.BLUE      // returning
+const COLOR_NEW = PALETTE.EMERALD   // first-time
+const COLOR_INTRO = PALETTE.BLUE
+const COLOR_PRODUCT = PALETTE.EMERALD
+const COLOR_RENDER = PALETTE.VIOLET
+const COLOR_OK = PALETTE.EMERALD
+const COLOR_RATIO = PALETTE.AMBER
 
 // Pie palette for the product breakdown — picked to be distinct in light + dark.
 const PRODUCT_PIE_COLORS = [
-  '#3b82f6', // blue
-  '#10b981', // emerald
-  '#8b5cf6', // violet
-  '#f59e0b', // amber
-  '#ef4444', // red
-  '#6b7280', // grey (for "Other")
+  PALETTE.BLUE,
+  PALETTE.EMERALD,
+  PALETTE.VIOLET,
+  PALETTE.AMBER,
+  PALETTE.RED,
+  PALETTE.GREY, // for "Other"
 ]
-
-const TOOLTIP_STYLE: React.CSSProperties = {
-  background: 'var(--surface)',
-  border: '1px solid var(--border)',
-  borderRadius: 8,
-  color: 'var(--foreground)',
-  fontSize: 12,
-}
 
 const WINDOW_OPTIONS: { value: WindowDays; label: string }[] = [
   { value: 7, label: '7d' },
   { value: 30, label: '30d' },
   { value: 90, label: '90d' },
+]
+
+const PIE_WINDOW_OPTIONS: { value: PieWindow; label: string }[] = [
+  { value: 7, label: '7d' },
+  { value: 30, label: '30d' },
+  { value: 90, label: '90d' },
+  { value: 'all', label: 'All' },
 ]
 
 function shortDate(iso: string): string {
@@ -64,69 +68,32 @@ function presenterLabel(p: { firstName: string; lastName: string; email: string 
   return name || p.email
 }
 
-function sliceLast<T>(arr: T[], n: number): T[] {
-  return arr.length > n ? arr.slice(arr.length - n) : arr
+function PieCenterTotal({ value }: { value: number }) {
+  return (
+    <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+      <span className="text-2xl font-semibold tabular-nums text-foreground">{value}</span>
+      <span className="mt-0.5 text-[10px] uppercase tracking-wider text-muted">Total</span>
+    </div>
+  )
 }
 
-type SegOption<T extends string | number> = { value: T; label: string }
-
-function SegmentedControl<T extends string | number>({
-  options,
-  value,
-  onChange,
+// Custom legend rendered below the chart so the chart's box is exactly the
+// donut — the absolute overlay above can then center on the donut without
+// being thrown off by the legend's space.
+function PieLegend({
+  entries,
 }: {
-  options: SegOption<T>[]
-  value: T
-  onChange: (v: T) => void
+  entries: { name: string; value: number; color: string }[]
 }) {
   return (
-    <div className="inline-flex overflow-hidden rounded-md border border-border">
-      {options.map((opt, i) => {
-        const active = opt.value === value
-        return (
-          <button
-            key={String(opt.value)}
-            onClick={() => onChange(opt.value)}
-            className={[
-              'px-2.5 py-1 text-xs transition-colors',
-              i > 0 ? 'border-l border-border' : '',
-              active
-                ? 'bg-foreground text-background'
-                : 'text-muted hover:bg-background hover:text-foreground',
-            ].join(' ')}
-          >
-            {opt.label}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
-function CardHeader({ title, controls }: { title: string; controls?: React.ReactNode }) {
-  return (
-    <div className="mb-4 flex items-center justify-between gap-4">
-      <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">{title}</h2>
-      {controls && <div className="flex items-center gap-3">{controls}</div>}
-    </div>
-  )
-}
-
-function Card({ children, className = '' }: { children: React.ReactNode; className?: string }) {
-  return (
-    <section
-      className={`rounded-2xl border border-border bg-surface p-6 shadow-md ${className}`}
-    >
-      {children}
-    </section>
-  )
-}
-
-function StatBox({ label, value }: { label: string; value: number | string }) {
-  return (
-    <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-background p-4">
-      <span className="text-2xl font-semibold text-foreground tabular-nums">{value}</span>
-      <span className="mt-1 text-xs uppercase tracking-wider text-muted">{label}</span>
+    <div className="mt-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs">
+      {entries.map((e) => (
+        <span key={e.name} className="flex items-center gap-1.5 text-muted">
+          <span className="h-2 w-2 rounded-sm" style={{ background: e.color }} />
+          {e.name}
+          <span className="tabular-nums text-foreground">{e.value}</span>
+        </span>
+      ))}
     </div>
   )
 }
@@ -142,7 +109,8 @@ export default function AdminUsageClient() {
   const [successWindow, setSuccessWindow] = useState<WindowDays>(30)
   const [efficiencyWindow, setEfficiencyWindow] = useState<WindowDays>(30)
   const [leaderboardWindow, setLeaderboardWindow] = useState<WindowDays>(30)
-  const [productWindow, setProductWindow] = useState<WindowDays>(30)
+  const [productWindow, setProductWindow] = useState<PieWindow>('all')
+  const [contentPieWindow, setContentPieWindow] = useState<PieWindow>('all')
 
   // Settings — excluded users persist in localStorage so the admin's
   // preference survives reloads. Server-side filtered via ?excludeUsers=.
@@ -268,29 +236,92 @@ export default function AdminUsageClient() {
   )
 
   // Product breakdown — sum render counts per product over the window,
-  // keep top 5 + "Other" so the pie stays legible.
+  // keep top 5 + "Other" so the pie stays legible. Window 'all' uses the
+  // API's truly-all-time totals (not capped at the 90d series window).
   const productBreakdown = useMemo(() => {
-    if (!data?.productSeries) return [] as { name: string; value: number }[]
-    const cutoff = new Date()
-    cutoff.setUTCHours(0, 0, 0, 0)
-    const cutoffMs = cutoff.getTime() - (productWindow - 1) * 24 * 60 * 60 * 1000
-    const totals = data.productSeries
-      .map((row) => {
-        let count = 0
-        for (const d of row.days) {
-          const ts = new Date(`${d.date}T00:00:00Z`).getTime()
-          if (ts < cutoffMs) continue
-          count += d.count
+    if (!data) return [] as { name: string; value: number }[]
+    let totals: { name: string; value: number }[]
+    if (productWindow === 'all') {
+      // Prefer the API's truly-all-time field; fall back to summing all
+      // 90 days of productSeries if the API hasn't been redeployed with
+      // productTotalsAllTime yet.
+      if (data.productTotalsAllTime && data.productTotalsAllTime.length > 0) {
+        totals = data.productTotalsAllTime
+          .map((row) => ({ name: row.product.name, value: row.count }))
+          .filter((row) => row.value > 0)
+          .sort((a, b) => b.value - a.value)
+      } else {
+        const sums = new Map<string, number>()
+        for (const row of data.productSeries ?? []) {
+          let count = 0
+          for (const d of row.days) count += d.count
+          sums.set(row.product.name, (sums.get(row.product.name) ?? 0) + count)
         }
-        return { name: row.product.name, value: count }
-      })
-      .filter((row) => row.value > 0)
-      .sort((a, b) => b.value - a.value)
+        totals = [...sums.entries()]
+          .map(([name, value]) => ({ name, value }))
+          .filter((row) => row.value > 0)
+          .sort((a, b) => b.value - a.value)
+      }
+    } else {
+      const cutoff = new Date()
+      cutoff.setUTCHours(0, 0, 0, 0)
+      const cutoffMs = cutoff.getTime() - (productWindow - 1) * 24 * 60 * 60 * 1000
+      totals = (data.productSeries ?? [])
+        .map((row) => {
+          let count = 0
+          for (const d of row.days) {
+            const ts = new Date(`${d.date}T00:00:00Z`).getTime()
+            if (ts < cutoffMs) continue
+            count += d.count
+          }
+          return { name: row.product.name, value: count }
+        })
+        .filter((row) => row.value > 0)
+        .sort((a, b) => b.value - a.value)
+    }
     if (totals.length <= 6) return totals
     const top = totals.slice(0, 5)
     const otherValue = totals.slice(5).reduce((acc, r) => acc + r.value, 0)
     return otherValue > 0 ? [...top, { name: 'Other', value: otherValue }] : top
   }, [data, productWindow])
+
+  const productPieTotal = useMemo(
+    () => productBreakdown.reduce((acc, d) => acc + d.value, 0),
+    [productBreakdown],
+  )
+
+  // Content pie data — when window is 'all' we use the API's all-time
+  // totals (truly all time, not capped at 90d). Otherwise sum contentSeries
+  // entries inside the chosen window.
+  const contentPieData = useMemo(() => {
+    if (!data) return [{ name: 'Intros', value: 0 }, { name: 'Products', value: 0 }, { name: 'Renders', value: 0 }]
+    if (contentPieWindow === 'all') {
+      return [
+        { name: 'Intros', value: data.contentTotalsAllTime?.intros ?? 0 },
+        { name: 'Products', value: data.contentTotalsAllTime?.products ?? 0 },
+        { name: 'Renders', value: data.contentTotalsAllTime?.renders ?? 0 },
+      ]
+    }
+    const series = sliceLast(data.contentSeries ?? [], contentPieWindow)
+    let intros = 0
+    let products = 0
+    let renders = 0
+    for (const p of series) {
+      intros += p.intros
+      products += p.products
+      renders += p.renders
+    }
+    return [
+      { name: 'Intros', value: intros },
+      { name: 'Products', value: products },
+      { name: 'Renders', value: renders },
+    ]
+  }, [data, contentPieWindow])
+
+  const contentPieTotal = useMemo(
+    () => contentPieData.reduce((acc, d) => acc + d.value, 0),
+    [contentPieData],
+  )
 
   // Leaderboard: client-side aggregation over the chosen window.
   const leaderboard = useMemo(() => {
@@ -381,7 +412,7 @@ export default function AdminUsageClient() {
                   }
                 />
                 <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                     <BarChart data={dauChartData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                       <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" />
                       <XAxis dataKey="date" stroke="var(--muted)" fontSize={11} />
@@ -435,7 +466,7 @@ export default function AdminUsageClient() {
                   }
                 />
                 <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                     <BarChart data={contentChartData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                       <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" />
                       <XAxis dataKey="date" stroke="var(--muted)" fontSize={11} />
@@ -450,30 +481,44 @@ export default function AdminUsageClient() {
                 </div>
               </Card>
               <Card className="flex flex-col">
-                <CardHeader title="All time content" />
-                <div className="flex-1 min-h-[16rem]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={[
-                          { name: 'Intros', value: data.contentTotalsAllTime?.intros ?? 0 },
-                          { name: 'Products', value: data.contentTotalsAllTime?.products ?? 0 },
-                          { name: 'Renders', value: data.contentTotalsAllTime?.renders ?? 0 },
-                        ]}
-                        dataKey="value"
-                        nameKey="name"
-                        innerRadius="50%"
-                        outerRadius="80%"
-                        stroke="var(--surface)"
-                      >
-                        <Cell fill={COLOR_INTRO} />
-                        <Cell fill={COLOR_PRODUCT} />
-                        <Cell fill={COLOR_RENDER} />
-                      </Pie>
-                      <Tooltip contentStyle={TOOLTIP_STYLE} />
-                      <Legend wrapperStyle={{ fontSize: 12 }} />
-                    </PieChart>
-                  </ResponsiveContainer>
+                <CardHeader
+                  title="Content breakdown"
+                  controls={
+                    <SegmentedControl
+                      options={PIE_WINDOW_OPTIONS}
+                      value={contentPieWindow}
+                      onChange={setContentPieWindow}
+                    />
+                  }
+                />
+                <div className="h-64">
+                  <div className="relative h-48">
+                    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                      <PieChart>
+                        <Pie
+                          data={contentPieData}
+                          dataKey="value"
+                          nameKey="name"
+                          innerRadius="55%"
+                          outerRadius="80%"
+                          stroke="var(--surface)"
+                        >
+                          <Cell fill={COLOR_INTRO} />
+                          <Cell fill={COLOR_PRODUCT} />
+                          <Cell fill={COLOR_RENDER} />
+                        </Pie>
+                        <Tooltip contentStyle={TOOLTIP_STYLE} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <PieCenterTotal value={contentPieTotal} />
+                  </div>
+                  <PieLegend
+                    entries={contentPieData.map((d, i) => ({
+                      name: d.name,
+                      value: d.value,
+                      color: [COLOR_INTRO, COLOR_PRODUCT, COLOR_RENDER][i] ?? COLOR_DAU,
+                    }))}
+                  />
                 </div>
               </Card>
             </div>
@@ -491,7 +536,7 @@ export default function AdminUsageClient() {
                 }
               />
               <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                   <BarChart data={successChartData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                     <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" />
                     <XAxis dataKey="date" stroke="var(--muted)" fontSize={11} />
@@ -524,7 +569,7 @@ export default function AdminUsageClient() {
                 }
               />
               <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                   <BarChart data={efficiencyChartData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                     <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" />
                     <XAxis dataKey="date" stroke="var(--muted)" fontSize={11} />
@@ -597,7 +642,7 @@ export default function AdminUsageClient() {
                   title="Renders by product"
                   controls={
                     <SegmentedControl
-                      options={WINDOW_OPTIONS}
+                      options={PIE_WINDOW_OPTIONS}
                       value={productWindow}
                       onChange={setProductWindow}
                     />
@@ -606,32 +651,44 @@ export default function AdminUsageClient() {
                 {productBreakdown.length === 0 ? (
                   <p className="text-sm text-muted">No renders in this window.</p>
                 ) : (
-                  <div className="flex-1 min-h-[16rem]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          data={productBreakdown}
-                          dataKey="value"
-                          nameKey="name"
-                          innerRadius="50%"
-                          outerRadius="80%"
-                          stroke="var(--surface)"
-                        >
-                          {productBreakdown.map((row, i) => (
-                            <Cell
-                              key={row.name}
-                              fill={
-                                row.name === 'Other'
-                                  ? PRODUCT_PIE_COLORS[PRODUCT_PIE_COLORS.length - 1]
-                                  : PRODUCT_PIE_COLORS[i % (PRODUCT_PIE_COLORS.length - 1)]
-                              }
-                            />
-                          ))}
-                        </Pie>
-                        <Tooltip contentStyle={TOOLTIP_STYLE} />
-                        <Legend wrapperStyle={{ fontSize: 12 }} />
-                      </PieChart>
-                    </ResponsiveContainer>
+                  <div className="h-64">
+                    <div className="relative h-48">
+                      <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                        <PieChart>
+                          <Pie
+                            data={productBreakdown}
+                            dataKey="value"
+                            nameKey="name"
+                            innerRadius="55%"
+                            outerRadius="80%"
+                            stroke="var(--surface)"
+                          >
+                            {productBreakdown.map((row, i) => (
+                              <Cell
+                                key={row.name}
+                                fill={
+                                  row.name === 'Other'
+                                    ? PRODUCT_PIE_COLORS[PRODUCT_PIE_COLORS.length - 1]
+                                    : PRODUCT_PIE_COLORS[i % (PRODUCT_PIE_COLORS.length - 1)]
+                                }
+                              />
+                            ))}
+                          </Pie>
+                          <Tooltip contentStyle={TOOLTIP_STYLE} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                      <PieCenterTotal value={productPieTotal} />
+                    </div>
+                    <PieLegend
+                      entries={productBreakdown.map((row, i) => ({
+                        name: row.name,
+                        value: row.value,
+                        color:
+                          row.name === 'Other'
+                            ? PRODUCT_PIE_COLORS[PRODUCT_PIE_COLORS.length - 1]
+                            : PRODUCT_PIE_COLORS[i % (PRODUCT_PIE_COLORS.length - 1)],
+                      }))}
+                    />
                   </div>
                 )}
               </Card>

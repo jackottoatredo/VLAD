@@ -6,6 +6,7 @@ import {
   getPresignedUrl,
 } from "@/lib/storage/r2";
 import { requireSession } from "@/lib/apiAuth";
+import { logEvent } from "@/lib/stats/events";
 
 export const runtime = "nodejs";
 
@@ -161,6 +162,18 @@ export async function POST(request: Request) {
       .from("vlad_renders")
       .update({ stale: true })
       .or(`product_recording_id.eq.${flowId},merchant_recording_id.eq.${flowId}`);
+  }
+
+  // Emit `recording_created` only on the draft→saved transition (or fresh
+  // saved insert). Re-saves of an already-saved recording don't re-count.
+  const wasNewlySaved = (!existing || existing.status !== "saved") && status === "saved";
+  if (wasNewlySaved) {
+    void logEvent({
+      type: "recording_created",
+      userId: session.email,
+      targetId: flowId,
+      payload: { kind: body.type === "merchant" ? "intro" : "product" },
+    });
   }
 
   let previewUrl: string | null = null;

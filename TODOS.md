@@ -12,10 +12,11 @@
 - [ ] Improved Audio Icon
 - [ ] Mixed webcam rendering + transitions
 - [x] 404 page update
-- [ ] Admin privileges
-- [ ] Cross-link to beta version
+- [x] Admin privileges
+- [x] Cross-link to beta version
 - [ ] auto scrape with chomp api call
 - [ ] naming overhaul
+- [ ] integrate with ai-sales
 
 ## Beta Test Comments
 

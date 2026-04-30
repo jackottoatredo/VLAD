@@ -9,6 +9,7 @@ create table vlad_users (
   id          text primary key,        -- email address (e.g. jack.otto@redo.com)
   first_name  text not null,
   last_name   text not null default '',
+  role        text not null default 'user' check (role in ('user', 'admin')),
   created_at  timestamptz default now()
 );
 
@@ -59,3 +60,24 @@ create unique index vlad_renders_slug_unique
 
 create index vlad_renders_job_id_idx
   on vlad_renders (job_id) where job_id is not null;
+
+-- Generic append-only event log backing the admin usage and (future) share-page
+-- engagement dashboards. No FKs on user_id / target_id — events outlive their
+-- sources by design.
+create table vlad_event_log (
+  id          uuid primary key default gen_random_uuid(),
+  type        text not null,
+  user_id     text,
+  target_id   text,
+  payload     jsonb not null default '{}',
+  created_at  timestamptz not null default now()
+);
+
+create index vlad_event_log_type_created_idx
+  on vlad_event_log (type, created_at desc);
+
+create index vlad_event_log_user_idx
+  on vlad_event_log (user_id) where user_id is not null;
+
+create index vlad_event_log_target_idx
+  on vlad_event_log (target_id) where target_id is not null;

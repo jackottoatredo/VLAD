@@ -68,7 +68,7 @@ export default function Home() {
             <p className="text-xs text-muted">Join recordings into final rendered videos ready to share.</p>
           </Link>
         </div>
-        <div className="flex justify-start !mt-1 -mb-5 text-xs text-foreground">
+        <div className="flex items-center justify-between !mt-1 -mb-5 text-xs text-foreground">
           <span>
             New here? Read the{' '}
             <Link
@@ -78,6 +78,14 @@ export default function Home() {
               Docs
             </Link>
           </span>
+          {session?.user?.role === 'admin' && (
+            <Link
+              href="/admin"
+              className="underline underline-offset-2 hover:text-muted"
+            >
+              Admin tools
+            </Link>
+          )}
         </div>
       </main>
     </div>

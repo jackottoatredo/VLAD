@@ -27,22 +27,27 @@ import { sliceLast } from '@/app/admin/_components/series'
 type WindowDays = 7 | 30 | 90
 type PieWindow = WindowDays | 'all'
 
-const COLOR_DAU = PALETTE.BLUE      // returning
-const COLOR_NEW = PALETTE.EMERALD   // first-time
+// Punchy orange anchors "new users" and "renders" — the things we're
+// celebrating. Cool tones (blue/teal/violet) carry the rest. Green is
+// reserved for success; red never appears.
+const COLOR_DAU = PALETTE.BLUE       // returning users
+const COLOR_NEW = PALETTE.ORANGE     // first-time users
 const COLOR_INTRO = PALETTE.BLUE
-const COLOR_PRODUCT = PALETTE.EMERALD
-const COLOR_RENDER = PALETTE.VIOLET
-const COLOR_OK = PALETTE.EMERALD
-const COLOR_RATIO = PALETTE.AMBER
+const COLOR_PRODUCT = PALETTE.TEAL
+const COLOR_RENDER = PALETTE.ORANGE
+const COLOR_OK = PALETTE.GREEN
+const COLOR_RATIO = PALETTE.CYAN
 
-// Pie palette for the product breakdown — picked to be distinct in light + dark.
+// Pie palette for the product breakdown — orange first so the largest
+// slice anchors the accent, then cool complements; slate is reserved for
+// the "Other" bucket so it never competes with real categories.
 const PRODUCT_PIE_COLORS = [
+  PALETTE.ORANGE,
   PALETTE.BLUE,
-  PALETTE.EMERALD,
-  PALETTE.VIOLET,
-  PALETTE.AMBER,
-  PALETTE.RED,
-  PALETTE.GREY, // for "Other"
+  PALETTE.TEAL,
+  PALETTE.CYAN,
+  PALETTE.INDIGO,
+  PALETTE.SLATE, // for "Other"
 ]
 
 const WINDOW_OPTIONS: { value: WindowDays; label: string }[] = [

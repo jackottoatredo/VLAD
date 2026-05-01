@@ -11,17 +11,23 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { TARGET_URL, MERCHANT_TARGET_URL } from "@/app/config";
 import { type WebcamSettings, DEFAULT_WEBCAM_SETTINGS } from "@/types/webcam";
-import { emailToName } from "@/lib/nameUtils";
-import { buildBaseSlug } from "@/lib/share/slug";
+import { joinNameParts, slugifyPart, deriveMerchantNameFromUrl } from "@/lib/naming";
+import { reserveUniqueName } from "@/lib/db/reserveName";
 
 export const runtime = "nodejs";
 
 type RequestBody = {
   merchantRecordingId?: unknown;
   productRecordingId?: unknown;
-  brand?: unknown;
 };
 
+/**
+ * Enqueue a merge (intro + product) render. Naming follows AGENTS.md spec:
+ *   brand label = `{intro-name}-{product-rec-name}-{count}`     (per-user dedup)
+ *   slug        = `{merchant-name}-{product-name}-{count}`      (global dedup)
+ * Both reserved at enqueue time so the dashboard can show the share URL
+ * immediately. Worker only fills in video_url + share assets on completion.
+ */
 export async function POST(request: Request) {
   const session = await requireSession();
   if (!session) {
@@ -41,7 +47,6 @@ export async function POST(request: Request) {
 
   const merchantRecordingId = body.merchantRecordingId;
   const productRecordingId = body.productRecordingId;
-  const brand = typeof body.brand === "string" ? body.brand : null;
 
   // Fetch both recordings from DB
   const [merchantRes, productRes] = await Promise.all([
@@ -57,8 +62,8 @@ export async function POST(request: Request) {
   }
 
   const merchant = merchantRes.data as {
-    id: string; name: string; merchant_id: string | null; mouse_events_url: string;
-    webcam_url: string | null; metadata: Record<string, unknown>;
+    id: string; name: string; merchant_id: string | null; merchant_name: string | null;
+    mouse_events_url: string; webcam_url: string | null; metadata: Record<string, unknown>;
   };
 
   // Resolve the merchant brand URL + display name. previews.data.brandName is
@@ -68,10 +73,9 @@ export async function POST(request: Request) {
   const merchantMeta = (merchant.metadata ?? {}) as Record<string, unknown>;
   let merchantBrandUrl = typeof merchantMeta.merchantUrl === "string" ? merchantMeta.merchantUrl : "";
   let merchantBrandName: string | null = null;
+  let previewsWebsiteUrl = "";
 
   if (merchant.merchant_id) {
-    // merchant_id on new recordings is a previews.id uuid. Old slug-form ids
-    // won't match and simply return no row — merge proceeds without these.
     const { data: previewRow } = await supabase
       .from("previews")
       .select("website_url, data")
@@ -81,30 +85,63 @@ export async function POST(request: Request) {
     if (typeof pRow?.data?.brandName === "string" && pRow.data.brandName) {
       merchantBrandName = pRow.data.brandName;
     }
-    if (!merchantBrandUrl) {
-      const rawUrl = pRow?.website_url ?? "";
-      // The iframe brand target rejects URLs with http(s):// — strip before using.
-      merchantBrandUrl = rawUrl.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+    if (typeof pRow?.website_url === "string") {
+      previewsWebsiteUrl = pRow.website_url;
     }
+    if (!merchantBrandUrl) {
+      // The iframe brand target rejects URLs with http(s):// — strip before using.
+      merchantBrandUrl = previewsWebsiteUrl.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+    }
+  }
+
+  // Canonical merchant-name slug. Prefer the persisted column (set by
+  // save-recording on new rows), fall back to live previews lookup, then to
+  // the cleaned URL. No fallback to merchant_id (no internal IDs in slugs).
+  const merchantNameSlug =
+    slugifyPart(merchant.merchant_name) ||
+    slugifyPart(merchantBrandName) ||
+    deriveMerchantNameFromUrl(previewsWebsiteUrl || merchantBrandUrl);
+  if (!merchantNameSlug) {
+    return NextResponse.json({ error: "Cannot derive merchant-name for slug." }, { status: 400 });
   }
 
   const product = productRes.data as {
     id: string; name: string; product_name: string | null; mouse_events_url: string;
     webcam_url: string | null; metadata: Record<string, unknown>;
   };
+  if (!product.product_name) {
+    return NextResponse.json({ error: "Product recording has no product_name (SKU)." }, { status: 400 });
+  }
+  if (!product.name || !merchant.name) {
+    return NextResponse.json({ error: "Source recordings must have names." }, { status: 400 });
+  }
 
   const userId = session.email;
   const jobId = randomUUID().slice(0, 8);
   const outputSessionName = `merge_${jobId}`;
 
-  const { firstName, lastName } = emailToName(session.email);
-  const presenterSlug = buildBaseSlug([firstName, lastName]);
+  // brand label (per-user dedup): `{intro-name}-{product-rec-name}-{count}`
+  const brandBase = joinNameParts([merchant.name, product.name]);
+  const brand = await reserveUniqueName({
+    table: "vlad_renders",
+    column: "brand",
+    userId,
+    base: brandBase,
+  });
+
+  // slug (global dedup): `{merchant-name}-{product-name}-{count}`
+  const slugBase = joinNameParts([merchantNameSlug, product.product_name]);
+  const slug = await reserveUniqueName({
+    table: "vlad_renders",
+    column: "slug",
+    base: slugBase,
+  });
 
   // Stub the vlad_renders row at job-enqueue time. The UI hydrates this on
   // mount so an in-progress render survives page reloads — without the stub,
   // refresh wipes the only client-side reference to the job. The worker
   // UPDATEs this same row when the job completes (status='done', video_url,
-  // slug, share assets). On failure, worker.on('failed') marks status='error'.
+  // share assets). On failure, worker.on('failed') marks status='error'.
   const { data: stub, error: stubErr } = await supabase
     .from("vlad_renders")
     .insert({
@@ -117,6 +154,7 @@ export async function POST(request: Request) {
       brand_name: merchantBrandName,
       brand_url: merchantBrandUrl || null,
       product_name: product.product_name,
+      slug,
       status: "rendering",
       progress: 0,
       seen: false,
@@ -196,13 +234,6 @@ export async function POST(request: Request) {
       outputSessionName,
       merchantRecordingId: merchant.id,
       productRecordingId: product.id,
-      merchantId: merchant.merchant_id,
-      productName: product.product_name,
-      merchantRecordingName: merchant.name,
-      productRecordingName: product.name,
-      presenterSlug,
-      brandUrl: merchantBrandUrl || null,
-      brandName: merchantBrandName,
       merchant: merchantPayload,
       product: productPayload,
       settings: { ...DEFAULT_MERGE_JOB_SETTINGS },
@@ -211,7 +242,7 @@ export async function POST(request: Request) {
       priority: 5,
     });
 
-    return NextResponse.json({ jobId: job.id, renderId });
+    return NextResponse.json({ jobId: job.id, renderId, slug });
   } finally {
     // Clean up prep temp dir (only downloaded mouse JSON for keyframe computation)
     const { rm } = await import("node:fs/promises");

@@ -16,8 +16,8 @@ import NameRecordingModal from '@/app/components/NameRecordingModal'
 export type GuardPrompt = {
   flowLabel: string
   prefix: string
-  defaultSuffix: string
-  onSaveDraft: (name: string) => Promise<{ ok: true } | { ok: false; error: string }>
+  defaultTag: string
+  onSaveDraft: (tag: string) => Promise<{ ok: true; name: string } | { ok: false; error: string }>
   onDiscard: () => Promise<void>
 }
 
@@ -86,10 +86,10 @@ export function NavigationGuardProvider({ children }: { children: ReactNode }) {
     setNameModal({ prompt: m.prompt, resolve: m.resolve })
   }
 
-  const handleNameSubmit = async (name: string) => {
+  const handleNameSubmit = async (tag: string) => {
     if (!nameModal) return { ok: false as const, error: 'no modal' }
     setBusy(true)
-    const res = await nameModal.prompt.onSaveDraft(name)
+    const res = await nameModal.prompt.onSaveDraft(tag)
     setBusy(false)
     if (!res.ok) return res
     const resolve = nameModal.resolve
@@ -120,7 +120,7 @@ export function NavigationGuardProvider({ children }: { children: ReactNode }) {
         <NameRecordingModal
           title="Save as Draft"
           prefix={nameModal.prompt.prefix}
-          defaultSuffix={nameModal.prompt.defaultSuffix}
+          defaultTag={nameModal.prompt.defaultTag}
           submitLabel="Save Draft"
           onSubmit={handleNameSubmit}
           onCancel={handleNameCancel}

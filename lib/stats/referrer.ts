@@ -2,7 +2,14 @@
 // can show as a donut. Direct = no Referer (typed URL, app deep-link, or
 // privacy-stripped). Email = the link was clicked from a webmail provider.
 
-export type ReferrerKind = "slack" | "linkedin" | "twitter" | "email" | "direct" | "other";
+export type ReferrerKind =
+  | "slack"
+  | "linkedin"
+  | "twitter"
+  | "email"
+  | "localhost"
+  | "direct"
+  | "other";
 
 const HOST_KIND: { kind: ReferrerKind; hosts: string[] }[] = [
   { kind: "slack", hosts: ["slack.com", "app.slack.com"] },
@@ -35,6 +42,11 @@ export function parseReferrer(referer: string | null): {
   if (!referer || referer.trim() === "") return { host: null, kind: "direct" };
   const host = extractHost(referer);
   if (!host) return { host: null, kind: "direct" };
+  // Dev-only: same-origin navigation on localhost shouldn't pollute the
+  // "other" bucket. Tagged so the dashboard can filter it out cleanly.
+  if (host === "localhost" || host === "127.0.0.1" || host === "::1") {
+    return { host, kind: "localhost" };
+  }
   for (const { kind, hosts } of HOST_KIND) {
     if (hosts.some((h) => host === h || host.endsWith(`.${h}`))) {
       return { host, kind };

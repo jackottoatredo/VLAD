@@ -71,6 +71,9 @@ export async function logEngagementEvent(args: LogEngagementArgs): Promise<void>
 
     let country: string | null = null;
     let region: string | null = null;
+    let city: string | null = null;
+    let latitude: number | null = null;
+    let longitude: number | null = null;
     if (args.type === "visit" && !isBot) {
       // Only `visit` events spend iplocate quota; downstream events
       // (video_play, clicks) inherit nothing — the dashboard joins
@@ -78,6 +81,9 @@ export async function logEngagementEvent(args: LogEngagementArgs): Promise<void>
       const geo = await lookupGeo(ip);
       country = geo.country;
       region = geo.region;
+      city = geo.city;
+      latitude = geo.latitude;
+      longitude = geo.longitude;
     }
 
     const referrerHost = args.override?.referrerHost ?? ref.host;
@@ -95,6 +101,9 @@ export async function logEngagementEvent(args: LogEngagementArgs): Promise<void>
       device_type: deviceType,
       country,
       region,
+      city,
+      latitude,
+      longitude,
       referrer_host: referrerHost,
       referrer_kind: referrerKind,
       payload: args.payload ?? {},

@@ -89,6 +89,9 @@ function parseReferrerHostFromUrl(url: string): { host: string | null; kind: Ref
     const host = u.hostname.toLowerCase();
     // Lightweight categorization that mirrors lib/stats/referrer.ts. Kept
     // inline to avoid leaking the full categorizer to client request input.
+    if (host === "localhost" || host === "127.0.0.1" || host === "::1") {
+      return { host, kind: "localhost" };
+    }
     if (host === "slack.com" || host === "app.slack.com" || host.endsWith(".slack.com")) {
       return { host, kind: "slack" };
     }

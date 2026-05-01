@@ -7,7 +7,7 @@
 - [o] Email Templates
 - [x] opengraph links
 - [x] share page
-- [ ] Engagment Stats
+- [x] Engagment Stats
 - [ ] Transcription and AI Trend evaluations
 - [ ] Improved Audio Icon
 - [ ] Mixed webcam rendering + transitions
@@ -17,6 +17,7 @@
 - [ ] auto scrape with chomp api call
 - [ ] naming overhaul
 - [ ] integrate with ai-sales
+- [ ] control sending aparatus to track user opens
 
 ## Beta Test Comments
 

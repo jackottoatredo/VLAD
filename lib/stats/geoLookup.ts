@@ -9,7 +9,21 @@
 // degrade to { country: null, region: null }. The caller should never
 // know or care that geo lookup happened.
 
-type Geo = { country: string | null; region: string | null };
+type Geo = {
+  country: string | null;
+  region: string | null;
+  city: string | null;
+  latitude: number | null;
+  longitude: number | null;
+};
+
+const NULL_GEO: Geo = {
+  country: null,
+  region: null,
+  city: null,
+  latitude: null,
+  longitude: null,
+};
 
 const CACHE_MAX = 10_000;
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -44,8 +58,8 @@ export async function lookupGeo(ip: string): Promise<Geo> {
 
   const apiKey = process.env.IPLOCATE_API_KEY;
   if (!apiKey) {
-    cacheSet(ip, { country: null, region: null });
-    return { country: null, region: null };
+    cacheSet(ip, NULL_GEO);
+    return NULL_GEO;
   }
 
   try {
@@ -55,17 +69,32 @@ export async function lookupGeo(ip: string): Promise<Geo> {
       signal: AbortSignal.timeout(2000),
     });
     if (!res.ok) {
-      cacheSet(ip, { country: null, region: null });
-      return { country: null, region: null };
+      cacheSet(ip, NULL_GEO);
+      return NULL_GEO;
     }
-    const json = (await res.json()) as { country_code?: unknown; subdivision?: unknown };
-    const country = typeof json.country_code === "string" ? json.country_code : null;
-    const region = typeof json.subdivision === "string" ? json.subdivision : null;
-    const geo: Geo = { country, region };
+    const json = (await res.json()) as {
+      country_code?: unknown;
+      subdivision?: unknown;
+      city?: unknown;
+      latitude?: unknown;
+      longitude?: unknown;
+    };
+    const geo: Geo = {
+      country: typeof json.country_code === "string" ? json.country_code : null,
+      region: typeof json.subdivision === "string" ? json.subdivision : null,
+      city: typeof json.city === "string" ? json.city : null,
+      // iplocate sends numeric lat/lng; guard against unexpected types.
+      latitude: typeof json.latitude === "number" && Number.isFinite(json.latitude)
+        ? json.latitude
+        : null,
+      longitude: typeof json.longitude === "number" && Number.isFinite(json.longitude)
+        ? json.longitude
+        : null,
+    };
     cacheSet(ip, geo);
     return geo;
   } catch {
-    cacheSet(ip, { country: null, region: null });
-    return { country: null, region: null };
+    cacheSet(ip, NULL_GEO);
+    return NULL_GEO;
   }
 }

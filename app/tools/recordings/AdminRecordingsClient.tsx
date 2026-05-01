@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import PreviewModal from '@/app/components/PreviewModal'
 import DeleteModal from '@/app/components/DeleteModal'
-import type { AdminRecordingRow } from '@/app/api/admin/recordings/route'
+import type { AdminRecordingRow } from '@/app/api/tools/recordings/route'
 
 const KIND_PILL_CLASS: Record<AdminRecordingRow['kind'], string> = {
   intro: 'border-blue-500/50 text-blue-600 dark:text-blue-400',
@@ -49,8 +49,8 @@ export default function AdminRecordingsClient() {
       setError(null)
       try {
         const url = query.trim()
-          ? `/api/admin/recordings?q=${encodeURIComponent(query.trim())}`
-          : '/api/admin/recordings'
+          ? `/api/tools/recordings?q=${encodeURIComponent(query.trim())}`
+          : '/api/tools/recordings'
         const res = await fetch(url)
         const data = (await res.json()) as { rows?: AdminRecordingRow[]; error?: string }
         if (id !== reqIdRef.current) return
@@ -95,8 +95,8 @@ export default function AdminRecordingsClient() {
               Browse every user&apos;s intros, product recordings, and renders.
             </h3>
           </div>
-          <Link href="/admin" className="text-sm text-muted hover:text-foreground">
-            ← Admin tools
+          <Link href="/tools" className="text-sm text-muted hover:text-foreground">
+            ← Tools
           </Link>
         </div>
 

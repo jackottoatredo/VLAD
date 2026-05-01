@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ResponsiveContainer,
   BarChart,
@@ -15,16 +15,19 @@ import {
   Pie,
   Cell,
 } from 'recharts'
-import { Card, CardHeader } from '@/app/admin/_components/Card'
+import { Card, CardHeader } from '@/app/tools/_components/Card'
 import { UsVisitMap, WorldVisitMap } from './VisitMap'
-import { AdminFiltersModal } from '@/app/admin/_components/AdminFiltersModal'
-import { AdminSettingsButton } from '@/app/admin/_components/AdminSettingsButton'
+import { AdminFiltersModal } from '@/app/tools/_components/AdminFiltersModal'
+import { AdminSettingsButton } from '@/app/tools/_components/AdminSettingsButton'
 import {
   EMPTY_FILTER_OPTIONS,
+  decodeFiltersFromApi,
   encodeFiltersForApi,
+  hasChip,
+  type AdminFilters,
   type FilterChipKind,
-} from '@/app/admin/_components/filters'
-import { useAdminFilters } from '@/app/admin/_components/useAdminFilters'
+} from '@/app/tools/_components/filters'
+import { useAdminFilters } from '@/app/tools/_components/useAdminFilters'
 
 const ENGAGEMENT_FILTER_KINDS: FilterChipKind[] = [
   'presenter',
@@ -32,9 +35,9 @@ const ENGAGEMENT_FILTER_KINDS: FilterChipKind[] = [
   'merchant',
   'region',
 ]
-import { SegmentedControl } from '@/app/admin/_components/SegmentedControl'
-import { TOOLTIP_STYLE, PALETTE, pickStableColor } from '@/app/admin/_components/chartTheme'
-import { sliceLast } from '@/app/admin/_components/series'
+import { SegmentedControl } from '@/app/tools/_components/SegmentedControl'
+import { TOOLTIP_STYLE, PALETTE, pickStableColor } from '@/app/tools/_components/chartTheme'
+import { sliceLast } from '@/app/tools/_components/series'
 import type {
   EngagementResponse,
   EventCounts,
@@ -46,7 +49,7 @@ import type {
   SharedBreakdownEntry,
   TopShareEntry,
   TopSharePresenter,
-} from '@/app/api/admin/engagement/route'
+} from '@/app/api/tools/engagement/route'
 
 type WindowDays = 7 | 30 | 90
 type WindowAll = WindowDays | 'all'
@@ -161,7 +164,7 @@ function referrerColor(kind: string): string {
   return pickStableColor(kind, REFERRER_COLORS, SHARED_FALLBACK_PALETTE)
 }
 
-// Donut center overlay — copied from /admin/usage. If we add a third
+// Donut center overlay — copied from /tools/usage. If we add a third
 // dashboard with the same component, extract to app/admin/_components.
 //
 // `-z-10` places it behind the chart's SVG and tooltip; the donut hole
@@ -956,6 +959,52 @@ export default function AdminEngagementClient() {
 
   const [filters, setFilters] = useAdminFilters('vlad_admin_filters_engagement')
   const [filtersOpen, setFiltersOpen] = useState(false)
+
+  // Merge any chips passed in via ?filters= into the visible filter
+  // state, then strip the param from the URL. /tools/page.tsx uses
+  // this to seed a regular user's first visit with their own
+  // include-presenter chip; the chip then shows up in the modal so
+  // the user can see it's applied and remove it like any other chip.
+  // Merging (not replacing) preserves whatever the user previously
+  // saved on this device. One-shot per mount via the ref guard;
+  // stripping the param means a refresh won't re-add a removed chip.
+  const urlFiltersAppliedRef = useRef(false)
+  useEffect(() => {
+    if (urlFiltersAppliedRef.current) return
+    if (typeof window === 'undefined') return
+    urlFiltersAppliedRef.current = true
+
+    const params = new URLSearchParams(window.location.search)
+    const raw = params.get('filters')
+    if (!raw) return
+
+    const incoming = decodeFiltersFromApi(raw)
+    if (incoming.include.length === 0 && incoming.exclude.length === 0) return
+
+    const merged: AdminFilters = {
+      include: [...filters.include],
+      exclude: [...filters.exclude],
+    }
+    for (const c of incoming.include) {
+      if (!hasChip(merged.include, c)) merged.include.push(c)
+    }
+    for (const c of incoming.exclude) {
+      if (!hasChip(merged.exclude, c)) merged.exclude.push(c)
+    }
+    setFilters(merged)
+
+    params.delete('filters')
+    const rest = params.toString()
+    window.history.replaceState(
+      null,
+      '',
+      window.location.pathname + (rest ? `?${rest}` : ''),
+    )
+    // Mount-only sync of URL → filter state. Including `filters` in
+    // deps would re-run on every chip change and re-add the URL chip.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // String-stable so the fetch effect only fires when filter content
   // actually changes (not on every parent re-render).
   const filtersParam = encodeFiltersForApi(filters)
@@ -963,8 +1012,8 @@ export default function AdminEngagementClient() {
   useEffect(() => {
     let cancelled = false
     const url = filtersParam
-      ? `/api/admin/engagement?filters=${encodeURIComponent(filtersParam)}`
-      : '/api/admin/engagement'
+      ? `/api/tools/engagement?filters=${encodeURIComponent(filtersParam)}`
+      : '/api/tools/engagement'
     fetch(url, { cache: 'no-store' })
       .then((r) => r.json())
       .then((d: EngagementResponse | { error: string }) => {
@@ -1036,10 +1085,10 @@ export default function AdminEngagementClient() {
             <h3 className="mt-1 text-muted">How shared previews are landing.</h3>
           </div>
           <Link
-            href="/admin"
+            href="/tools"
             className="col-start-3 mt-1 justify-self-end text-sm text-muted hover:text-foreground"
           >
-            ← Admin tools
+            ← Tools
           </Link>
         </div>
 
@@ -1078,7 +1127,7 @@ export default function AdminEngagementClient() {
         </Card>
 
         {/* Row 2: Visits over time (time-series) + Event counts (stat quad).
-            Mirrors the Active users / User counts pairing on /admin/usage. */}
+            Mirrors the Active users / User counts pairing on /tools/usage. */}
         <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
           <Card className="md:col-span-2">
             <CardHeader

@@ -3,8 +3,8 @@ import { supabase } from "@/lib/db/supabase";
 import { requireSession } from "@/lib/apiAuth";
 import { findProductLabel } from "@/lib/products";
 import { MS_PER_DAY, dayKey, buildDateRange } from "@/lib/stats/dateRange";
-import type { AdminUser } from "@/app/api/admin/users/route";
-import { decodeFiltersFromApi, type FilterOptions } from "@/app/admin/_components/filters";
+import type { AdminUser } from "@/app/api/tools/users/route";
+import { decodeFiltersFromApi, type FilterOptions } from "@/app/tools/_components/filters";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

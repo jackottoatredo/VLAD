@@ -78,12 +78,12 @@ export default function Home() {
               Docs
             </Link>
           </span>
-          {session?.user?.role === 'admin' && (
+          {session?.user && (
             <Link
-              href="/admin"
+              href="/tools"
               className="underline underline-offset-2 hover:text-muted"
             >
-              Admin tools
+              Tools
             </Link>
           )}
         </div>

@@ -7,6 +7,7 @@ import {
   makeEventAllowed,
   type FilterOptions,
   type SlugMeta,
+  type VisitorMeta,
 } from "@/app/admin/_components/filters";
 
 export const runtime = "nodejs";
@@ -236,16 +237,26 @@ type EventRow = {
   created_at: string;
   is_bot: boolean;
   bot_kind: string | null;
-  device_type: string | null;
   visitor_id: string | null;
+  ip_hash: string;
+  referrer_kind: string | null;
+  payload: Record<string, unknown> | null;
+};
+
+// Pulled from vlad_engagement_visitors at the top of every request.
+// Visitor profile carries stable per-visitor attributes (geo, UA,
+// device); event-level aggregations JOIN through visitor_id when they
+// need any of these.
+type VisitorRow = {
+  visitor_id: string;
   ip_hash: string;
   country: string | null;
   region: string | null;
   city: string | null;
   latitude: number | null;
   longitude: number | null;
-  referrer_kind: string | null;
-  payload: Record<string, unknown> | null;
+  ua_family: string | null;
+  device_type: string | null;
 };
 
 // Counters for one window, kept as raw counts so ratios compute at the end.
@@ -604,21 +615,23 @@ function makeGeo(): GeoAcc {
   return new Map();
 }
 
-function applyToGeo(
-  acc: GeoAcc,
-  isBot: boolean,
-  country: string | null,
-  region: string | null,
-): void {
-  if (isBot || !country) return;
-  let entry = acc.get(country);
+// Visitor-driven country/region aggregation. Per-visitor rather than
+// per-event so a single visitor with N events doesn't inflate their
+// country's count. (Per-visit-event semantics is also viable; see
+// the call sites for which one we pass.)
+function applyToGeo(acc: GeoAcc, visitor: VisitorRow | undefined): void {
+  if (!visitor || !visitor.country) return;
+  let entry = acc.get(visitor.country);
   if (!entry) {
     entry = { count: 0, regions: new Map() };
-    acc.set(country, entry);
+    acc.set(visitor.country, entry);
   }
   entry.count++;
-  if (region) {
-    entry.regions.set(region, (entry.regions.get(region) ?? 0) + 1);
+  if (visitor.region) {
+    entry.regions.set(
+      visitor.region,
+      (entry.regions.get(visitor.region) ?? 0) + 1,
+    );
   }
 }
 
@@ -655,29 +668,31 @@ function makeCity(): CityAcc {
   return new Map();
 }
 
-function applyToCity(
-  acc: CityAcc,
-  isBot: boolean,
-  deviceType: string | null,
-  country: string | null,
-  region: string | null,
-  city: string | null,
-  lat: number | null,
-  lng: number | null,
-): void {
-  if (isBot) return;
+// Visitor-driven city aggregation. Geo and device come from the
+// visitor row; events that can't be joined to a visitor (bot `visit`
+// rows) are skipped entirely.
+function applyToCity(acc: CityAcc, visitor: VisitorRow | undefined): void {
+  if (!visitor) return;
   // Desktop-only: cellular NAT routes mobile traffic through carrier
   // gateway IPs (most US cell traffic egresses through Ashburn, VA),
   // so the lat/lng we get for mobile visits points at the gateway, not
   // the user. Dropping mobile rows here keeps the dot maps honest.
-  if (deviceType !== "desktop") return;
-  if (!country || !city || lat == null || lng == null) return;
+  if (visitor.device_type !== "desktop") return;
+  const { country, region, city, latitude, longitude } = visitor;
+  if (!country || !city || latitude == null || longitude == null) return;
   const key = `${country}|${region ?? ""}|${city}`;
   const entry = acc.get(key);
   if (entry) {
     entry.count++;
   } else {
-    acc.set(key, { country, region, city, lat, lng, count: 1 });
+    acc.set(key, {
+      country,
+      region,
+      city,
+      lat: latitude,
+      lng: longitude,
+      count: 1,
+    });
   }
 }
 
@@ -770,7 +785,7 @@ function applyEventToTopShares(
 // this is a few KB; revisit with an RPC if the table grows past ~100k
 // visit_linked rows.
 async function fetchAllTimeUniqueVisitors(
-  eventAllowed: (slug: string, region: string | null, hasRegion: boolean) => boolean,
+  eventAllowed: (slug: string, visitorId: string | null) => boolean,
 ): Promise<number> {
   const ids = new Set<string>();
   const PAGE = 1000;
@@ -784,8 +799,7 @@ async function fetchAllTimeUniqueVisitors(
       .range(from, from + PAGE - 1);
     if (error || !data || data.length === 0) break;
     for (const r of data as { slug: string; visitor_id: string }[]) {
-      // visit_linked has no region; eventHasRegion=false skips region chips.
-      if (!eventAllowed(r.slug, null, false)) continue;
+      if (!eventAllowed(r.slug, r.visitor_id)) continue;
       if (typeof r.visitor_id === "string") ids.add(r.visitor_id);
     }
     if (data.length < PAGE) break;
@@ -795,13 +809,16 @@ async function fetchAllTimeUniqueVisitors(
 }
 
 // All-time shared-breakdown + geo + city + top-shares-visits built by
-// paginating every visit row. Four accumulators filled in the same pass.
+// paginating every visit/visit_linked row. Four accumulators filled in
+// one pass. Bot visits come through `visit`; humans through
+// `visit_linked` (where geo/device live on the joined visitor row).
 // `topShares` is filled for the visits-per-slug field; the engagement
 // fields (visitor_id sets) come from fetchAllTimeFunnelAndBins which
 // shares the same accumulator instance.
 async function fetchAllTimeSharedAndGeo(
   topShares: TopSharesAcc,
-  eventAllowed: (slug: string, region: string | null, hasRegion: boolean) => boolean,
+  eventAllowed: (slug: string, visitorId: string | null) => boolean,
+  visitorRows: Map<string, VisitorRow>,
 ): Promise<{
   shared: SharedAccumulator;
   geo: GeoAcc;
@@ -818,47 +835,36 @@ async function fetchAllTimeSharedAndGeo(
     const { data, error } = await supabase
       .from("vlad_engagement_events")
       .select(
-        "slug, is_bot, bot_kind, device_type, referrer_kind, ip_hash, country, region, city, latitude, longitude",
+        "type, slug, is_bot, bot_kind, visitor_id, referrer_kind, ip_hash",
       )
-      .eq("type", "visit")
+      .in("type", ["visit", "visit_linked"])
       .range(from, from + PAGE - 1);
     if (error || !data || data.length === 0) break;
     for (const r of data as {
+      type: string;
       slug: string;
       is_bot: boolean;
       bot_kind: string | null;
-      device_type: string | null;
+      visitor_id: string | null;
       referrer_kind: string | null;
       ip_hash: string;
-      country: string | null;
-      region: string | null;
-      city: string | null;
-      latitude: number | null;
-      longitude: number | null;
     }[]) {
-      if (!eventAllowed(r.slug, r.region, true)) continue;
-      applyToShared(s, r.is_bot, r.bot_kind, r.referrer_kind, r.ip_hash);
-      applyToGeo(g, r.is_bot, r.country, r.region);
-      applyToCity(
-        c,
-        r.is_bot,
-        r.device_type,
-        r.country,
-        r.region,
-        r.city,
-        r.latitude,
-        r.longitude,
-      );
-      applyVisitToTopShares(topShares, r.slug);
-      // Eventually-counted-anyway visit metrics, derived during the
-      // same pass instead of via separate SQL count() queries — those
-      // queries can't take our slug/region filter predicate.
+      if (!eventAllowed(r.slug, r.visitor_id)) continue;
       visitCounter.visits++;
-      if (r.is_bot) {
+      applyVisitToTopShares(topShares, r.slug);
+      if (r.type === "visit") {
+        // Server-side bot visit — no visitor row, no geo, never counted
+        // as human. Feeds unfurl-bot donut and bot %.
         visitCounter.bots++;
+        applyToShared(s, true, r.bot_kind, r.referrer_kind, r.ip_hash);
       } else {
+        // visit_linked — human page-load. Visitor row carries geo + device.
         visitCounter.humans++;
-        if (r.device_type === "mobile") visitCounter.mobile++;
+        const visitor = r.visitor_id ? visitorRows.get(r.visitor_id) : undefined;
+        if (visitor?.device_type === "mobile") visitCounter.mobile++;
+        applyToShared(s, false, null, r.referrer_kind, r.ip_hash);
+        applyToGeo(g, visitor);
+        applyToCity(c, visitor);
       }
     }
     if (data.length < PAGE) break;
@@ -874,7 +880,7 @@ async function fetchAllTimeSharedAndGeo(
 // funnel/length-bin functions still gate on visitor_id internally.
 async function fetchAllTimeFunnelAndBins(
   topShares: TopSharesAcc,
-  eventAllowed: (slug: string, region: string | null, hasRegion: boolean) => boolean,
+  eventAllowed: (slug: string, visitorId: string | null) => boolean,
 ): Promise<{
   funnel: FunnelSets;
   bins: LengthBinAcc;
@@ -898,9 +904,7 @@ async function fetchAllTimeFunnelAndBins(
       payload: Record<string, unknown> | null;
       visitor_id: string | null;
     }[]) {
-      // Non-visit rows have no region; pass null + hasRegion=false so
-      // region chips don't drop them.
-      if (!eventAllowed(r.slug, null, false)) continue;
+      if (!eventAllowed(r.slug, r.visitor_id)) continue;
       applyToFunnel(f, r.type, r.payload, r.visitor_id);
       applyToLengthBins(bins, r.type, r.payload, r.visitor_id);
       if (r.type === "video_pause") applyToPauseDropoff(pauses, r.payload);
@@ -927,15 +931,16 @@ export async function GET(request: Request) {
 
   const since = new Date(Date.now() - SERIES_DAYS * MS_PER_DAY).toISOString();
 
-  // Slug → metadata for slug-level filters. Fetched in parallel with
-  // the main 90d events query since neither depends on the other. The
-  // map is also reused later for the topShares presenter join, saving
+  // Slug → metadata for slug-level filters. Visitor → metadata for
+  // visitor-level filters (region) and per-event geo/device joins.
+  // All three fetched in parallel — none depends on the others. The
+  // slug map is reused later for the topShares presenter join, saving
   // a duplicate query.
-  const [eventsResult, slugMetaResult] = await Promise.all([
+  const [eventsResult, slugMetaResult, visitorsResult] = await Promise.all([
     supabase
       .from("vlad_engagement_events")
       .select(
-        "type, slug, created_at, is_bot, bot_kind, device_type, visitor_id, ip_hash, country, region, city, latitude, longitude, referrer_kind, payload",
+        "type, slug, created_at, is_bot, bot_kind, visitor_id, ip_hash, referrer_kind, payload",
       )
       .in("type", ["visit", ...FUNNEL_TYPES])
       .gte("created_at", since)
@@ -944,6 +949,11 @@ export async function GET(request: Request) {
       .from("vlad_renders")
       .select("slug, user_id, product_name, brand_url")
       .not("slug", "is", null),
+    supabase
+      .from("vlad_engagement_visitors")
+      .select(
+        "visitor_id, ip_hash, country, region, city, latitude, longitude, ua_family, device_type",
+      ),
   ]);
 
   const { data, error } = eventsResult;
@@ -965,24 +975,43 @@ export async function GET(request: Request) {
       brandUrl: r.brand_url,
     });
   }
-  const eventAllowed = makeEventAllowed(filters, slugMeta);
+  // visitorRows keeps the full row (geo + lat/lng) for aggregations.
+  // visitorMeta is the slim shape passed to the filter predicate.
+  const visitorRows = new Map<string, VisitorRow>();
+  const visitorMeta = new Map<string, VisitorMeta>();
+  for (const v of (visitorsResult.data ?? []) as VisitorRow[]) {
+    if (!v.visitor_id) continue;
+    visitorRows.set(v.visitor_id, v);
+    visitorMeta.set(v.visitor_id, {
+      region: v.region,
+      country: v.country,
+      city: v.city,
+      deviceType: v.device_type,
+      uaFamily: v.ua_family,
+    });
+  }
+  const eventAllowed = makeEventAllowed(filters, slugMeta, visitorMeta);
 
   // ---- Visits series (per-day stack) ----
+  // Bots come through `visit` (server-side, UA-gated). Humans come
+  // through `visit_linked` (client beacon w/ visitor_id); device split
+  // resolves via the visitor row.
   const range = buildDateRange(SERIES_DAYS);
   const buckets = new Map<string, VisitsPoint>();
   for (const d of range) {
     buckets.set(d, { date: d, bot: 0, desktop: 0, mobile: 0, tablet: 0, other: 0 });
   }
   for (const e of events) {
-    if (e.type !== "visit") continue;
-    if (!eventAllowed(e.slug, e.region, true)) continue;
+    if (e.type !== "visit" && e.type !== "visit_linked") continue;
+    if (!eventAllowed(e.slug, e.visitor_id)) continue;
     const point = buckets.get(dayKey(e.created_at));
     if (!point) continue;
-    if (e.is_bot) {
+    if (e.type === "visit") {
       point.bot++;
       continue;
     }
-    switch (e.device_type) {
+    const visitor = e.visitor_id ? visitorRows.get(e.visitor_id) : undefined;
+    switch (visitor?.device_type) {
       case "desktop":
         point.desktop++;
         break;
@@ -1034,67 +1063,82 @@ export async function GET(request: Request) {
 
   for (const e of events) {
     const ts = new Date(e.created_at).getTime();
-    // Filter once per event before any aggregation. Visits carry a
-    // region; non-visits don't, so they only respect slug-level chips.
-    if (!eventAllowed(e.slug, e.region, e.type === "visit")) continue;
+    // Filter once per event before any aggregation. Region cascades
+    // through visitor_id, so the predicate is uniform across event types.
+    if (!eventAllowed(e.slug, e.visitor_id)) continue;
+
     if (e.type === "visit") {
+      // Bot visit (server-side emit, UA-gated). No visitor row, no geo.
       const apply = (c: Counter) => {
         c.visits++;
-        if (e.is_bot) c.bots++;
-        else {
-          c.humans++;
-          if (e.device_type === "mobile") c.mobile++;
-        }
+        c.bots++;
       };
       if (ts >= cutoff90) apply(c90);
       if (ts >= cutoff30) apply(c30);
       if (ts >= cutoff7) apply(c7);
       if (ts >= cutoff90)
-        applyToShared(s90, e.is_bot, e.bot_kind, e.referrer_kind, e.ip_hash);
+        applyToShared(s90, true, e.bot_kind, e.referrer_kind, e.ip_hash);
       if (ts >= cutoff30)
-        applyToShared(s30, e.is_bot, e.bot_kind, e.referrer_kind, e.ip_hash);
+        applyToShared(s30, true, e.bot_kind, e.referrer_kind, e.ip_hash);
       if (ts >= cutoff7)
-        applyToShared(s7, e.is_bot, e.bot_kind, e.referrer_kind, e.ip_hash);
-      if (ts >= cutoff90) applyToGeo(g90, e.is_bot, e.country, e.region);
-      if (ts >= cutoff30) applyToGeo(g30, e.is_bot, e.country, e.region);
-      if (ts >= cutoff7) applyToGeo(g7, e.is_bot, e.country, e.region);
+        applyToShared(s7, true, e.bot_kind, e.referrer_kind, e.ip_hash);
       if (ts >= cutoff90) applyVisitToTopShares(ts90, e.slug);
       if (ts >= cutoff30) applyVisitToTopShares(ts30, e.slug);
       if (ts >= cutoff7) applyVisitToTopShares(ts7, e.slug);
+      continue;
+    }
+
+    // Non-visit event. visit_linked carries the human page-load
+    // semantics; other engagement events feed funnel/length/pause.
+    const visitor = e.visitor_id ? visitorRows.get(e.visitor_id) : undefined;
+
+    if (e.type === "visit_linked") {
+      const isMobile = visitor?.device_type === "mobile";
+      const apply = (c: Counter) => {
+        c.visits++;
+        c.humans++;
+        if (isMobile) c.mobile++;
+        if (e.visitor_id) c.visitorIds.add(e.visitor_id);
+      };
+      if (ts >= cutoff90) apply(c90);
+      if (ts >= cutoff30) apply(c30);
+      if (ts >= cutoff7) apply(c7);
       if (ts >= cutoff90)
-        applyToCity(ci90, e.is_bot, e.device_type, e.country, e.region, e.city, e.latitude, e.longitude);
+        applyToShared(s90, false, null, e.referrer_kind, e.ip_hash);
       if (ts >= cutoff30)
-        applyToCity(ci30, e.is_bot, e.device_type, e.country, e.region, e.city, e.latitude, e.longitude);
+        applyToShared(s30, false, null, e.referrer_kind, e.ip_hash);
       if (ts >= cutoff7)
-        applyToCity(ci7, e.is_bot, e.device_type, e.country, e.region, e.city, e.latitude, e.longitude);
-    } else {
-      // visit_linked feeds both unique-visitor counts AND the top of the
-      // funnel; the rest of the funnel-relevant types feed only the funnel.
-      if (e.type === "visit_linked" && e.visitor_id) {
-        if (ts >= cutoff90) c90.visitorIds.add(e.visitor_id);
-        if (ts >= cutoff30) c30.visitorIds.add(e.visitor_id);
-        if (ts >= cutoff7) c7.visitorIds.add(e.visitor_id);
-      }
-      if (ts >= cutoff90) applyToFunnel(f90, e.type, e.payload, e.visitor_id);
-      if (ts >= cutoff30) applyToFunnel(f30, e.type, e.payload, e.visitor_id);
-      if (ts >= cutoff7) applyToFunnel(f7, e.type, e.payload, e.visitor_id);
-      if (ts >= cutoff90)
-        applyEventToTopShares(ts90, e.type, e.slug, e.visitor_id);
-      if (ts >= cutoff30)
-        applyEventToTopShares(ts30, e.type, e.slug, e.visitor_id);
-      if (ts >= cutoff7)
-        applyEventToTopShares(ts7, e.type, e.slug, e.visitor_id);
-      if (ts >= cutoff90)
-        applyToLengthBins(b90, e.type, e.payload, e.visitor_id);
-      if (ts >= cutoff30)
-        applyToLengthBins(b30, e.type, e.payload, e.visitor_id);
-      if (ts >= cutoff7)
-        applyToLengthBins(b7, e.type, e.payload, e.visitor_id);
-      if (e.type === "video_pause") {
-        if (ts >= cutoff90) applyToPauseDropoff(p90, e.payload);
-        if (ts >= cutoff30) applyToPauseDropoff(p30, e.payload);
-        if (ts >= cutoff7) applyToPauseDropoff(p7, e.payload);
-      }
+        applyToShared(s7, false, null, e.referrer_kind, e.ip_hash);
+      if (ts >= cutoff90) applyToGeo(g90, visitor);
+      if (ts >= cutoff30) applyToGeo(g30, visitor);
+      if (ts >= cutoff7) applyToGeo(g7, visitor);
+      if (ts >= cutoff90) applyToCity(ci90, visitor);
+      if (ts >= cutoff30) applyToCity(ci30, visitor);
+      if (ts >= cutoff7) applyToCity(ci7, visitor);
+      if (ts >= cutoff90) applyVisitToTopShares(ts90, e.slug);
+      if (ts >= cutoff30) applyVisitToTopShares(ts30, e.slug);
+      if (ts >= cutoff7) applyVisitToTopShares(ts7, e.slug);
+    }
+
+    if (ts >= cutoff90) applyToFunnel(f90, e.type, e.payload, e.visitor_id);
+    if (ts >= cutoff30) applyToFunnel(f30, e.type, e.payload, e.visitor_id);
+    if (ts >= cutoff7) applyToFunnel(f7, e.type, e.payload, e.visitor_id);
+    if (ts >= cutoff90)
+      applyEventToTopShares(ts90, e.type, e.slug, e.visitor_id);
+    if (ts >= cutoff30)
+      applyEventToTopShares(ts30, e.type, e.slug, e.visitor_id);
+    if (ts >= cutoff7)
+      applyEventToTopShares(ts7, e.type, e.slug, e.visitor_id);
+    if (ts >= cutoff90)
+      applyToLengthBins(b90, e.type, e.payload, e.visitor_id);
+    if (ts >= cutoff30)
+      applyToLengthBins(b30, e.type, e.payload, e.visitor_id);
+    if (ts >= cutoff7)
+      applyToLengthBins(b7, e.type, e.payload, e.visitor_id);
+    if (e.type === "video_pause") {
+      if (ts >= cutoff90) applyToPauseDropoff(p90, e.payload);
+      if (ts >= cutoff30) applyToPauseDropoff(p30, e.payload);
+      if (ts >= cutoff7) applyToPauseDropoff(p7, e.payload);
     }
   }
 
@@ -1107,7 +1151,7 @@ export async function GET(request: Request) {
     await Promise.all([
       fetchAllTimeUniqueVisitors(eventAllowed),
       fetchAllTimeFunnelAndBins(tsAll, eventAllowed),
-      fetchAllTimeSharedAndGeo(tsAll, eventAllowed),
+      fetchAllTimeSharedAndGeo(tsAll, eventAllowed, visitorRows),
     ]);
 
   const vc = allTimeSharedAndGeo.visitCounter;
@@ -1244,10 +1288,8 @@ export async function GET(request: Request) {
       .select("brand, brand_name, brand_url")
       .not("brand_url", "is", null),
     supabase
-      .from("vlad_engagement_events")
+      .from("vlad_engagement_visitors")
       .select("region")
-      .eq("type", "visit")
-      .eq("is_bot", false)
       .not("region", "is", null),
   ]);
 

@@ -110,6 +110,17 @@ export type SlugMeta = {
   brandUrl: string | null;
 };
 
+// Visitor metadata used by the API to evaluate visitor-level filters
+// (region). Sourced from a single vlad_engagement_visitors query at
+// the top of the request handler.
+export type VisitorMeta = {
+  region: string | null;
+  country: string | null;
+  city: string | null;
+  deviceType: string | null;
+  uaFamily: string | null;
+};
+
 const SLUG_KIND_LIST: FilterChipKind[] = ["presenter", "product", "merchant"];
 
 function chipsByKind(chips: FilterChip[], kind: FilterChipKind): FilterChip[] {
@@ -164,21 +175,24 @@ export function slugExcluded(
   return false;
 }
 
-// Per-event region check. Returns true when the event's region passes
-// both include and exclude region chips. Pass `null` for events whose
-// region we don't track (only `visit` rows in engagement carry one);
-// the function returns true in that case unless include-region chips
-// are present, in which case the event is dropped.
-export function regionAllowed(
-  region: string | null,
-  filters: AdminFilters,
+// Per-visitor region check. Region lives on the visitor row now, so
+// the lookup happens by visitor_id. Events without a visitor_id
+// (server-side bot `visit` rows) have no associated visitor; with an
+// include-region chip they drop, otherwise they pass (exclude-region
+// can't fire without a region to compare).
+function regionAllowedForVisitor(
+  visitorId: string | null,
+  visitorMeta: Map<string, VisitorMeta>,
+  includeRegions: FilterChip[],
+  excludeRegions: FilterChip[],
 ): boolean {
-  const includeRegions = chipsByKind(filters.include, "region");
+  if (includeRegions.length === 0 && excludeRegions.length === 0) return true;
+  const visitor = visitorId ? visitorMeta.get(visitorId) : undefined;
+  const region = visitor?.region ?? null;
   if (includeRegions.length > 0) {
     if (!region) return false;
     if (!includeRegions.some((c) => c.value === region)) return false;
   }
-  const excludeRegions = chipsByKind(filters.exclude, "region");
   if (excludeRegions.length > 0 && region) {
     if (excludeRegions.some((c) => c.value === region)) return false;
   }
@@ -186,29 +200,41 @@ export function regionAllowed(
 }
 
 // Convenience for callers: build a single closure that combines slug-
-// and region-level checks. Pass the slug-meta lookup the API has
-// pre-fetched. `eventHasRegion` distinguishes events that carry a
-// region (visits) from those that don't (other event types) — the
-// latter only respect slug-level filters.
+// and visitor-level checks. Pass the slug-meta and visitor-meta
+// lookups the API has pre-fetched. The predicate is called per event
+// row with `(slug, visitorId)` — region cascades to all of a visitor's
+// events automatically.
 export function makeEventAllowed(
   filters: AdminFilters,
   slugMeta: Map<string, SlugMeta>,
-): (slug: string, region: string | null, eventHasRegion: boolean) => boolean {
-  const hasIncludeRegion = chipsByKind(filters.include, "region").length > 0;
-  const hasExcludeRegion = chipsByKind(filters.exclude, "region").length > 0;
+  visitorMeta: Map<string, VisitorMeta>,
+): (slug: string, visitorId: string | null) => boolean {
+  const includeRegions = chipsByKind(filters.include, "region");
+  const excludeRegions = chipsByKind(filters.exclude, "region");
   const slugOnlyIncludes = filters.include.filter((c) => c.kind !== "region");
   const slugOnlyExcludes = filters.exclude.filter((c) => c.kind !== "region");
   const hasSlugFilters =
     slugOnlyIncludes.length > 0 || slugOnlyExcludes.length > 0;
+  const hasRegionFilters =
+    includeRegions.length > 0 || excludeRegions.length > 0;
 
-  return (slug, region, eventHasRegion) => {
+  return (slug, visitorId) => {
     if (hasSlugFilters) {
       const meta = slug ? slugMeta.get(slug) : undefined;
       if (!slugIncluded(meta, slugOnlyIncludes)) return false;
       if (slugExcluded(meta, slugOnlyExcludes)) return false;
     }
-    if (eventHasRegion && (hasIncludeRegion || hasExcludeRegion)) {
-      if (!regionAllowed(region, filters)) return false;
+    if (hasRegionFilters) {
+      if (
+        !regionAllowedForVisitor(
+          visitorId,
+          visitorMeta,
+          includeRegions,
+          excludeRegions,
+        )
+      ) {
+        return false;
+      }
     }
     return true;
   };

@@ -6,6 +6,7 @@ import { supabase } from "@/lib/db/supabase";
 import { INTERACTIVE_DEMO_BASE_URL } from "@/app/config";
 import { findProductLabel } from "@/lib/products";
 import { logEngagementEvent } from "@/lib/stats/engagement";
+import { detectBot } from "@/lib/stats/botDetection";
 import ShareActions from "./ShareActions";
 import ShareVideoPlayer from "./ShareVideoPlayer";
 
@@ -148,13 +149,20 @@ export default async function SharePage({
   const row = await fetchShareRow(slug);
   if (!row || !row.video_url) notFound();
 
-  // Fire-and-forget visit log. The page already calls headers() in
-  // generateMetadata, so this stays uncached automatically.
-  void logEngagementEvent({
-    type: "visit",
-    slug,
-    headers: await headers(),
-  });
+  // Server-side `visit` emit is bot-only. Humans land via the
+  // client-side `visit_linked` beacon (ShareVideoPlayer), which
+  // carries a visitor_id and triggers the visitor profile upsert
+  // including iplocate enrichment. The server can't see localStorage,
+  // so we don't have a visitor_id here anyway — emitting a server-side
+  // human visit would just produce an unattributable row.
+  const requestHeaders = await headers();
+  if (detectBot(requestHeaders.get("user-agent")).isBot) {
+    void logEngagementEvent({
+      type: "visit",
+      slug,
+      headers: requestHeaders,
+    });
+  }
 
   const { brandName, productLabel } = deriveTitleParts(row);
   const fallbackTitle = buildShareTitle(row);

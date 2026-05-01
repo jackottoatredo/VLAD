@@ -48,19 +48,27 @@ export type VisitsPoint = {
 // against all visit rows. Both are 0-1 ratios, or null when the
 // denominator is zero (so the client can render "—" instead of "0%"
 // where the distinction matters).
+//
+// totalPageVisits = count of every visit + visit_linked event (no
+// dedup). uniquePageVisitors = count of distinct (visitor_id, slug)
+// pairs from visit_linked. The page-pair unit matters: if a presenter
+// sends a viewer five follow-up shares for different products, that's
+// five distinct funnel entries — collapsing them by visitor_id alone
+// would hide the conversion picture for the follow-ups.
 export type EventCounts = {
-  totalVisits: number;
-  uniqueVisitors: number;
+  totalPageVisits: number;
+  uniquePageVisitors: number;
   mobilePct: number | null;
   botPct: number | null;
 };
 
 // Stage-by-stage funnel counts. Each value is the COUNT(DISTINCT
-// visitor_id) of viewers who reached that stage. Only events with a
-// visitor_id contribute (server-side rows like asset_download via the
-// download route still count when the redirect carried ?v=). The four
-// CTA outcomes are tracked separately so the funnel reveals which CTA
-// each engaged viewer chose, not just "an action happened".
+// (visitor_id, slug)) of page-visits that reached that stage. The
+// (visitor_id, slug) unit means a viewer who saw two different shares
+// counts as two funnel entries — one per page. Only events with a
+// visitor_id and slug contribute. The four CTA outcomes are tracked
+// separately so the funnel reveals which CTA each engaged page-visit
+// chose, not just "an action happened".
 export type FunnelCounts = {
   visit_linked: number;
   video_play: number;
@@ -145,13 +153,15 @@ export type CityVisitsEntry = {
   count: number;
 };
 
-// Top-shares leaderboard row. visits = count of `visit` rows for this
-// slug; uniqueVisitors / plays / videoEnds are distinct viewer counts.
-// The four CTA fields are raw counts (multiple clicks from the same
-// person each count) — the question is "how many actions of each
-// kind", which lets the leaderboard surface what works on each share.
-// presenter resolves vlad_renders.user_id → vlad_users for display;
-// null when the share's owner has been deleted.
+// Top-shares leaderboard row. pageVisits = count of visit + visit_linked
+// rows for this slug; uniquePageVisitors / plays / videoEnds are
+// distinct viewer counts on this page. (Within a single TopShareEntry
+// the slug is fixed, so unique-visitor and unique-page-visitor are
+// the same number — the field name keeps the vocabulary consistent
+// with EventCounts.) The four CTA fields are raw counts (multiple
+// clicks from the same person each count). presenter resolves
+// vlad_renders.user_id → vlad_users for display; null when the
+// share's owner has been deleted.
 export type TopSharePresenter = {
   email: string;
   firstName: string;
@@ -161,8 +171,8 @@ export type TopSharePresenter = {
 export type TopShareEntry = {
   slug: string;
   presenter: TopSharePresenter | null;
-  visits: number;
-  uniqueVisitors: number;
+  pageVisits: number;
+  uniquePageVisitors: number;
   plays: number;
   videoEnds: number;
   copyLinkClicks: number;
@@ -260,22 +270,24 @@ type VisitorRow = {
 };
 
 // Counters for one window, kept as raw counts so ratios compute at the end.
+// pageVisitorKeys holds `${visitor_id}|${slug}` so each (visitor, page)
+// pair is unique — see EventCounts docstring for why page-pair semantics.
 type Counter = {
   visits: number;
   bots: number;
   humans: number;
   mobile: number;
-  visitorIds: Set<string>;
+  pageVisitorKeys: Set<string>;
 };
 
 function makeCounter(): Counter {
-  return { visits: 0, bots: 0, humans: 0, mobile: 0, visitorIds: new Set() };
+  return { visits: 0, bots: 0, humans: 0, mobile: 0, pageVisitorKeys: new Set() };
 }
 
 function counterToCounts(c: Counter): EventCounts {
   return {
-    totalVisits: c.visits,
-    uniqueVisitors: c.visitorIds.size,
+    totalPageVisits: c.visits,
+    uniquePageVisitors: c.pageVisitorKeys.size,
     mobilePct: c.humans > 0 ? c.mobile / c.humans : null,
     botPct: c.visits > 0 ? c.bots / c.visits : null,
   };
@@ -312,41 +324,46 @@ function makeFunnel(): FunnelSets {
   };
 }
 
+// Each funnel Set holds `${visitor_id}|${slug}` keys — the (visitor,
+// page) pair — so a viewer's actions on share A and share B count as
+// two funnel entries even though they're the same person.
 function applyToFunnel(
   f: FunnelSets,
   type: string,
+  slug: string,
   payload: Record<string, unknown> | null,
   visitorId: string | null,
 ): void {
-  if (!visitorId) return;
+  if (!visitorId || !slug) return;
+  const key = `${visitorId}|${slug}`;
   switch (type) {
     case "visit_linked":
-      f.visit_linked.add(visitorId);
+      f.visit_linked.add(key);
       return;
     case "video_play":
-      f.video_play.add(visitorId);
+      f.video_play.add(key);
       return;
     case "video_quartile": {
       const q = payload?.q;
-      if (q === 25) f.q25.add(visitorId);
-      else if (q === 50) f.q50.add(visitorId);
-      else if (q === 75) f.q75.add(visitorId);
+      if (q === 25) f.q25.add(key);
+      else if (q === 50) f.q50.add(key);
+      else if (q === 75) f.q75.add(key);
       return;
     }
     case "video_end":
-      f.video_end.add(visitorId);
+      f.video_end.add(key);
       return;
     case "click_copy_link":
-      f.click_copy_link.add(visitorId);
+      f.click_copy_link.add(key);
       return;
     case "asset_download":
-      f.click_download.add(visitorId);
+      f.click_download.add(key);
       return;
     case "click_interactive_demo":
-      f.click_interactive_demo.add(visitorId);
+      f.click_interactive_demo.add(key);
       return;
     case "click_book_demo":
-      f.click_book_demo.add(visitorId);
+      f.click_book_demo.add(key);
       return;
   }
 }
@@ -414,13 +431,17 @@ function durationToBinStart(dur: number): number | null {
 // Discards events without a usable duration so the binned chart never
 // misclassifies them. Older rows from before duration was instrumented
 // simply don't appear.
+// Per-bin Sets are keyed by `${visitor_id}|${slug}` so the same person
+// playing two different shares of similar duration counts twice in
+// that bin — matches the page-pair semantics of the funnel.
 function applyToLengthBins(
   acc: LengthBinAcc,
   type: string,
+  slug: string,
   payload: Record<string, unknown> | null,
   visitorId: string | null,
 ): void {
-  if (!visitorId) return;
+  if (!visitorId || !slug) return;
   const dur = payload?.duration;
   if (typeof dur !== "number") return;
   const binStart = durationToBinStart(dur);
@@ -429,19 +450,20 @@ function applyToLengthBins(
   // a hit; defensive ?? in case a future caller skips pre-population.
   const bin = acc.get(binStart) ?? emptyBinSets();
   if (!acc.has(binStart)) acc.set(binStart, bin);
+  const key = `${visitorId}|${slug}`;
   switch (type) {
     case "video_play":
-      bin.play.add(visitorId);
+      bin.play.add(key);
       return;
     case "video_quartile": {
       const q = payload?.q;
-      if (q === 25) bin.q25.add(visitorId);
-      else if (q === 50) bin.q50.add(visitorId);
-      else if (q === 75) bin.q75.add(visitorId);
+      if (q === 25) bin.q25.add(key);
+      else if (q === 50) bin.q50.add(key);
+      else if (q === 75) bin.q75.add(key);
       return;
     }
     case "video_end":
-      bin.end.add(visitorId);
+      bin.end.add(key);
       return;
   }
 }
@@ -701,9 +723,12 @@ function cityToOutput(acc: CityAcc): CityVisitsEntry[] {
 }
 
 // Top-shares accumulator: per-slug stats keyed by slug. Visit count is
-// raw row count; viewer-derived metrics (uniqueVisitors / plays / q75)
-// are Sets of visitor_ids so replays don't inflate. The four CTA
-// counters are raw counts (multiple clicks per person each count).
+// raw row count; viewer-derived metrics (uniquePageVisitors / plays /
+// videoEnds) are Sets of visitor_ids so replays on the same page
+// don't inflate. Within a single slug entry, the page is fixed so
+// visitor_id is sufficient (no need for the (visitor, slug) compound
+// key the global aggregations use). The four CTA counters are raw
+// counts (multiple clicks per person each count).
 type TopSharesEntry = {
   visits: number;
   visitorIds: Set<string>;
@@ -780,14 +805,16 @@ function applyEventToTopShares(
   }
 }
 
-// All-time distinct visitor count via paginated fetch — Supabase JS
-// can't compute COUNT(DISTINCT) directly without an RPC. At v1 volume
-// this is a few KB; revisit with an RPC if the table grows past ~100k
-// visit_linked rows.
-async function fetchAllTimeUniqueVisitors(
+// All-time distinct page-visitor count via paginated fetch — Supabase
+// JS can't compute COUNT(DISTINCT) directly without an RPC. At v1
+// volume this is a few KB; revisit with an RPC if the table grows
+// past ~100k visit_linked rows. Deduplicates by (visitor_id, slug)
+// so a viewer who visits two shares counts twice — see EventCounts
+// docstring.
+async function fetchAllTimePageVisitors(
   eventAllowed: (slug: string, visitorId: string | null) => boolean,
 ): Promise<number> {
-  const ids = new Set<string>();
+  const keys = new Set<string>();
   const PAGE = 1000;
   let from = 0;
   while (true) {
@@ -800,12 +827,14 @@ async function fetchAllTimeUniqueVisitors(
     if (error || !data || data.length === 0) break;
     for (const r of data as { slug: string; visitor_id: string }[]) {
       if (!eventAllowed(r.slug, r.visitor_id)) continue;
-      if (typeof r.visitor_id === "string") ids.add(r.visitor_id);
+      if (typeof r.visitor_id === "string" && r.slug) {
+        keys.add(`${r.visitor_id}|${r.slug}`);
+      }
     }
     if (data.length < PAGE) break;
     from += PAGE;
   }
-  return ids.size;
+  return keys.size;
 }
 
 // All-time shared-breakdown + top-shares-visits + visit counters built
@@ -857,10 +886,10 @@ async function fetchAllTimeSharedAndGeo(
       } else {
         // visit_linked — human page-load.
         visitCounter.humans++;
-        if (r.visitor_id) {
+        if (r.visitor_id && r.slug) {
           const visitor = visitorRows.get(r.visitor_id);
           if (visitor?.device_type === "mobile") visitCounter.mobile++;
-          if (visitor) geoSeen.add(r.visitor_id);
+          if (visitor) geoSeen.add(`${r.visitor_id}|${r.slug}`);
         }
         applyToShared(s, false, null, r.referrer_kind, r.ip_hash);
       }
@@ -905,14 +934,15 @@ async function fetchAllTimeFunnelAndBins(
       visitor_id: string | null;
     }[]) {
       if (!eventAllowed(r.slug, r.visitor_id)) continue;
-      applyToFunnel(f, r.type, r.payload, r.visitor_id);
-      applyToLengthBins(bins, r.type, r.payload, r.visitor_id);
+      applyToFunnel(f, r.type, r.slug, r.payload, r.visitor_id);
+      applyToLengthBins(bins, r.type, r.slug, r.payload, r.visitor_id);
       if (r.type === "video_pause") applyToPauseDropoff(pauses, r.payload);
       applyEventToTopShares(topShares, r.type, r.slug, r.visitor_id);
-      // Visitor showed up under this slug filter — record so the geo/city
-      // map gets a tick even if their visit_linked never landed.
-      if (r.visitor_id && visitorRows.has(r.visitor_id)) {
-        geoSeen.add(r.visitor_id);
+      // (visitor, page) showed up under the filter — record so the
+      // geo/city map gets a tick even if their visit_linked never
+      // landed. Each (visitor, page) pair contributes once.
+      if (r.visitor_id && r.slug && visitorRows.has(r.visitor_id)) {
+        geoSeen.add(`${r.visitor_id}|${r.slug}`);
       }
     }
     if (data.length < PAGE) break;
@@ -1104,23 +1134,25 @@ export async function GET(request: Request) {
     // Non-visit event. visit_linked carries the human page-load
     // semantics; other engagement events feed funnel/length/pause.
     const visitor = e.visitor_id ? visitorRows.get(e.visitor_id) : undefined;
+    const pageKey = e.visitor_id && e.slug ? `${e.visitor_id}|${e.slug}` : null;
 
-    // Geo + city: dedup by visitor per window so any event from a
-    // visitor pulls them onto the map once. Robust to dropped
-    // visit_linked beacons (visitor still has CTA events).
-    if (e.visitor_id && visitor) {
-      if (ts >= cutoff90 && !geoSeen90.has(e.visitor_id)) {
-        geoSeen90.add(e.visitor_id);
+    // Geo + city: dedup by (visitor, page) per window so each share a
+    // viewer sees pulls them onto the map once. A viewer with five
+    // follow-up shares contributes five dot-counts at their location;
+    // robust to dropped visit_linked beacons since any event suffices.
+    if (pageKey && visitor) {
+      if (ts >= cutoff90 && !geoSeen90.has(pageKey)) {
+        geoSeen90.add(pageKey);
         applyToGeo(g90, visitor);
         applyToCity(ci90, visitor);
       }
-      if (ts >= cutoff30 && !geoSeen30.has(e.visitor_id)) {
-        geoSeen30.add(e.visitor_id);
+      if (ts >= cutoff30 && !geoSeen30.has(pageKey)) {
+        geoSeen30.add(pageKey);
         applyToGeo(g30, visitor);
         applyToCity(ci30, visitor);
       }
-      if (ts >= cutoff7 && !geoSeen7.has(e.visitor_id)) {
-        geoSeen7.add(e.visitor_id);
+      if (ts >= cutoff7 && !geoSeen7.has(pageKey)) {
+        geoSeen7.add(pageKey);
         applyToGeo(g7, visitor);
         applyToCity(ci7, visitor);
       }
@@ -1132,7 +1164,7 @@ export async function GET(request: Request) {
         c.visits++;
         c.humans++;
         if (isMobile) c.mobile++;
-        if (e.visitor_id) c.visitorIds.add(e.visitor_id);
+        if (pageKey) c.pageVisitorKeys.add(pageKey);
       };
       if (ts >= cutoff90) apply(c90);
       if (ts >= cutoff30) apply(c30);
@@ -1148,9 +1180,9 @@ export async function GET(request: Request) {
       if (ts >= cutoff7) applyVisitToTopShares(ts7, e.slug);
     }
 
-    if (ts >= cutoff90) applyToFunnel(f90, e.type, e.payload, e.visitor_id);
-    if (ts >= cutoff30) applyToFunnel(f30, e.type, e.payload, e.visitor_id);
-    if (ts >= cutoff7) applyToFunnel(f7, e.type, e.payload, e.visitor_id);
+    if (ts >= cutoff90) applyToFunnel(f90, e.type, e.slug, e.payload, e.visitor_id);
+    if (ts >= cutoff30) applyToFunnel(f30, e.type, e.slug, e.payload, e.visitor_id);
+    if (ts >= cutoff7) applyToFunnel(f7, e.type, e.slug, e.payload, e.visitor_id);
     if (ts >= cutoff90)
       applyEventToTopShares(ts90, e.type, e.slug, e.visitor_id);
     if (ts >= cutoff30)
@@ -1158,11 +1190,11 @@ export async function GET(request: Request) {
     if (ts >= cutoff7)
       applyEventToTopShares(ts7, e.type, e.slug, e.visitor_id);
     if (ts >= cutoff90)
-      applyToLengthBins(b90, e.type, e.payload, e.visitor_id);
+      applyToLengthBins(b90, e.type, e.slug, e.payload, e.visitor_id);
     if (ts >= cutoff30)
-      applyToLengthBins(b30, e.type, e.payload, e.visitor_id);
+      applyToLengthBins(b30, e.type, e.slug, e.payload, e.visitor_id);
     if (ts >= cutoff7)
-      applyToLengthBins(b7, e.type, e.payload, e.visitor_id);
+      applyToLengthBins(b7, e.type, e.slug, e.payload, e.visitor_id);
     if (e.type === "video_pause") {
       if (ts >= cutoff90) applyToPauseDropoff(p90, e.payload);
       if (ts >= cutoff30) applyToPauseDropoff(p30, e.payload);
@@ -1175,22 +1207,28 @@ export async function GET(request: Request) {
   // (see allTimeSharedAndGeo.visitCounter) so the same filter predicate
   // applies. Saved 4 separate SQL count() queries that couldn't honor
   // the predicate anyway.
-  // Shared dedup set populated by both all-time paginators. Every
-  // visitor with any allowed event lands here; geo/city are then
-  // derived once at the end so the dot map matches "visitors known to
-  // the system" rather than "visitors with a visit_linked row".
+  //
+  // allTimeGeoSeen holds `${visitor_id}|${slug}` keys populated by both
+  // paginators, so every (visitor, page) pair under the active filter
+  // lands a tick on the geo/city map — once per pair. Each follow-up
+  // share to the same viewer is a separate map tick.
   const allTimeGeoSeen = new Set<string>();
-  const [allTimeUnique, allTimeFunnelAndBins, allTimeSharedAndGeo] =
+  const [allTimePageVisitors, allTimeFunnelAndBins, allTimeSharedAndGeo] =
     await Promise.all([
-      fetchAllTimeUniqueVisitors(eventAllowed),
+      fetchAllTimePageVisitors(eventAllowed),
       fetchAllTimeFunnelAndBins(tsAll, eventAllowed, visitorRows, allTimeGeoSeen),
       fetchAllTimeSharedAndGeo(tsAll, eventAllowed, visitorRows, allTimeGeoSeen),
     ]);
 
   const allTimeGeo = makeGeo();
   const allTimeCity = makeCity();
-  for (const id of allTimeGeoSeen) {
-    const v = visitorRows.get(id);
+  for (const key of allTimeGeoSeen) {
+    // Keys are `${visitor_id}|${slug}` — split off the visitor to
+    // resolve the row. A page-pair contributes once even if its key
+    // recurs across paginators.
+    const sep = key.indexOf("|");
+    const visitorId = sep >= 0 ? key.slice(0, sep) : key;
+    const v = visitorRows.get(visitorId);
     if (!v) continue;
     applyToGeo(allTimeGeo, v);
     applyToCity(allTimeCity, v);
@@ -1198,8 +1236,8 @@ export async function GET(request: Request) {
 
   const vc = allTimeSharedAndGeo.visitCounter;
   const allTime: EventCounts = {
-    totalVisits: vc.visits,
-    uniqueVisitors: allTimeUnique,
+    totalPageVisits: vc.visits,
+    uniquePageVisitors: allTimePageVisitors,
     mobilePct: vc.humans > 0 ? vc.mobile / vc.humans : null,
     botPct: vc.visits > 0 ? vc.bots / vc.visits : null,
   };
@@ -1276,8 +1314,8 @@ export async function GET(request: Request) {
       .map(([slug, e]) => ({
         slug,
         presenter: presenterBySlug.get(slug) ?? null,
-        visits: e.visits,
-        uniqueVisitors: e.visitorIds.size,
+        pageVisits: e.visits,
+        uniquePageVisitors: e.visitorIds.size,
         plays: e.plays.size,
         videoEnds: e.videoEnds.size,
         copyLinkClicks: e.copyLinkCount,
@@ -1285,7 +1323,7 @@ export async function GET(request: Request) {
         interactiveClicks: e.interactiveCount,
         bookDemoClicks: e.bookDemoCount,
       }))
-      .sort((a, b) => b.visits - a.visits);
+      .sort((a, b) => b.pageVisits - a.pageVisits);
   }
 
   const topShares = {

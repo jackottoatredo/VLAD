@@ -10,6 +10,7 @@ import { useMerchantFlow } from '@/app/contexts/MerchantFlowContext'
 import { merchantPostprocess } from '@/app/copy/instructions'
 import NameRecordingModal from '@/app/components/NameRecordingModal'
 import type { JobProgress, JobStep } from '@/lib/queue/progress'
+import { slugifyPart, deriveMerchantNameFromUrl } from '@/lib/naming'
 
 const POLL_MS = 500
 
@@ -138,7 +139,7 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
     }
   }
 
-  async function submitSave(name: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  async function submitSave(tag: string): Promise<{ ok: true; name: string } | { ok: false; error: string }> {
     if (!presenter || !merchantId || !flowId) return { ok: false, error: 'Flow not ready.' }
     setSaveStatus('saving')
     setSaveError('')
@@ -148,7 +149,7 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           flowId,
-          name,
+          tag,
           status: 'saved',
           type: 'merchant',
           merchantId,
@@ -161,8 +162,8 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
           metadata: { merchantUrl, trimStartSec, trimEndSec },
         }),
       })
-      const data = (await res.json()) as { ok?: boolean; error?: string; code?: string }
-      if (!res.ok || !data.ok) {
+      const data = (await res.json()) as { ok?: boolean; error?: string; name?: string }
+      if (!res.ok || !data.ok || !data.name) {
         setSaveStatus('error')
         const err = data.error ?? 'Failed.'
         setSaveError(err)
@@ -170,9 +171,9 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
       }
       setSaveStatus('saved')
       setNameModalOpen(false)
-      flow.markPersisted({ name, status: 'saved' })
+      flow.markPersisted({ name: data.name, status: 'saved' })
       flow.setStep(2)
-      return { ok: true }
+      return { ok: true, name: data.name }
     } catch {
       setSaveStatus('error')
       setSaveError('Unexpected error.')
@@ -181,17 +182,20 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
   }
 
   const canSave = !!videoUrl && saveStatus !== 'saving' && saveStatus !== 'saved'
-  const cleanBrand = brandName ? brandName.toLowerCase().replace(/\s+/g, '-') : ''
-  const prefix = cleanBrand || merchantId || ''
-  const defaultSuffix = (() => {
-    if (existingName && prefix && existingName.startsWith(`${prefix}-`)) return existingName.slice(prefix.length + 1)
+  const prefix = slugifyPart(brandName) || deriveMerchantNameFromUrl(merchantUrl)
+  const defaultTag = (() => {
+    if (existingName && prefix && existingName.startsWith(`${prefix}-`)) {
+      return existingName.slice(prefix.length + 1).replace(/-(\d+)$/, '')
+    }
     return ''
   })()
   const isReopened = origin === 'reopened' && !!existingName
 
   async function handleSaveChanges() {
+    // Server keeps the existing name on re-save; tag is ignored when the row
+    // already has one. Pass empty string to satisfy the signature.
     if (!existingName) return
-    await submitSave(existingName)
+    await submitSave('')
   }
 
   function handleDiscardChanges() {
@@ -250,11 +254,11 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
           quality="preview"
         />
       </div>
-      {nameModalOpen && merchantId && (
+      {nameModalOpen && merchantId && prefix && (
         <NameRecordingModal
           title="Save Recording"
           prefix={prefix}
-          defaultSuffix={defaultSuffix}
+          defaultTag={defaultTag}
           submitLabel="Save"
           onSubmit={submitSave}
           onCancel={() => setNameModalOpen(false)}

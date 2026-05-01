@@ -9,7 +9,6 @@ const ASSET_TTL_SECONDS = 60 * 60;
 const REDIRECT_CACHE_SECONDS = 300;
 
 type ShareRow = {
-  brand: string | null;
   video_url: string | null;
   poster_key: string | null;
   poster_square_key: string | null;
@@ -18,7 +17,9 @@ type ShareRow = {
 
 type Resolved = { key: string; contentType: string; contentDisposition?: string };
 
-function resolveAsset(asset: string, row: ShareRow): Resolved | null {
+// Downloaded filenames use the slug (already kebab-case + globally unique) so
+// recipients never get colliding filenames locally.
+function resolveAsset(asset: string, row: ShareRow, slug: string): Resolved | null {
   switch (asset) {
     case "video.mp4":
       return row.video_url ? { key: row.video_url, contentType: "video/mp4" } : null;
@@ -30,20 +31,18 @@ function resolveAsset(asset: string, row: ShareRow): Resolved | null {
       return row.gif_key ? { key: row.gif_key, contentType: "image/gif" } : null;
     case "download": {
       if (!row.video_url) return null;
-      const safe = (row.brand ?? "video").replace(/[^a-z0-9_\-]/gi, "-").replace(/-+/g, "-");
       return {
         key: row.video_url,
         contentType: "video/mp4",
-        contentDisposition: `attachment; filename="${safe}.mp4"`,
+        contentDisposition: `attachment; filename="${slug}.mp4"`,
       };
     }
     case "download-gif": {
       if (!row.gif_key) return null;
-      const safe = (row.brand ?? "demo").replace(/[^a-z0-9_\-]/gi, "-").replace(/-+/g, "-");
       return {
         key: row.gif_key,
         contentType: "image/gif",
-        contentDisposition: `attachment; filename="${safe}.gif"`,
+        contentDisposition: `attachment; filename="${slug}.gif"`,
       };
     }
     default:
@@ -59,7 +58,7 @@ export async function GET(
 
   const { data, error } = await supabase
     .from("vlad_renders")
-    .select("brand, video_url, poster_key, poster_square_key, gif_key")
+    .select("video_url, poster_key, poster_square_key, gif_key")
     .eq("slug", slug)
     .single();
 
@@ -67,7 +66,7 @@ export async function GET(
     return new NextResponse("Not Found", { status: 404 });
   }
 
-  const resolved = resolveAsset(asset, data as ShareRow);
+  const resolved = resolveAsset(asset, data as ShareRow, slug);
   if (!resolved) {
     return new NextResponse("Not Found", { status: 404 });
   }

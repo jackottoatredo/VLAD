@@ -62,30 +62,18 @@ export type ProduceJobPayload = {
 
   /**
    * When set, the worker UPDATEs the pre-stubbed vlad_renders row identified
-   * by `renderId` after the produce completes. Used by the merge-export's
-   * product-only flow, where one product recording fans out into N renders —
-   * one per merchant brand. Distinct from `flowId` (which backfills
+   * by `renderId` after the produce completes. Used by the product-only
+   * export flow, where one product recording fans out into N renders — one
+   * per merchant brand. Distinct from `flowId` (which backfills
    * vlad_recordings).
    *
    * The row is created at job-enqueue time by /api/product-only-export with
-   * status='rendering' so the UI can resume polling on reload.
+   * status='rendering', `brand`, and `slug` already set. The worker only
+   * fills in video_url + share assets here.
    */
   mergeRenderInsert?: {
     /** Pre-stubbed vlad_renders.id — worker UPDATEs this row on completion. */
     renderId: string;
-    productRecordingId: string;
-    /** Display label stored on vlad_renders.brand (typically merchant brandName). */
-    brand: string | null;
-    /** Recording.name of the product, used to build the share slug. */
-    productRecordingName: string;
-    /** Slugified presenter component (e.g. "jack-otto"), used as a slug prefix. */
-    presenterSlug: string;
-    /** Cleaned host (e.g. "mammut.com"); used by the share page's "Explore demo" link. */
-    brandUrl: string | null;
-    /** Product name (e.g. "Trion 28"); appended as ?product=… on the demo link. */
-    productName: string | null;
-    /** Human-readable brand name (e.g. "And Collar"); used in the share-page title. */
-    brandName: string | null;
   } | null;
 };
 
@@ -130,7 +118,9 @@ export type MergeRecordingPayload = {
 
 /**
  * Job payload for a merge-export (render × 2 → composite × 2 → merge).
- * Enqueued by POST /api/merge-export.
+ * Enqueued by POST /api/merge-export. The pre-stubbed vlad_renders row
+ * already has `brand`, `slug`, `brand_name`, `brand_url`, `product_name`
+ * populated — the worker only fills in video_url + share assets.
  */
 export type MergeJobPayload = {
   type: "merge";
@@ -138,24 +128,13 @@ export type MergeJobPayload = {
   userId: string;
   /** Pre-stubbed vlad_renders.id — worker UPDATEs this row on completion. */
   renderId: string;
-  brand: string | null;
+  /** Render display label (also used as the merged-mp4 filename stem). */
+  brand: string;
   outputSessionName: string;
 
-  // DB record IDs (for the final vlad_renders insert)
+  // DB record IDs (for diagnostics / cache lookups)
   merchantRecordingId: string;
   productRecordingId: string;
-  merchantId: string | null;
-  productName: string | null;
-
-  // Display names + presenter, used to build the share slug at insert time.
-  merchantRecordingName: string;
-  productRecordingName: string;
-  presenterSlug: string;
-
-  /** Cleaned host (e.g. "mammut.com"); used by the share page's "Explore demo" link. */
-  brandUrl: string | null;
-  /** Human-readable brand name (e.g. "And Collar"); used in the share-page title. */
-  brandName: string | null;
 
   merchant: MergeRecordingPayload;
   product: MergeRecordingPayload;

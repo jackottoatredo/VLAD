@@ -10,8 +10,17 @@ import PageLayout from '@/app/components/PageLayout'
 import RecordStep from '@/app/merchant-flow/steps/RecordStep'
 import PostprocessStep from '@/app/merchant-flow/steps/PostprocessStep'
 import SavedStep from '@/app/merchant-flow/steps/SavedStep'
+import { slugifyPart, deriveMerchantNameFromUrl } from '@/lib/naming'
 
 const STEPS = ['Record', 'Postprocess', 'Saved']
+
+// Recover the original optional-tag from a saved name like
+// `{prefix}-{tag}-{count}` so reopened flows can pre-fill the modal.
+// Strips the prefix and any trailing `-N` count suffix.
+function extractTagFromName(name: string | null | undefined, prefix: string): string {
+  if (!name || !prefix || !name.startsWith(`${prefix}-`)) return ''
+  return name.slice(prefix.length + 1).replace(/-(\d+)$/, '')
+}
 
 export default function MerchantFlowWizard() {
   const { presenter } = useUser()
@@ -42,17 +51,13 @@ export default function MerchantFlowWizard() {
     const guardFn = (): GuardPrompt | null => {
       const hasPendingTake = recording.uploadStatus === 'ready'
       if (!flow.hasUnsavedChanges() && !hasPendingTake) return null
-      const cleanBrand = flow.brandName ? flow.brandName.toLowerCase().replace(/\s+/g, '-') : ''
-      const prefix = cleanBrand || flow.merchantId || 'merchant'
-      const defaultSuffix = (() => {
-        if (flow.name && prefix && flow.name.startsWith(`${prefix}-`)) return flow.name.slice(prefix.length + 1)
-        return ''
-      })()
+      const prefix = slugifyPart(flow.brandName) || deriveMerchantNameFromUrl(flow.websiteUrl)
+      const defaultTag = extractTagFromName(flow.name, prefix)
       return {
         flowLabel: 'merchant flow',
         prefix,
-        defaultSuffix,
-        onSaveDraft: async (name: string) => {
+        defaultTag,
+        onSaveDraft: async (tag: string) => {
           if (!flow.flowId) return { ok: false, error: 'Nothing to save.' }
           try {
             const res = await fetch('/api/save-recording', {
@@ -60,19 +65,19 @@ export default function MerchantFlowWizard() {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 flowId: flow.flowId,
-                name,
+                tag,
                 status: 'draft',
                 type: 'merchant',
                 merchantId: flow.merchantId,
                 previewVideoR2Key: flow.postprocessVideoR2Key,
                 webcamSettings: flow.webcamSettings,
-                metadata: { trimStartSec: flow.trimStartSec, trimEndSec: flow.trimEndSec },
+                metadata: { merchantUrl: flow.websiteUrl, trimStartSec: flow.trimStartSec, trimEndSec: flow.trimEndSec },
               }),
             })
-            const data = (await res.json()) as { ok?: boolean; error?: string }
-            if (!res.ok || !data.ok) return { ok: false, error: data.error ?? 'Save failed.' }
-            flow.markPersisted({ name, status: 'draft' })
-            return { ok: true }
+            const data = (await res.json()) as { ok?: boolean; error?: string; name?: string }
+            if (!res.ok || !data.ok || !data.name) return { ok: false, error: data.error ?? 'Save failed.' }
+            flow.markPersisted({ name: data.name, status: 'draft' })
+            return { ok: true, name: data.name }
           } catch {
             return { ok: false, error: 'Unexpected error.' }
           }

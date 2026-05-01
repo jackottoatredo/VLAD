@@ -9,8 +9,8 @@ import type { ProduceJobPayload } from "@/lib/queue/payloads";
 import { downloadBufferFromR2 } from "@/lib/storage/r2";
 import { findCachedRender } from "@/lib/cache/render-cache";
 import { supabase } from "@/lib/db/supabase";
-import { emailToName } from "@/lib/nameUtils";
-import { buildBaseSlug } from "@/lib/share/slug";
+import { joinNameParts, slugifyPart } from "@/lib/naming";
+import { reserveUniqueName } from "@/lib/db/reserveName";
 
 export const runtime = "nodejs";
 
@@ -68,6 +68,12 @@ function parseMerchantBrand(v: unknown): MerchantBrand | null {
  * Enqueues a single produce job that renders a product recording with a
  * `?brand=…` URL param, and tells the worker to insert a vlad_renders row on
  * completion. Caller hits this once per merchant chip.
+ *
+ * Naming follows AGENTS.md spec:
+ *   brand label = `{merchant-name}-{product-rec-name}-{count}` (per-user)
+ *   slug        = `{merchant-name}-{product-name}-{count}`     (global)
+ * Both are reserved here at enqueue time so the dashboard can show the share
+ * URL immediately.
  */
 export async function POST(request: Request) {
   const session = await requireSession();
@@ -151,14 +157,34 @@ export async function POST(request: Request) {
   const mouseHash = hashBuffer(mouseBuffer);
   const wcFP = webcamFingerprint(webcamSettings);
   const tKey = trimKey(trimStartSec, trimEndSec);
-  // vlad_renders.brand label: `{merchantBrand}-{productRecordingName}`. Falls
-  // back to just the brand if the product recording somehow has no name.
-  const renderLabel = product.name
-    ? `${merchant.brandName}-${product.name}`
-    : merchant.brandName;
 
-  const { firstName, lastName } = emailToName(session.email);
-  const presenterSlug = buildBaseSlug([firstName, lastName]);
+  const merchantNameSlug = slugifyPart(merchant.brandName);
+  if (!merchantNameSlug) {
+    return NextResponse.json({ error: "Merchant brand name is missing." }, { status: 400 });
+  }
+  if (!product.name) {
+    return NextResponse.json({ error: "Product recording has no name." }, { status: 400 });
+  }
+  if (!product.product_name) {
+    return NextResponse.json({ error: "Product recording has no product_name (SKU)." }, { status: 400 });
+  }
+
+  // brand label (per-user dedup): `{merchant-name}-{product-rec-name}-{count}`
+  const brandBase = joinNameParts([merchantNameSlug, product.name]);
+  const brand = await reserveUniqueName({
+    table: "vlad_renders",
+    column: "brand",
+    userId,
+    base: brandBase,
+  });
+
+  // slug (global dedup): `{merchant-name}-{product-name}-{count}`
+  const slugBase = joinNameParts([merchantNameSlug, product.product_name]);
+  const slug = await reserveUniqueName({
+    table: "vlad_renders",
+    column: "slug",
+    base: slugBase,
+  });
 
   // Cache lookup — if we've already rendered this exact (product, brand, webcam, trim)
   // we can skip the render entirely and just create a vlad_renders row pointing at it.
@@ -170,11 +196,12 @@ export async function POST(request: Request) {
         user_id: userId,
         product_recording_id: productRecordingId,
         merchant_recording_id: null,
-        brand: renderLabel,
+        brand,
         brand_name: merchant.brandName || null,
         brand_url: cleanedBrandUrl,
         product_name: product.product_name,
         video_url: cached.trimmedR2Key,
+        slug,
         status: "done",
         progress: 100,
         seen: false,
@@ -184,7 +211,7 @@ export async function POST(request: Request) {
     if (rErr) {
       return NextResponse.json({ error: "Failed to record cached render." }, { status: 500 });
     }
-    return NextResponse.json({ cached: true, renderId: renderRow?.id, videoR2Key: cached.trimmedR2Key });
+    return NextResponse.json({ cached: true, renderId: renderRow?.id, videoR2Key: cached.trimmedR2Key, slug });
   }
 
   const newJobId = randomUUID().slice(0, 8);
@@ -192,7 +219,7 @@ export async function POST(request: Request) {
 
   // Stub the vlad_renders row at job-enqueue time so the UI can resume polling
   // on reload. The worker UPDATEs this row on completion (status='done',
-  // video_url, slug, share assets); worker.on('failed') marks status='error'.
+  // video_url, share assets); worker.on('failed') marks status='error'.
   const { data: stub, error: stubErr } = await supabase
     .from("vlad_renders")
     .insert({
@@ -201,10 +228,11 @@ export async function POST(request: Request) {
       job_request: { endpoint: "/api/product-only-export", body },
       product_recording_id: productRecordingId,
       merchant_recording_id: null,
-      brand: renderLabel,
+      brand,
       brand_name: merchant.brandName || null,
       brand_url: cleanedBrandUrl,
       product_name: product.product_name,
+      slug,
       status: "rendering",
       progress: 0,
       seen: false,
@@ -249,13 +277,6 @@ export async function POST(request: Request) {
       flowId: null,
       mergeRenderInsert: {
         renderId,
-        productRecordingId,
-        brand: renderLabel,
-        productRecordingName: product.name,
-        presenterSlug,
-        brandUrl: cleanedBrandUrl,
-        productName: product.product_name,
-        brandName: merchant.brandName || null,
       },
     } satisfies ProduceJobPayload,
     {
@@ -264,5 +285,5 @@ export async function POST(request: Request) {
     },
   );
 
-  return NextResponse.json({ jobId: job.id ?? newJobId, renderId });
+  return NextResponse.json({ jobId: job.id ?? newJobId, renderId, slug });
 }

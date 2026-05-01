@@ -16,7 +16,6 @@ import { extractPreviewGif } from "@/lib/render/gif";
 import { uploadToR2, downloadFromR2 } from "@/lib/storage/r2";
 import { supabase } from "@/lib/db/supabase";
 import { updateRenderCache } from "@/lib/cache/render-cache";
-import { buildBaseSlug, reserveUniqueSlug } from "@/lib/share/slug";
 import { logEvent } from "@/lib/stats/events";
 import { probeVideoDurationSec } from "@/lib/render/probeDuration";
 import { VIDEO_WIDTH, VIDEO_HEIGHT, RENDER_ZOOM, DEFAULT_FPS } from "@/app/config";
@@ -66,37 +65,29 @@ async function generateAndUploadShareAssets(
   return { posterKey, posterSquareKey, gifKey };
 }
 
-// UPDATE the pre-stubbed vlad_renders row, reserving a unique slug. Retries on
-// 23505 (slug race) up to 3 times by re-reserving the next available suffix.
-// The row was inserted at job-enqueue time with status='rendering' so the UI
-// could resume polling on reload; this flips it to status='done'.
-async function updateRenderWithSlug(
+// UPDATE the pre-stubbed vlad_renders row with the final video + share assets.
+// Slug + brand were reserved at job-enqueue time by the API route, so this
+// only flips status to 'done' and fills in the asset keys.
+async function finalizeRenderRow(
   renderId: string,
-  baseSlug: string,
   fields: {
     video_url: string;
     poster_key: string;
     poster_square_key: string;
     gif_key: string;
   },
-): Promise<{ slug: string }> {
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const slug = await reserveUniqueSlug(baseSlug);
-    const { error } = await supabase
-      .from("vlad_renders")
-      .update({
-        ...fields,
-        slug,
-        status: "done",
-        progress: 100,
-      })
-      .eq("id", renderId);
-    if (!error) return { slug };
-    if (error.code !== "23505") {
-      throw new Error(`vlad_renders update failed: ${error.message}`);
-    }
+): Promise<void> {
+  const { error } = await supabase
+    .from("vlad_renders")
+    .update({
+      ...fields,
+      status: "done",
+      progress: 100,
+    })
+    .eq("id", renderId);
+  if (error) {
+    throw new Error(`vlad_renders update failed: ${error.message}`);
   }
-  throw new Error(`vlad_renders update failed: slug retries exhausted for base "${baseSlug}"`);
 }
 
 // ---------------------------------------------------------------------------
@@ -231,11 +222,11 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceJo
       }
     }
 
-    // Product-only merge-export path: generate share assets and UPDATE the
-    // pre-stubbed vlad_renders row tying this branded render back to its
-    // product recording. The row was created at job-enqueue time with
-    // status='rendering'; we flip it to 'done' here. A failed UPDATE throws
-    // so BullMQ marks the job failed and the UI gets a real error.
+    // Product-only export path: generate share assets and finalize the
+    // pre-stubbed vlad_renders row. The row was created at job-enqueue time
+    // with status='rendering', `brand`, and `slug` already set; we flip it
+    // to 'done' here and fill in the asset keys. A failed UPDATE throws so
+    // BullMQ marks the job failed and the UI gets a real error.
     let renderId: string | undefined;
     if (d.mergeRenderInsert && result.finalR2Key && result.finalPath) {
       const { posterKey, posterSquareKey, gifKey } = await generateAndUploadShareAssets(
@@ -244,11 +235,7 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceJo
         path.dirname(result.finalPath),
         result.renderR2Key,
       );
-      const baseSlug = buildBaseSlug([
-        d.mergeRenderInsert.presenterSlug,
-        d.mergeRenderInsert.productRecordingName,
-      ]);
-      await updateRenderWithSlug(d.mergeRenderInsert.renderId, baseSlug, {
+      await finalizeRenderRow(d.mergeRenderInsert.renderId, {
         video_url: result.finalR2Key,
         poster_key: posterKey,
         poster_square_key: posterSquareKey,
@@ -418,7 +405,7 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
       merchantFinalPath,
       productFinalPath,
       mergeOutputDir,
-      d.brand ?? `${d.merchantId}-${d.productName}`,
+      d.brand,
       (pct) => updateStep(4, pct),
     );
     completeStep(4);
@@ -437,16 +424,11 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
       mergeOutputDir,
       merchantResult.renderR2Key,
     );
-    const baseSlug = buildBaseSlug([
-      d.presenterSlug,
-      d.merchantRecordingName,
-      d.productRecordingName,
-    ]);
 
-    // UPDATE the pre-stubbed row, flipping it from 'rendering' to 'done'. A
+    // Finalize the pre-stubbed row (slug + brand were set at enqueue). A
     // failed update throws so BullMQ marks the job failed and the UI gets a
     // real error rather than a silent "complete" with no DB update.
-    await updateRenderWithSlug(d.renderId, baseSlug, {
+    await finalizeRenderRow(d.renderId, {
       video_url: r2Key,
       poster_key: posterKey,
       poster_square_key: posterSquareKey,

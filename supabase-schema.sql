@@ -20,6 +20,7 @@ create table vlad_recordings (
   name              text not null,
   product_name      text,
   merchant_id       text,
+  merchant_name     text,
   mouse_events_url  text,
   webcam_url        text,
   preview_url       text,

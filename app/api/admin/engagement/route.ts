@@ -808,26 +808,23 @@ async function fetchAllTimeUniqueVisitors(
   return ids.size;
 }
 
-// All-time shared-breakdown + geo + city + top-shares-visits built by
-// paginating every visit/visit_linked row. Four accumulators filled in
-// one pass. Bot visits come through `visit`; humans through
-// `visit_linked` (where geo/device live on the joined visitor row).
-// `topShares` is filled for the visits-per-slug field; the engagement
-// fields (visitor_id sets) come from fetchAllTimeFunnelAndBins which
-// shares the same accumulator instance.
+// All-time shared-breakdown + top-shares-visits + visit counters built
+// by paginating every visit/visit_linked row. Bot visits come through
+// `visit`; humans through `visit_linked`. Geo + city are built later
+// from the union of `geoSeen` collected here AND in
+// fetchAllTimeFunnelAndBins so we capture every visitor that has any
+// event, not just visit_linked rows (a dropped beacon shouldn't drop
+// the visitor from the map).
 async function fetchAllTimeSharedAndGeo(
   topShares: TopSharesAcc,
   eventAllowed: (slug: string, visitorId: string | null) => boolean,
   visitorRows: Map<string, VisitorRow>,
+  geoSeen: Set<string>,
 ): Promise<{
   shared: SharedAccumulator;
-  geo: GeoAcc;
-  city: CityAcc;
   visitCounter: { visits: number; bots: number; humans: number; mobile: number };
 }> {
   const s = makeShared();
-  const g = makeGeo();
-  const c = makeCity();
   const visitCounter = { visits: 0, bots: 0, humans: 0, mobile: 0 };
   const PAGE = 1000;
   let from = 0;
@@ -858,19 +855,20 @@ async function fetchAllTimeSharedAndGeo(
         visitCounter.bots++;
         applyToShared(s, true, r.bot_kind, r.referrer_kind, r.ip_hash);
       } else {
-        // visit_linked — human page-load. Visitor row carries geo + device.
+        // visit_linked — human page-load.
         visitCounter.humans++;
-        const visitor = r.visitor_id ? visitorRows.get(r.visitor_id) : undefined;
-        if (visitor?.device_type === "mobile") visitCounter.mobile++;
+        if (r.visitor_id) {
+          const visitor = visitorRows.get(r.visitor_id);
+          if (visitor?.device_type === "mobile") visitCounter.mobile++;
+          if (visitor) geoSeen.add(r.visitor_id);
+        }
         applyToShared(s, false, null, r.referrer_kind, r.ip_hash);
-        applyToGeo(g, visitor);
-        applyToCity(c, visitor);
       }
     }
     if (data.length < PAGE) break;
     from += PAGE;
   }
-  return { shared: s, geo: g, city: c, visitCounter };
+  return { shared: s, visitCounter };
 }
 
 // All-time funnel + length-bin drop-off + pause hotspots built by
@@ -881,6 +879,8 @@ async function fetchAllTimeSharedAndGeo(
 async function fetchAllTimeFunnelAndBins(
   topShares: TopSharesAcc,
   eventAllowed: (slug: string, visitorId: string | null) => boolean,
+  visitorRows: Map<string, VisitorRow>,
+  geoSeen: Set<string>,
 ): Promise<{
   funnel: FunnelSets;
   bins: LengthBinAcc;
@@ -909,6 +909,11 @@ async function fetchAllTimeFunnelAndBins(
       applyToLengthBins(bins, r.type, r.payload, r.visitor_id);
       if (r.type === "video_pause") applyToPauseDropoff(pauses, r.payload);
       applyEventToTopShares(topShares, r.type, r.slug, r.visitor_id);
+      // Visitor showed up under this slug filter — record so the geo/city
+      // map gets a tick even if their visit_linked never landed.
+      if (r.visitor_id && visitorRows.has(r.visitor_id)) {
+        geoSeen.add(r.visitor_id);
+      }
     }
     if (data.length < PAGE) break;
     from += PAGE;
@@ -1061,6 +1066,14 @@ export async function GET(request: Request) {
   const p30 = makePauseDropoff();
   const p90 = makePauseDropoff();
 
+  // Dedup sets for geo/city aggregation. We want one count per unique
+  // visitor per window — not per-event — so a visitor with many events
+  // in the window contributes once, and a visitor with only CTA events
+  // (no visit_linked, e.g. a dropped beacon) still appears on the map.
+  const geoSeen7 = new Set<string>();
+  const geoSeen30 = new Set<string>();
+  const geoSeen90 = new Set<string>();
+
   for (const e of events) {
     const ts = new Date(e.created_at).getTime();
     // Filter once per event before any aggregation. Region cascades
@@ -1092,6 +1105,27 @@ export async function GET(request: Request) {
     // semantics; other engagement events feed funnel/length/pause.
     const visitor = e.visitor_id ? visitorRows.get(e.visitor_id) : undefined;
 
+    // Geo + city: dedup by visitor per window so any event from a
+    // visitor pulls them onto the map once. Robust to dropped
+    // visit_linked beacons (visitor still has CTA events).
+    if (e.visitor_id && visitor) {
+      if (ts >= cutoff90 && !geoSeen90.has(e.visitor_id)) {
+        geoSeen90.add(e.visitor_id);
+        applyToGeo(g90, visitor);
+        applyToCity(ci90, visitor);
+      }
+      if (ts >= cutoff30 && !geoSeen30.has(e.visitor_id)) {
+        geoSeen30.add(e.visitor_id);
+        applyToGeo(g30, visitor);
+        applyToCity(ci30, visitor);
+      }
+      if (ts >= cutoff7 && !geoSeen7.has(e.visitor_id)) {
+        geoSeen7.add(e.visitor_id);
+        applyToGeo(g7, visitor);
+        applyToCity(ci7, visitor);
+      }
+    }
+
     if (e.type === "visit_linked") {
       const isMobile = visitor?.device_type === "mobile";
       const apply = (c: Counter) => {
@@ -1109,12 +1143,6 @@ export async function GET(request: Request) {
         applyToShared(s30, false, null, e.referrer_kind, e.ip_hash);
       if (ts >= cutoff7)
         applyToShared(s7, false, null, e.referrer_kind, e.ip_hash);
-      if (ts >= cutoff90) applyToGeo(g90, visitor);
-      if (ts >= cutoff30) applyToGeo(g30, visitor);
-      if (ts >= cutoff7) applyToGeo(g7, visitor);
-      if (ts >= cutoff90) applyToCity(ci90, visitor);
-      if (ts >= cutoff30) applyToCity(ci30, visitor);
-      if (ts >= cutoff7) applyToCity(ci7, visitor);
       if (ts >= cutoff90) applyVisitToTopShares(ts90, e.slug);
       if (ts >= cutoff30) applyVisitToTopShares(ts30, e.slug);
       if (ts >= cutoff7) applyVisitToTopShares(ts7, e.slug);
@@ -1147,12 +1175,26 @@ export async function GET(request: Request) {
   // (see allTimeSharedAndGeo.visitCounter) so the same filter predicate
   // applies. Saved 4 separate SQL count() queries that couldn't honor
   // the predicate anyway.
+  // Shared dedup set populated by both all-time paginators. Every
+  // visitor with any allowed event lands here; geo/city are then
+  // derived once at the end so the dot map matches "visitors known to
+  // the system" rather than "visitors with a visit_linked row".
+  const allTimeGeoSeen = new Set<string>();
   const [allTimeUnique, allTimeFunnelAndBins, allTimeSharedAndGeo] =
     await Promise.all([
       fetchAllTimeUniqueVisitors(eventAllowed),
-      fetchAllTimeFunnelAndBins(tsAll, eventAllowed),
-      fetchAllTimeSharedAndGeo(tsAll, eventAllowed, visitorRows),
+      fetchAllTimeFunnelAndBins(tsAll, eventAllowed, visitorRows, allTimeGeoSeen),
+      fetchAllTimeSharedAndGeo(tsAll, eventAllowed, visitorRows, allTimeGeoSeen),
     ]);
+
+  const allTimeGeo = makeGeo();
+  const allTimeCity = makeCity();
+  for (const id of allTimeGeoSeen) {
+    const v = visitorRows.get(id);
+    if (!v) continue;
+    applyToGeo(allTimeGeo, v);
+    applyToCity(allTimeCity, v);
+  }
 
   const vc = allTimeSharedAndGeo.visitCounter;
   const allTime: EventCounts = {
@@ -1187,14 +1229,14 @@ export async function GET(request: Request) {
     last7d: geoToOutput(g7),
     last30d: geoToOutput(g30),
     last90d: geoToOutput(g90),
-    allTime: geoToOutput(allTimeSharedAndGeo.geo),
+    allTime: geoToOutput(allTimeGeo),
   };
 
   const cityVisits = {
     last7d: cityToOutput(ci7),
     last30d: cityToOutput(ci30),
     last90d: cityToOutput(ci90),
-    allTime: cityToOutput(allTimeSharedAndGeo.city),
+    allTime: cityToOutput(allTimeCity),
   };
 
   // Resolve presenter (the user who created the share) per slug. The

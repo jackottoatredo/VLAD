@@ -17,6 +17,21 @@ import {
 } from 'recharts'
 import { Card, CardHeader } from '@/app/admin/_components/Card'
 import { UsVisitMap, WorldVisitMap } from './VisitMap'
+import { AdminFiltersModal } from '@/app/admin/_components/AdminFiltersModal'
+import { AdminSettingsButton } from '@/app/admin/_components/AdminSettingsButton'
+import {
+  EMPTY_FILTER_OPTIONS,
+  encodeFiltersForApi,
+  type FilterChipKind,
+} from '@/app/admin/_components/filters'
+import { useAdminFilters } from '@/app/admin/_components/useAdminFilters'
+
+const ENGAGEMENT_FILTER_KINDS: FilterChipKind[] = [
+  'presenter',
+  'product',
+  'merchant',
+  'region',
+]
 import { SegmentedControl } from '@/app/admin/_components/SegmentedControl'
 import { TOOLTIP_STYLE, PALETTE, pickStableColor } from '@/app/admin/_components/chartTheme'
 import { sliceLast } from '@/app/admin/_components/series'
@@ -29,6 +44,8 @@ import type {
   PauseDropoff,
   SharedBreakdown,
   SharedBreakdownEntry,
+  TopShareEntry,
+  TopSharePresenter,
 } from '@/app/api/admin/engagement/route'
 
 type WindowDays = 7 | 30 | 90
@@ -261,38 +278,6 @@ const WINDOW_OPTIONS_ALL: { value: WindowAll; label: string }[] = [
   { value: 'all', label: 'All' },
 ]
 
-// Visual placeholder for any card whose data isn't wired yet. We show
-// what the card WILL contain so design discussion is grounded.
-function StubBody({
-  data,
-  plot,
-  purpose,
-  height = 'h-64',
-}: {
-  data: string
-  plot: string
-  purpose: string
-  height?: string
-}) {
-  return (
-    <div
-      className={`flex ${height} flex-col items-center justify-center rounded-md border border-dashed border-border bg-background/40 p-6 text-center`}
-    >
-      <span className="rounded-full bg-surface px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted">
-        TODO · wire data
-      </span>
-      <dl className="mt-3 grid max-w-md grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-left text-xs">
-        <dt className="font-semibold uppercase tracking-wider text-muted">Data</dt>
-        <dd className="text-foreground">{data}</dd>
-        <dt className="font-semibold uppercase tracking-wider text-muted">Plot</dt>
-        <dd className="text-foreground">{plot}</dd>
-        <dt className="font-semibold uppercase tracking-wider text-muted">Purpose</dt>
-        <dd className="text-foreground">{purpose}</dd>
-      </dl>
-    </div>
-  )
-}
-
 function formatPct(v: number | null): string {
   if (v == null) return '—'
   return `${Math.round(v * 100)}%`
@@ -404,22 +389,6 @@ function selectPauseDropoff(
   }
 }
 
-function selectGeoVisits(
-  geo: EngagementResponse['geoVisits'],
-  w: WindowAll,
-): EngagementResponse['geoVisits']['allTime'] {
-  switch (w) {
-    case 7:
-      return geo.last7d
-    case 30:
-      return geo.last30d
-    case 90:
-      return geo.last90d
-    case 'all':
-      return geo.allTime
-  }
-}
-
 function selectCityVisits(
   city: EngagementResponse['cityVisits'],
   w: WindowAll,
@@ -434,6 +403,339 @@ function selectCityVisits(
     case 'all':
       return city.allTime
   }
+}
+
+function selectTopShares(
+  shares: EngagementResponse['topShares'],
+  w: WindowAll,
+): TopShareEntry[] {
+  switch (w) {
+    case 7:
+      return shares.last7d
+    case 30:
+      return shares.last30d
+    case 90:
+      return shares.last90d
+    case 'all':
+      return shares.allTime
+  }
+}
+
+// Numeric columns descend by default; text columns ascend by default.
+// "presenter" sorts by display name (or email fallback) lexicographically.
+type TopSharesSortKey =
+  | 'slug'
+  | 'presenter'
+  | 'visits'
+  | 'uniqueVisitors'
+  | 'plays'
+  | 'videoEnds'
+  | 'copyLinkClicks'
+  | 'downloadClicks'
+  | 'interactiveClicks'
+  | 'bookDemoClicks'
+
+const NUMERIC_KEYS: ReadonlySet<TopSharesSortKey> = new Set([
+  'visits',
+  'uniqueVisitors',
+  'plays',
+  'videoEnds',
+  'copyLinkClicks',
+  'downloadClicks',
+  'interactiveClicks',
+  'bookDemoClicks',
+])
+
+function defaultSortDir(key: TopSharesSortKey): 'asc' | 'desc' {
+  return NUMERIC_KEYS.has(key) ? 'desc' : 'asc'
+}
+
+function presenterName(p: TopSharePresenter | null): string {
+  if (!p) return ''
+  const full = `${p.firstName} ${p.lastName}`.trim()
+  return full || p.email
+}
+
+function compareTopShares(
+  a: TopShareEntry,
+  b: TopShareEntry,
+  key: TopSharesSortKey,
+  dir: 'asc' | 'desc',
+): number {
+  const factor = dir === 'asc' ? 1 : -1
+  // Presenter sorts by computed display name; fall back to standard
+  // property indexing for everything else.
+  const av =
+    key === 'presenter' ? presenterName(a.presenter) : (a as Record<string, unknown>)[key]
+  const bv =
+    key === 'presenter' ? presenterName(b.presenter) : (b as Record<string, unknown>)[key]
+  if (av == null && bv == null) return 0
+  if (av == null || av === '') return 1
+  if (bv == null || bv === '') return -1
+  if (typeof av === 'number' && typeof bv === 'number') {
+    return (av - bv) * factor
+  }
+  return String(av).localeCompare(String(bv)) * factor
+}
+
+// Inline icons matching ShareActions's style — kept in this file because
+// they're only used by the leaderboard's CTA columns. SVGs use
+// `currentColor` so they pick up the column header's text color.
+function IconLink() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+    </svg>
+  )
+}
+function IconDownload() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+      <polyline points="7 10 12 15 17 10" />
+      <line x1="12" y1="15" x2="12" y2="3" />
+    </svg>
+  )
+}
+function IconEye() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  )
+}
+function IconCalendar() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+      <line x1="16" y1="2" x2="16" y2="6" />
+      <line x1="8" y1="2" x2="8" y2="6" />
+      <line x1="3" y1="10" x2="21" y2="10" />
+    </svg>
+  )
+}
+
+function TopSharesTable({ rows }: { rows: TopShareEntry[] }) {
+  const [sortKey, setSortKey] = useState<TopSharesSortKey>('visits')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+
+  const sorted = useMemo(
+    () => [...rows].sort((a, b) => compareTopShares(a, b, sortKey, sortDir)),
+    [rows, sortKey, sortDir],
+  )
+
+  function clickHeader(k: TopSharesSortKey) {
+    if (k === sortKey) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortKey(k)
+      setSortDir(defaultSortDir(k))
+    }
+  }
+
+  if (rows.length === 0) {
+    return <p className="text-sm text-muted">No share visits in this window.</p>
+  }
+
+  type Col = {
+    key: TopSharesSortKey
+    label: React.ReactNode
+    // Used as the column header's title attribute (tooltip) and as the
+    // sort button's aria-label so icon-only columns stay accessible.
+    title: string
+    align: 'left' | 'right'
+    render: (r: TopShareEntry) => React.ReactNode
+  }
+  const cols: Col[] = [
+    {
+      key: 'slug',
+      label: 'Slug',
+      title: 'Slug — links to the share page',
+      align: 'left',
+      render: (r) => (
+        <a
+          href={`/v/${r.slug}`}
+          target="_blank"
+          rel="noreferrer"
+          className="block max-w-[14rem] truncate text-foreground hover:underline"
+          title={r.slug}
+        >
+          {r.slug}
+        </a>
+      ),
+    },
+    {
+      key: 'presenter',
+      label: 'Presenter',
+      title: 'Share creator',
+      align: 'left',
+      render: (r) => {
+        const name = presenterName(r.presenter)
+        return name ? (
+          <span
+            className="block max-w-[12rem] truncate text-foreground"
+            title={r.presenter?.email ?? name}
+          >
+            {name}
+          </span>
+        ) : (
+          <span className="text-muted">—</span>
+        )
+      },
+    },
+    {
+      key: 'visits',
+      label: 'Visits',
+      title: 'Total visit rows (humans + bots)',
+      align: 'right',
+      render: (r) => r.visits.toLocaleString(),
+    },
+    {
+      key: 'uniqueVisitors',
+      label: 'Unique',
+      title: 'Distinct visitor_id from visit_linked',
+      align: 'right',
+      render: (r) => r.uniqueVisitors.toLocaleString(),
+    },
+    {
+      key: 'plays',
+      label: 'Play',
+      title: 'Distinct viewers who pressed play',
+      align: 'right',
+      render: (r) => r.plays.toLocaleString(),
+    },
+    {
+      key: 'videoEnds',
+      label: 'End',
+      title: 'Distinct viewers who reached the end of the video',
+      align: 'right',
+      render: (r) => r.videoEnds.toLocaleString(),
+    },
+    {
+      key: 'copyLinkClicks',
+      label: <IconLink />,
+      title: 'Copy Link clicks',
+      align: 'right',
+      render: (r) => r.copyLinkClicks.toLocaleString(),
+    },
+    {
+      key: 'downloadClicks',
+      label: <IconDownload />,
+      title: 'Download Video clicks',
+      align: 'right',
+      render: (r) => r.downloadClicks.toLocaleString(),
+    },
+    {
+      key: 'interactiveClicks',
+      label: <IconEye />,
+      title: 'Explore Interactive Preview clicks',
+      align: 'right',
+      render: (r) => r.interactiveClicks.toLocaleString(),
+    },
+    {
+      key: 'bookDemoClicks',
+      label: <IconCalendar />,
+      title: 'Book a Demo clicks',
+      align: 'right',
+      render: (r) => r.bookDemoClicks.toLocaleString(),
+    },
+  ]
+
+  return (
+    <div className="overflow-x-auto rounded-md border border-border">
+      <table className="w-full text-left text-sm">
+        <thead className="bg-surface text-xs uppercase text-muted">
+          <tr>
+            {cols.map((c) => {
+              const active = c.key === sortKey
+              return (
+                <th
+                  key={c.key}
+                  className={[
+                    'cursor-pointer select-none px-3 py-2 font-medium transition-colors hover:text-foreground',
+                    c.align === 'right' ? 'text-right' : 'text-left',
+                    active ? 'text-foreground' : '',
+                  ].join(' ')}
+                  onClick={() => clickHeader(c.key)}
+                  aria-sort={active ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
+                  aria-label={c.title}
+                  title={c.title}
+                >
+                  <span className="inline-flex items-center gap-1">
+                    {c.label}
+                    {active && (
+                      <span aria-hidden className="text-[10px]">
+                        {sortDir === 'asc' ? '▲' : '▼'}
+                      </span>
+                    )}
+                  </span>
+                </th>
+              )
+            })}
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((r) => (
+            <tr key={r.slug} className="border-t border-border">
+              {cols.map((c) => (
+                <td
+                  key={c.key}
+                  className={[
+                    'px-3 py-2 tabular-nums',
+                    c.align === 'right' ? 'text-right' : 'text-left',
+                  ].join(' ')}
+                >
+                  {c.render(r)}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
 }
 
 const MAP_VIEW_OPTIONS: { value: 'us' | 'world'; label: string }[] = [
@@ -592,6 +894,11 @@ function WatchDropoffChart({ bins }: { bins: LengthBin[] }) {
 // upstream stage hits zero — every row below shows "—" because n/0 is
 // undefined.
 function ConversionFunnel({ counts }: { counts: FunnelCounts }) {
+  // CTA stages are parallel rather than sequential — a viewer who hits
+  // Book Demo without clicking Copy Link still appears in the Book Demo
+  // bar. Listing them last and ordered roughly by intent (sharing →
+  // saving → exploring → talking to sales) reads as a natural funnel
+  // tail without misrepresenting the per-stage independence.
   const stages: { label: string; key: keyof FunnelCounts }[] = [
     { label: 'Visited', key: 'visit_linked' },
     { label: 'Played', key: 'video_play' },
@@ -599,7 +906,10 @@ function ConversionFunnel({ counts }: { counts: FunnelCounts }) {
     { label: '50%', key: 'q50' },
     { label: '75%', key: 'q75' },
     { label: 'Finished', key: 'video_end' },
-    { label: 'Clicked CTA', key: 'click_any' },
+    { label: 'Copy Link', key: 'click_copy_link' },
+    { label: 'Download', key: 'click_download' },
+    { label: 'Interactive', key: 'click_interactive_demo' },
+    { label: 'Book Demo', key: 'click_book_demo' },
   ]
   const top = counts.visit_linked
   return (
@@ -644,9 +954,18 @@ export default function AdminEngagementClient() {
   const [fetchState, setFetchState] = useState<FetchState>({ status: 'loading' })
   const data = fetchState.status === 'ready' ? fetchState.data : null
 
+  const [filters, setFilters] = useAdminFilters('vlad_admin_filters_engagement')
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  // String-stable so the fetch effect only fires when filter content
+  // actually changes (not on every parent re-render).
+  const filtersParam = encodeFiltersForApi(filters)
+
   useEffect(() => {
     let cancelled = false
-    fetch('/api/admin/engagement', { cache: 'no-store' })
+    const url = filtersParam
+      ? `/api/admin/engagement?filters=${encodeURIComponent(filtersParam)}`
+      : '/api/admin/engagement'
+    fetch(url, { cache: 'no-store' })
       .then((r) => r.json())
       .then((d: EngagementResponse | { error: string }) => {
         if (cancelled) return
@@ -659,7 +978,7 @@ export default function AdminEngagementClient() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [filtersParam])
 
   // Per-card window state. Cards still in stub form keep their controls
   // functional locally so design refinement can preview behavior.
@@ -692,8 +1011,22 @@ export default function AdminEngagementClient() {
     [data, visitsWindow],
   )
 
+  const filtersActive =
+    filters.include.length > 0 || filters.exclude.length > 0
+  const filterOptions = data?.filterOptions ?? EMPTY_FILTER_OPTIONS
+
   return (
     <div className="flex min-h-screen w-full justify-center bg-background px-4 py-10 font-sans">
+      <AdminSettingsButton active={filtersActive} onClick={() => setFiltersOpen(true)} />
+      {filtersOpen && (
+        <AdminFiltersModal
+          filters={filters}
+          onChange={setFilters}
+          options={filterOptions}
+          enabledKinds={ENGAGEMENT_FILTER_KINDS}
+          onClose={() => setFiltersOpen(false)}
+        />
+      )}
       <div className="w-full max-w-5xl space-y-6">
         <div className="grid grid-cols-3 items-start">
           <div className="col-start-1">
@@ -710,7 +1043,41 @@ export default function AdminEngagementClient() {
           </Link>
         </div>
 
-        {/* Row 1: Visits over time (time-series) + Event counts (stat quad).
+        {/* Row 1: Top shares leaderboard. Per-slug performance ranking. */}
+        <Card>
+          <CardHeader
+            title="Top shares"
+            controls={
+              <SegmentedControl
+                options={WINDOW_OPTIONS_ALL}
+                value={leaderboardWindow}
+                onChange={setLeaderboardWindow}
+              />
+            }
+          />
+          {fetchState.status === 'error' ? (
+            <p className="text-sm text-red-500">{fetchState.message}</p>
+          ) : fetchState.status === 'loading' ? (
+            <p className="text-sm text-muted">Loading…</p>
+          ) : (
+            <TopSharesTable
+              rows={selectTopShares(fetchState.data.topShares, leaderboardWindow)}
+            />
+          )}
+          <p className="mt-2 text-xs text-muted">
+            Click a column header to sort. Slug links to the share page in a new
+            tab. <span className="font-medium">Visits</span> counts page renders
+            (humans + bots); <span className="font-medium">Unique</span> = distinct
+            visitor_id from visit_linked; <span className="font-medium">Play</span>{' '}
+            / <span className="font-medium">End</span> count distinct viewers who
+            pressed play / reached the end of the video. The four icon columns
+            count raw click events on each CTA button (multiple clicks per viewer
+            all count): link = Copy Link, arrow = Download, eye = Explore
+            Interactive Preview, calendar = Book a Demo.
+          </p>
+        </Card>
+
+        {/* Row 2: Visits over time (time-series) + Event counts (stat quad).
             Mirrors the Active users / User counts pairing on /admin/usage. */}
         <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
           <Card className="md:col-span-2">
@@ -771,7 +1138,7 @@ export default function AdminEngagementClient() {
           </Card>
         </div>
 
-        {/* Row 2: Conversion funnel (full width). Most load-bearing plot —
+        {/* Row 3: Conversion funnel (full width). Most load-bearing plot —
             stage-by-stage drop from page-load through video to CTA click. */}
         <Card>
           <CardHeader
@@ -794,63 +1161,6 @@ export default function AdminEngagementClient() {
             />
           )}
         </Card>
-
-        {/* Row 3: Where shared — bot platforms vs. human referrers. Two
-            halves of the same question; placed side-by-side at equal weight. */}
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-          <Card className="flex flex-col">
-            <CardHeader
-              title="Unfurl bot visits"
-              controls={
-                <SegmentedControl
-                  options={WINDOW_OPTIONS_ALL}
-                  value={unfurlWindow}
-                  onChange={setUnfurlWindow}
-                />
-              }
-            />
-            {fetchState.status === 'error' ? (
-              <p className="text-sm text-red-500">{fetchState.message}</p>
-            ) : fetchState.status === 'loading' ? (
-              <p className="text-sm text-muted">Loading…</p>
-            ) : (
-              <SharedDonut
-                entries={
-                  selectShared(fetchState.data.sharedBreakdown, unfurlWindow).unfurlBots
-                }
-                labelFn={unfurlLabel}
-                colorFn={unfurlColor}
-                emptyText="No unfurl bot visits in this window."
-              />
-            )}
-          </Card>
-          <Card className="flex flex-col">
-            <CardHeader
-              title="Referrer sources"
-              controls={
-                <SegmentedControl
-                  options={WINDOW_OPTIONS_ALL}
-                  value={referrerWindow}
-                  onChange={setReferrerWindow}
-                />
-              }
-            />
-            {fetchState.status === 'error' ? (
-              <p className="text-sm text-red-500">{fetchState.message}</p>
-            ) : fetchState.status === 'loading' ? (
-              <p className="text-sm text-muted">Loading…</p>
-            ) : (
-              <SharedDonut
-                entries={
-                  selectShared(fetchState.data.sharedBreakdown, referrerWindow).referrers
-                }
-                labelFn={referrerLabel}
-                colorFn={referrerColor}
-                emptyText="No human visits in this window."
-              />
-            )}
-          </Card>
-        </div>
 
         {/* Row 4: Watch dropoff bucketed by video length. Per-bin, 5 grouped
             bars normalized to play=100% — comparing bins side-by-side answers
@@ -955,35 +1265,74 @@ export default function AdminEngagementClient() {
             />
           ) : (
             <WorldVisitMap
-              entries={selectGeoVisits(fetchState.data.geoVisits, mapWindow)}
+              cities={selectCityVisits(fetchState.data.cityVisits, mapWindow)}
             />
           )}
           <p className="mt-2 text-xs text-muted">
-            Bot/unfurl traffic excluded — iplocate only resolves on real visitor IPs.{' '}
-            {mapView === 'us'
-              ? 'Dots are aggregated by city; size scales with √visits. Visits captured before city/lat-lng was instrumented don’t appear.'
-              : 'Hover a country to see top regions.'}
+            Desktop visits only. Mobile/cellular traffic is excluded because
+            carrier NAT routes those visits through gateway IPs (most US cell
+            traffic egresses through Ashburn, VA), so the geo we get for them
+            is the gateway, not the user. Bots and pre-instrumentation visits
+            also excluded. Dots aggregated by city; size scales with √visits.
           </p>
         </Card>
 
-        {/* Row 8: Top shares leaderboard. Per-slug performance ranking. */}
-        <Card>
-          <CardHeader
-            title="Top shares"
-            controls={
-              <SegmentedControl
-                options={WINDOW_OPTIONS_ALL}
-                value={leaderboardWindow}
-                onChange={setLeaderboardWindow}
+        {/* Row 7: Where shared — bot platforms vs. human referrers. Two
+            halves of the same question; placed side-by-side at equal weight. */}
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+          <Card className="flex flex-col">
+            <CardHeader
+              title="Unfurl bot visits"
+              controls={
+                <SegmentedControl
+                  options={WINDOW_OPTIONS_ALL}
+                  value={unfurlWindow}
+                  onChange={setUnfurlWindow}
+                />
+              }
+            />
+            {fetchState.status === 'error' ? (
+              <p className="text-sm text-red-500">{fetchState.message}</p>
+            ) : fetchState.status === 'loading' ? (
+              <p className="text-sm text-muted">Loading…</p>
+            ) : (
+              <SharedDonut
+                entries={
+                  selectShared(fetchState.data.sharedBreakdown, unfurlWindow).unfurlBots
+                }
+                labelFn={unfurlLabel}
+                colorFn={unfurlColor}
+                emptyText="No unfurl bot visits in this window."
               />
-            }
-          />
-          <StubBody
-            data="per-slug aggregates joined with vlad_renders for brand/product labels"
-            plot="sortable table — columns: slug, brand, product, visits, unique visitors, plays, q75 reach, total CTA clicks"
-            purpose="rank shares by performance; drives 'which previews are landing?' decisions"
-          />
-        </Card>
+            )}
+          </Card>
+          <Card className="flex flex-col">
+            <CardHeader
+              title="Referrer sources"
+              controls={
+                <SegmentedControl
+                  options={WINDOW_OPTIONS_ALL}
+                  value={referrerWindow}
+                  onChange={setReferrerWindow}
+                />
+              }
+            />
+            {fetchState.status === 'error' ? (
+              <p className="text-sm text-red-500">{fetchState.message}</p>
+            ) : fetchState.status === 'loading' ? (
+              <p className="text-sm text-muted">Loading…</p>
+            ) : (
+              <SharedDonut
+                entries={
+                  selectShared(fetchState.data.sharedBreakdown, referrerWindow).referrers
+                }
+                labelFn={referrerLabel}
+                colorFn={referrerColor}
+                emptyText="No human visits in this window."
+              />
+            )}
+          </Card>
+        </div>
       </div>
     </div>
   )

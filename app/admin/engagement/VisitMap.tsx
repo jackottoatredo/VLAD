@@ -3,15 +3,11 @@
 import { useMemo, useRef, useState } from 'react'
 import { feature } from 'topojson-client'
 import { geoAlbersUsa, geoEqualEarth, geoPath } from 'd3-geo'
-import type { FeatureCollection, Feature, Geometry } from 'geojson'
+import type { FeatureCollection } from 'geojson'
 import type { Topology, GeometryCollection } from 'topojson-specification'
 import worldTopology from 'world-atlas/countries-110m.json'
 import usaTopology from 'us-atlas/states-10m.json'
-import type {
-  CityVisitsEntry,
-  GeoVisitsEntry,
-} from '@/app/api/admin/engagement/route'
-import { numericToAlpha2 } from '@/lib/stats/iso3166'
+import type { CityVisitsEntry } from '@/app/api/admin/engagement/route'
 import { PALETTE } from '@/app/admin/_components/chartTheme'
 
 // Pre-compute the GeoJSON FeatureCollections once at module load.
@@ -79,153 +75,12 @@ function countryDisplayName(code: string): string {
   return COUNTRY_NAMES[code] ?? code
 }
 
-type WorldTooltip = {
-  countryName: string
-  count: number
-  regions: { region: string; count: number }[]
-  // Position relative to the wrapping container.
-  x: number
-  y: number
-}
-
-export function WorldVisitMap({ entries }: { entries: GeoVisitsEntry[] }) {
-  const containerRef = useRef<HTMLDivElement | null>(null)
-  const [tooltip, setTooltip] = useState<WorldTooltip | null>(null)
-
-  // alpha-2 → entry lookup; built once per render from the API payload.
-  const byCountry = useMemo(() => {
-    const m = new Map<string, GeoVisitsEntry>()
-    for (const e of entries) m.set(e.country, e)
-    return m
-  }, [entries])
-
-  const maxCount = useMemo(
-    () => entries.reduce((max, e) => (e.count > max ? e.count : max), 0),
-    [entries],
-  )
-
-  // d3-geo path/projection — re-derived if the viewport changes (it
-  // doesn't here since we use a fixed viewBox, but cheap enough).
-  const path = useMemo(() => {
-    const projection = geoEqualEarth().fitSize(
-      [WORLD_VIEW_W, WORLD_VIEW_H],
-      COUNTRIES_FC,
-    )
-    return geoPath(projection)
-  }, [])
-
-  // Color: opacity-scaled orange. 0 visits → surface tint;
-  // max visits → opaque orange. Floor at 0.18 so any visited country
-  // is visible against the background.
-  function fillFor(country: string | null): string {
-    if (!country) return 'var(--surface)'
-    const entry = byCountry.get(country)
-    if (!entry || maxCount === 0) return 'var(--surface)'
-    const ratio = entry.count / maxCount
-    const alpha = 0.18 + 0.82 * ratio
-    return `rgba(249, 115, 22, ${alpha.toFixed(3)})`
-  }
-
-  function handleEnter(geo: Feature<Geometry>, evt: React.MouseEvent) {
-    const numericId = String(geo.id ?? '')
-    const alpha2 = numericToAlpha2(numericId)
-    const entry = alpha2 ? byCountry.get(alpha2) : null
-    if (!entry) return
-    const rect = containerRef.current?.getBoundingClientRect()
-    setTooltip({
-      countryName: countryDisplayName(entry.country),
-      count: entry.count,
-      regions: entry.regions,
-      x: evt.clientX - (rect?.left ?? 0),
-      y: evt.clientY - (rect?.top ?? 0),
-    })
-  }
-
-  function handleMove(evt: React.MouseEvent) {
-    if (!tooltip) return
-    const rect = containerRef.current?.getBoundingClientRect()
-    setTooltip({
-      ...tooltip,
-      x: evt.clientX - (rect?.left ?? 0),
-      y: evt.clientY - (rect?.top ?? 0),
-    })
-  }
-
-  function handleLeave() {
-    setTooltip(null)
-  }
-
-  return (
-    <div ref={containerRef} className="relative w-full">
-      <svg
-        viewBox={`0 0 ${WORLD_VIEW_W} ${WORLD_VIEW_H}`}
-        className="block h-auto w-full"
-        role="img"
-        aria-label="World map of human visits by country"
-      >
-        {COUNTRIES_FC.features.map((geo) => {
-          const numericId = String(geo.id ?? '')
-          const alpha2 = numericToAlpha2(numericId)
-          return (
-            <path
-              key={numericId}
-              d={path(geo) ?? undefined}
-              fill={fillFor(alpha2)}
-              stroke="var(--border)"
-              strokeWidth={0.4}
-              onMouseEnter={(e) => handleEnter(geo, e)}
-              onMouseMove={handleMove}
-              onMouseLeave={handleLeave}
-              style={{ transition: 'fill 80ms' }}
-            />
-          )
-        })}
-      </svg>
-      {tooltip && (
-        <div
-          className="pointer-events-none absolute z-10 min-w-[10rem] rounded-md border border-border bg-surface p-2 text-xs shadow-lg"
-          style={{
-            left: tooltip.x + 12,
-            top: tooltip.y + 12,
-            // Avoid overflow off the right edge for countries hovered near it.
-            maxWidth: 220,
-          }}
-        >
-          <div className="flex items-center justify-between gap-3">
-            <span className="font-semibold text-foreground">{tooltip.countryName}</span>
-            <span
-              className="tabular-nums text-foreground"
-              style={{ color: PALETTE.ORANGE }}
-            >
-              {tooltip.count}
-            </span>
-          </div>
-          {tooltip.regions.length > 0 && (
-            <ul className="mt-1.5 space-y-0.5">
-              {tooltip.regions.map((r) => (
-                <li
-                  key={r.region}
-                  className="flex items-center justify-between gap-3 text-muted"
-                >
-                  <span className="truncate">{r.region}</span>
-                  <span className="tabular-nums text-foreground">{r.count}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// =============================================================================
-// US visit map — state outlines + city dots aggregated by city
-// =============================================================================
-
 type CityTooltip = {
   city: string
   region: string | null
+  // Displayed only when present — UsVisitMap omits since the country is
+  // implicit, WorldVisitMap fills it in for disambiguation.
+  countryName?: string
   count: number
   x: number
   y: number
@@ -239,6 +94,124 @@ const DOT_RADIUS_MAX = 28
 function dotRadius(count: number): number {
   const r = DOT_RADIUS_MIN + Math.sqrt(count) * 4
   return Math.min(r, DOT_RADIUS_MAX)
+}
+
+// =============================================================================
+// World visit map — country outlines + city dots aggregated by city
+// =============================================================================
+
+export function WorldVisitMap({ cities }: { cities: CityVisitsEntry[] }) {
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const [tooltip, setTooltip] = useState<CityTooltip | null>(null)
+
+  // Single projection drives both country polygons and city points so
+  // dots line up with the underlying outlines.
+  const projection = useMemo(
+    () => geoEqualEarth().fitSize([WORLD_VIEW_W, WORLD_VIEW_H], COUNTRIES_FC),
+    [],
+  )
+  const path = useMemo(() => geoPath(projection), [projection])
+
+  const projectedCities = useMemo(() => {
+    return cities
+      .map((c) => {
+        const xy = projection([c.lng, c.lat])
+        if (!xy) return null
+        return { city: c, x: xy[0], y: xy[1] }
+      })
+      .filter((v): v is { city: CityVisitsEntry; x: number; y: number } => v != null)
+      // Largest dots first so smaller ones stay reachable on hover.
+      .sort((a, b) => b.city.count - a.city.count)
+  }, [cities, projection])
+
+  function handleEnter(c: CityVisitsEntry, evt: React.MouseEvent) {
+    const rect = containerRef.current?.getBoundingClientRect()
+    setTooltip({
+      city: c.city,
+      region: c.region,
+      countryName: countryDisplayName(c.country),
+      count: c.count,
+      x: evt.clientX - (rect?.left ?? 0),
+      y: evt.clientY - (rect?.top ?? 0),
+    })
+  }
+  function handleMove(evt: React.MouseEvent) {
+    if (!tooltip) return
+    const rect = containerRef.current?.getBoundingClientRect()
+    setTooltip({
+      ...tooltip,
+      x: evt.clientX - (rect?.left ?? 0),
+      y: evt.clientY - (rect?.top ?? 0),
+    })
+  }
+  function handleLeave() {
+    setTooltip(null)
+  }
+
+  return (
+    <div ref={containerRef} className="relative w-full overflow-hidden rounded-md bg-gray-200 dark:bg-[#080808]">
+      <svg
+        viewBox={`0 0 ${WORLD_VIEW_W} ${WORLD_VIEW_H}`}
+        className="block h-auto w-full"
+        role="img"
+        aria-label="World map of human visits by city"
+      >
+        {/* Country polygons — white on light gray, black on dark gray.
+            Keyed by index because some world-atlas features lack a usable
+            id (disputed territories), which would collide on String(undef). */}
+        {COUNTRIES_FC.features.map((geo, i) => (
+          <path
+            key={`country-${i}`}
+            d={path(geo) ?? undefined}
+            className="fill-white stroke-gray-400 dark:fill-black dark:stroke-[#222222]"
+            strokeWidth={0.4}
+          />
+        ))}
+        {/* City dots — half the radius of the US view since the world
+            projection has roughly twice the linear scale per pixel and
+            full-size dots end up swamping their countries. */}
+        {projectedCities.map(({ city, x, y }) => (
+          <circle
+            key={`${city.country}|${city.region ?? ''}|${city.city}`}
+            cx={x}
+            cy={y}
+            r={dotRadius(city.count) * 0.5}
+            fill={PALETTE.ORANGE}
+            fillOpacity={0.55}
+            stroke={PALETTE.ORANGE}
+            strokeWidth={1}
+            onMouseEnter={(e) => handleEnter(city, e)}
+            onMouseMove={handleMove}
+            onMouseLeave={handleLeave}
+            style={{ cursor: 'crosshair' }}
+          />
+        ))}
+      </svg>
+      {tooltip && (
+        <div
+          className="pointer-events-none absolute z-10 min-w-[10rem] rounded-md border border-border bg-surface p-2 text-xs shadow-lg"
+          style={{
+            left: tooltip.x + 12,
+            top: tooltip.y + 12,
+            maxWidth: 240,
+          }}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <span className="font-semibold text-foreground">
+              {tooltip.city}
+              {tooltip.region ? `, ${tooltip.region}` : ''}
+            </span>
+            <span className="tabular-nums" style={{ color: PALETTE.ORANGE }}>
+              {tooltip.count}
+            </span>
+          </div>
+          {tooltip.countryName && (
+            <div className="mt-0.5 text-muted">{tooltip.countryName}</div>
+          )}
+        </div>
+      )}
+    </div>
+  )
 }
 
 export function UsVisitMap({ cities }: { cities: CityVisitsEntry[] }) {
@@ -304,20 +277,21 @@ export function UsVisitMap({ cities }: { cities: CityVisitsEntry[] }) {
   }
 
   return (
-    <div ref={containerRef} className="relative w-full">
+    <div ref={containerRef} className="relative w-full overflow-hidden rounded-md bg-gray-200 dark:bg-[#080808]">
       <svg
         viewBox={`0 0 ${US_VIEW_W} ${US_VIEW_H}`}
         className="block h-auto w-full"
         role="img"
         aria-label="US map of human visits by city"
       >
-        {/* State polygons — neutral fill, just for geographic context. */}
-        {US_STATES_FC.features.map((s) => (
+        {/* State polygons — white on light gray, black on dark gray.
+            Index keyed for consistency with the world map (FIPS ids are
+            present on us-atlas, but positional keys are equally safe). */}
+        {US_STATES_FC.features.map((s, i) => (
           <path
-            key={String(s.id)}
+            key={`state-${i}`}
             d={path(s) ?? undefined}
-            fill="var(--surface)"
-            stroke="var(--border)"
+            className="fill-white stroke-gray-400 dark:fill-black dark:stroke-[#222222]"
             strokeWidth={0.5}
           />
         ))}

@@ -2,6 +2,12 @@ import { NextResponse } from "next/server";
 import { supabase } from "@/lib/db/supabase";
 import { requireSession } from "@/lib/apiAuth";
 import { MS_PER_DAY, dayKey, buildDateRange } from "@/lib/stats/dateRange";
+import {
+  decodeFiltersFromApi,
+  makeEventAllowed,
+  type FilterOptions,
+  type SlugMeta,
+} from "@/app/admin/_components/filters";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -51,9 +57,9 @@ export type EventCounts = {
 // Stage-by-stage funnel counts. Each value is the COUNT(DISTINCT
 // visitor_id) of viewers who reached that stage. Only events with a
 // visitor_id contribute (server-side rows like asset_download via the
-// download route still count when the redirect carried ?v=). click_any
-// merges all four CTA outcomes (copy / book demo / interactive demo /
-// download) since they're all "viewer took an action".
+// download route still count when the redirect carried ?v=). The four
+// CTA outcomes are tracked separately so the funnel reveals which CTA
+// each engaged viewer chose, not just "an action happened".
 export type FunnelCounts = {
   visit_linked: number;
   video_play: number;
@@ -61,7 +67,10 @@ export type FunnelCounts = {
   q50: number;
   q75: number;
   video_end: number;
-  click_any: number;
+  click_copy_link: number;
+  click_download: number;
+  click_interactive_demo: number;
+  click_book_demo: number;
 };
 
 // Per-kind visit counts grouped for the two "where shared" donuts.
@@ -135,6 +144,32 @@ export type CityVisitsEntry = {
   count: number;
 };
 
+// Top-shares leaderboard row. visits = count of `visit` rows for this
+// slug; uniqueVisitors / plays / videoEnds are distinct viewer counts.
+// The four CTA fields are raw counts (multiple clicks from the same
+// person each count) — the question is "how many actions of each
+// kind", which lets the leaderboard surface what works on each share.
+// presenter resolves vlad_renders.user_id → vlad_users for display;
+// null when the share's owner has been deleted.
+export type TopSharePresenter = {
+  email: string;
+  firstName: string;
+  lastName: string;
+};
+
+export type TopShareEntry = {
+  slug: string;
+  presenter: TopSharePresenter | null;
+  visits: number;
+  uniqueVisitors: number;
+  plays: number;
+  videoEnds: number;
+  copyLinkClicks: number;
+  downloadClicks: number;
+  interactiveClicks: number;
+  bookDemoClicks: number;
+};
+
 export type EngagementResponse = {
   // 90-day window. Cards slice client-side via the SegmentedControl.
   seriesDays: number;
@@ -184,10 +219,20 @@ export type EngagementResponse = {
     last90d: CityVisitsEntry[];
     allTime: CityVisitsEntry[];
   };
+  topShares: {
+    last7d: TopShareEntry[];
+    last30d: TopShareEntry[];
+    last90d: TopShareEntry[];
+    allTime: TopShareEntry[];
+  };
+  // Available chips for the dashboard filters modal — autocomplete data
+  // for presenter / product / merchant / region.
+  filterOptions: FilterOptions;
 };
 
 type EventRow = {
   type: string;
+  slug: string;
   created_at: string;
   is_bot: boolean;
   bot_kind: string | null;
@@ -226,7 +271,8 @@ function counterToCounts(c: Counter): EventCounts {
 }
 
 // Per-stage Sets of visitor_ids for one window. Each Set is "viewers who
-// reached this stage at least once in the window."
+// reached this stage at least once in the window." A single viewer can
+// land in multiple click_* sets if they hit more than one CTA.
 type FunnelSets = {
   visit_linked: Set<string>;
   video_play: Set<string>;
@@ -234,7 +280,10 @@ type FunnelSets = {
   q50: Set<string>;
   q75: Set<string>;
   video_end: Set<string>;
-  click_any: Set<string>;
+  click_copy_link: Set<string>;
+  click_download: Set<string>;
+  click_interactive_demo: Set<string>;
+  click_book_demo: Set<string>;
 };
 
 function makeFunnel(): FunnelSets {
@@ -245,7 +294,10 @@ function makeFunnel(): FunnelSets {
     q50: new Set(),
     q75: new Set(),
     video_end: new Set(),
-    click_any: new Set(),
+    click_copy_link: new Set(),
+    click_download: new Set(),
+    click_interactive_demo: new Set(),
+    click_book_demo: new Set(),
   };
 }
 
@@ -274,10 +326,16 @@ function applyToFunnel(
       f.video_end.add(visitorId);
       return;
     case "click_copy_link":
-    case "click_book_demo":
-    case "click_interactive_demo":
+      f.click_copy_link.add(visitorId);
+      return;
     case "asset_download":
-      f.click_any.add(visitorId);
+      f.click_download.add(visitorId);
+      return;
+    case "click_interactive_demo":
+      f.click_interactive_demo.add(visitorId);
+      return;
+    case "click_book_demo":
+      f.click_book_demo.add(visitorId);
       return;
   }
 }
@@ -290,7 +348,10 @@ function funnelToCounts(f: FunnelSets): FunnelCounts {
     q50: f.q50.size,
     q75: f.q75.size,
     video_end: f.video_end.size,
-    click_any: f.click_any.size,
+    click_copy_link: f.click_copy_link.size,
+    click_download: f.click_download.size,
+    click_interactive_demo: f.click_interactive_demo.size,
+    click_book_demo: f.click_book_demo.size,
   };
 }
 
@@ -597,6 +658,7 @@ function makeCity(): CityAcc {
 function applyToCity(
   acc: CityAcc,
   isBot: boolean,
+  deviceType: string | null,
   country: string | null,
   region: string | null,
   city: string | null,
@@ -604,6 +666,11 @@ function applyToCity(
   lng: number | null,
 ): void {
   if (isBot) return;
+  // Desktop-only: cellular NAT routes mobile traffic through carrier
+  // gateway IPs (most US cell traffic egresses through Ashburn, VA),
+  // so the lat/lng we get for mobile visits points at the gateway, not
+  // the user. Dropping mobile rows here keeps the dot maps honest.
+  if (deviceType !== "desktop") return;
   if (!country || !city || lat == null || lng == null) return;
   const key = `${country}|${region ?? ""}|${city}`;
   const entry = acc.get(key);
@@ -618,23 +685,107 @@ function cityToOutput(acc: CityAcc): CityVisitsEntry[] {
   return [...acc.values()].sort((a, b) => b.count - a.count);
 }
 
+// Top-shares accumulator: per-slug stats keyed by slug. Visit count is
+// raw row count; viewer-derived metrics (uniqueVisitors / plays / q75)
+// are Sets of visitor_ids so replays don't inflate. The four CTA
+// counters are raw counts (multiple clicks per person each count).
+type TopSharesEntry = {
+  visits: number;
+  visitorIds: Set<string>;
+  plays: Set<string>;
+  videoEnds: Set<string>;
+  copyLinkCount: number;
+  downloadCount: number;
+  interactiveCount: number;
+  bookDemoCount: number;
+};
+
+type TopSharesAcc = Map<string, TopSharesEntry>;
+
+function makeTopShares(): TopSharesAcc {
+  return new Map();
+}
+
+function emptyTopSharesEntry(): TopSharesEntry {
+  return {
+    visits: 0,
+    visitorIds: new Set(),
+    plays: new Set(),
+    videoEnds: new Set(),
+    copyLinkCount: 0,
+    downloadCount: 0,
+    interactiveCount: 0,
+    bookDemoCount: 0,
+  };
+}
+
+function getOrCreateTopShares(acc: TopSharesAcc, slug: string): TopSharesEntry {
+  let entry = acc.get(slug);
+  if (!entry) {
+    entry = emptyTopSharesEntry();
+    acc.set(slug, entry);
+  }
+  return entry;
+}
+
+function applyVisitToTopShares(acc: TopSharesAcc, slug: string): void {
+  if (!slug) return;
+  getOrCreateTopShares(acc, slug).visits++;
+}
+
+function applyEventToTopShares(
+  acc: TopSharesAcc,
+  type: string,
+  slug: string,
+  visitorId: string | null,
+): void {
+  if (!slug) return;
+  switch (type) {
+    case "visit_linked":
+      if (visitorId) getOrCreateTopShares(acc, slug).visitorIds.add(visitorId);
+      return;
+    case "video_play":
+      if (visitorId) getOrCreateTopShares(acc, slug).plays.add(visitorId);
+      return;
+    case "video_end":
+      if (visitorId) getOrCreateTopShares(acc, slug).videoEnds.add(visitorId);
+      return;
+    case "click_copy_link":
+      getOrCreateTopShares(acc, slug).copyLinkCount++;
+      return;
+    case "asset_download":
+      getOrCreateTopShares(acc, slug).downloadCount++;
+      return;
+    case "click_interactive_demo":
+      getOrCreateTopShares(acc, slug).interactiveCount++;
+      return;
+    case "click_book_demo":
+      getOrCreateTopShares(acc, slug).bookDemoCount++;
+      return;
+  }
+}
+
 // All-time distinct visitor count via paginated fetch — Supabase JS
 // can't compute COUNT(DISTINCT) directly without an RPC. At v1 volume
 // this is a few KB; revisit with an RPC if the table grows past ~100k
 // visit_linked rows.
-async function fetchAllTimeUniqueVisitors(): Promise<number> {
+async function fetchAllTimeUniqueVisitors(
+  eventAllowed: (slug: string, region: string | null, hasRegion: boolean) => boolean,
+): Promise<number> {
   const ids = new Set<string>();
   const PAGE = 1000;
   let from = 0;
   while (true) {
     const { data, error } = await supabase
       .from("vlad_engagement_events")
-      .select("visitor_id")
+      .select("slug, visitor_id")
       .eq("type", "visit_linked")
       .not("visitor_id", "is", null)
       .range(from, from + PAGE - 1);
     if (error || !data || data.length === 0) break;
-    for (const r of data) {
+    for (const r of data as { slug: string; visitor_id: string }[]) {
+      // visit_linked has no region; eventHasRegion=false skips region chips.
+      if (!eventAllowed(r.slug, null, false)) continue;
       if (typeof r.visitor_id === "string") ids.add(r.visitor_id);
     }
     if (data.length < PAGE) break;
@@ -643,32 +794,40 @@ async function fetchAllTimeUniqueVisitors(): Promise<number> {
   return ids.size;
 }
 
-// All-time shared-breakdown + geo + city built by paginating every visit
-// row. Three accumulators filled in the same pass to avoid duplicate
-// queries. Same scaling caveat as fetchAllTimeUniqueVisitors — fine at
-// v1 volume.
-async function fetchAllTimeSharedAndGeo(): Promise<{
+// All-time shared-breakdown + geo + city + top-shares-visits built by
+// paginating every visit row. Four accumulators filled in the same pass.
+// `topShares` is filled for the visits-per-slug field; the engagement
+// fields (visitor_id sets) come from fetchAllTimeFunnelAndBins which
+// shares the same accumulator instance.
+async function fetchAllTimeSharedAndGeo(
+  topShares: TopSharesAcc,
+  eventAllowed: (slug: string, region: string | null, hasRegion: boolean) => boolean,
+): Promise<{
   shared: SharedAccumulator;
   geo: GeoAcc;
   city: CityAcc;
+  visitCounter: { visits: number; bots: number; humans: number; mobile: number };
 }> {
   const s = makeShared();
   const g = makeGeo();
   const c = makeCity();
+  const visitCounter = { visits: 0, bots: 0, humans: 0, mobile: 0 };
   const PAGE = 1000;
   let from = 0;
   while (true) {
     const { data, error } = await supabase
       .from("vlad_engagement_events")
       .select(
-        "is_bot, bot_kind, referrer_kind, ip_hash, country, region, city, latitude, longitude",
+        "slug, is_bot, bot_kind, device_type, referrer_kind, ip_hash, country, region, city, latitude, longitude",
       )
       .eq("type", "visit")
       .range(from, from + PAGE - 1);
     if (error || !data || data.length === 0) break;
     for (const r of data as {
+      slug: string;
       is_bot: boolean;
       bot_kind: string | null;
+      device_type: string | null;
       referrer_kind: string | null;
       ip_hash: string;
       country: string | null;
@@ -677,14 +836,35 @@ async function fetchAllTimeSharedAndGeo(): Promise<{
       latitude: number | null;
       longitude: number | null;
     }[]) {
+      if (!eventAllowed(r.slug, r.region, true)) continue;
       applyToShared(s, r.is_bot, r.bot_kind, r.referrer_kind, r.ip_hash);
       applyToGeo(g, r.is_bot, r.country, r.region);
-      applyToCity(c, r.is_bot, r.country, r.region, r.city, r.latitude, r.longitude);
+      applyToCity(
+        c,
+        r.is_bot,
+        r.device_type,
+        r.country,
+        r.region,
+        r.city,
+        r.latitude,
+        r.longitude,
+      );
+      applyVisitToTopShares(topShares, r.slug);
+      // Eventually-counted-anyway visit metrics, derived during the
+      // same pass instead of via separate SQL count() queries — those
+      // queries can't take our slug/region filter predicate.
+      visitCounter.visits++;
+      if (r.is_bot) {
+        visitCounter.bots++;
+      } else {
+        visitCounter.humans++;
+        if (r.device_type === "mobile") visitCounter.mobile++;
+      }
     }
     if (data.length < PAGE) break;
     from += PAGE;
   }
-  return { shared: s, geo: g, city: c };
+  return { shared: s, geo: g, city: c, visitCounter };
 }
 
 // All-time funnel + length-bin drop-off + pause hotspots built by
@@ -692,7 +872,10 @@ async function fetchAllTimeSharedAndGeo(): Promise<{
 // the same pass to avoid duplicate queries. visitor_id filter dropped
 // because pauses count regardless of whether localStorage resolved —
 // funnel/length-bin functions still gate on visitor_id internally.
-async function fetchAllTimeFunnelAndBins(): Promise<{
+async function fetchAllTimeFunnelAndBins(
+  topShares: TopSharesAcc,
+  eventAllowed: (slug: string, region: string | null, hasRegion: boolean) => boolean,
+): Promise<{
   funnel: FunnelSets;
   bins: LengthBinAcc;
   pauses: PauseDropoffAcc;
@@ -705,18 +888,23 @@ async function fetchAllTimeFunnelAndBins(): Promise<{
   while (true) {
     const { data, error } = await supabase
       .from("vlad_engagement_events")
-      .select("type, payload, visitor_id")
+      .select("type, slug, payload, visitor_id")
       .in("type", FUNNEL_TYPES as unknown as string[])
       .range(from, from + PAGE - 1);
     if (error || !data || data.length === 0) break;
     for (const r of data as {
       type: string;
+      slug: string;
       payload: Record<string, unknown> | null;
       visitor_id: string | null;
     }[]) {
+      // Non-visit rows have no region; pass null + hasRegion=false so
+      // region chips don't drop them.
+      if (!eventAllowed(r.slug, null, false)) continue;
       applyToFunnel(f, r.type, r.payload, r.visitor_id);
       applyToLengthBins(bins, r.type, r.payload, r.visitor_id);
       if (r.type === "video_pause") applyToPauseDropoff(pauses, r.payload);
+      applyEventToTopShares(topShares, r.type, r.slug, r.visitor_id);
     }
     if (data.length < PAGE) break;
     from += PAGE;
@@ -724,27 +912,60 @@ async function fetchAllTimeFunnelAndBins(): Promise<{
   return { funnel: f, bins, pauses };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const session = await requireSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (session.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
+  // Filters from the shared modal. Decoded once and threaded through
+  // every aggregation so the dashboard reflects the active filters end
+  // to end. Slug-level filters (presenter / product / merchant) require
+  // joining engagement events to vlad_renders; we pre-fetch a single
+  // slug→meta map up front so the per-event check is O(1).
+  const { searchParams } = new URL(request.url);
+  const filters = decodeFiltersFromApi(searchParams.get("filters"));
+
   const since = new Date(Date.now() - SERIES_DAYS * MS_PER_DAY).toISOString();
 
-  // Single read for the 90d window covers visitsSeries, eventCounts,
-  // funnel, and sharedBreakdown for 7/30/90. All event types and fields
-  // any panel needs are pulled in one query and bucketed in-memory below.
-  const { data, error } = await supabase
-    .from("vlad_engagement_events")
-    .select(
-      "type, created_at, is_bot, bot_kind, device_type, visitor_id, ip_hash, country, region, city, latitude, longitude, referrer_kind, payload",
-    )
-    .in("type", ["visit", ...FUNNEL_TYPES])
-    .gte("created_at", since)
-    .order("created_at", { ascending: true });
+  // Slug → metadata for slug-level filters. Fetched in parallel with
+  // the main 90d events query since neither depends on the other. The
+  // map is also reused later for the topShares presenter join, saving
+  // a duplicate query.
+  const [eventsResult, slugMetaResult] = await Promise.all([
+    supabase
+      .from("vlad_engagement_events")
+      .select(
+        "type, slug, created_at, is_bot, bot_kind, device_type, visitor_id, ip_hash, country, region, city, latitude, longitude, referrer_kind, payload",
+      )
+      .in("type", ["visit", ...FUNNEL_TYPES])
+      .gte("created_at", since)
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("vlad_renders")
+      .select("slug, user_id, product_name, brand_url")
+      .not("slug", "is", null),
+  ]);
 
+  const { data, error } = eventsResult;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   const events = (data ?? []) as EventRow[];
+
+  type RenderMetaRow = {
+    slug: string | null;
+    user_id: string | null;
+    product_name: string | null;
+    brand_url: string | null;
+  };
+  const slugMeta = new Map<string, SlugMeta>();
+  for (const r of (slugMetaResult.data ?? []) as RenderMetaRow[]) {
+    if (!r.slug) continue;
+    slugMeta.set(r.slug, {
+      userId: r.user_id,
+      productName: r.product_name,
+      brandUrl: r.brand_url,
+    });
+  }
+  const eventAllowed = makeEventAllowed(filters, slugMeta);
 
   // ---- Visits series (per-day stack) ----
   const range = buildDateRange(SERIES_DAYS);
@@ -754,6 +975,7 @@ export async function GET() {
   }
   for (const e of events) {
     if (e.type !== "visit") continue;
+    if (!eventAllowed(e.slug, e.region, true)) continue;
     const point = buckets.get(dayKey(e.created_at));
     if (!point) continue;
     if (e.is_bot) {
@@ -799,6 +1021,10 @@ export async function GET() {
   const ci7 = makeCity();
   const ci30 = makeCity();
   const ci90 = makeCity();
+  const ts7 = makeTopShares();
+  const ts30 = makeTopShares();
+  const ts90 = makeTopShares();
+  const tsAll = makeTopShares();
   const b7 = makeLengthBins();
   const b30 = makeLengthBins();
   const b90 = makeLengthBins();
@@ -808,6 +1034,9 @@ export async function GET() {
 
   for (const e of events) {
     const ts = new Date(e.created_at).getTime();
+    // Filter once per event before any aggregation. Visits carry a
+    // region; non-visits don't, so they only respect slug-level chips.
+    if (!eventAllowed(e.slug, e.region, e.type === "visit")) continue;
     if (e.type === "visit") {
       const apply = (c: Counter) => {
         c.visits++;
@@ -829,12 +1058,15 @@ export async function GET() {
       if (ts >= cutoff90) applyToGeo(g90, e.is_bot, e.country, e.region);
       if (ts >= cutoff30) applyToGeo(g30, e.is_bot, e.country, e.region);
       if (ts >= cutoff7) applyToGeo(g7, e.is_bot, e.country, e.region);
+      if (ts >= cutoff90) applyVisitToTopShares(ts90, e.slug);
+      if (ts >= cutoff30) applyVisitToTopShares(ts30, e.slug);
+      if (ts >= cutoff7) applyVisitToTopShares(ts7, e.slug);
       if (ts >= cutoff90)
-        applyToCity(ci90, e.is_bot, e.country, e.region, e.city, e.latitude, e.longitude);
+        applyToCity(ci90, e.is_bot, e.device_type, e.country, e.region, e.city, e.latitude, e.longitude);
       if (ts >= cutoff30)
-        applyToCity(ci30, e.is_bot, e.country, e.region, e.city, e.latitude, e.longitude);
+        applyToCity(ci30, e.is_bot, e.device_type, e.country, e.region, e.city, e.latitude, e.longitude);
       if (ts >= cutoff7)
-        applyToCity(ci7, e.is_bot, e.country, e.region, e.city, e.latitude, e.longitude);
+        applyToCity(ci7, e.is_bot, e.device_type, e.country, e.region, e.city, e.latitude, e.longitude);
     } else {
       // visit_linked feeds both unique-visitor counts AND the top of the
       // funnel; the rest of the funnel-relevant types feed only the funnel.
@@ -846,6 +1078,12 @@ export async function GET() {
       if (ts >= cutoff90) applyToFunnel(f90, e.type, e.payload, e.visitor_id);
       if (ts >= cutoff30) applyToFunnel(f30, e.type, e.payload, e.visitor_id);
       if (ts >= cutoff7) applyToFunnel(f7, e.type, e.payload, e.visitor_id);
+      if (ts >= cutoff90)
+        applyEventToTopShares(ts90, e.type, e.slug, e.visitor_id);
+      if (ts >= cutoff30)
+        applyEventToTopShares(ts30, e.type, e.slug, e.visitor_id);
+      if (ts >= cutoff7)
+        applyEventToTopShares(ts7, e.type, e.slug, e.visitor_id);
       if (ts >= cutoff90)
         applyToLengthBins(b90, e.type, e.payload, e.visitor_id);
       if (ts >= cutoff30)
@@ -861,47 +1099,23 @@ export async function GET() {
   }
 
   // ---- All-time totals ----
-  const [
-    { count: allVisitsCount },
-    { count: allBotsCount },
-    { count: allMobileCount },
-    { count: allHumansCount },
-    allTimeUnique,
-    allTimeFunnelAndBins,
-    allTimeSharedAndGeo,
-  ] = await Promise.all([
-    supabase
-      .from("vlad_engagement_events")
-      .select("id", { count: "exact", head: true })
-      .eq("type", "visit"),
-    supabase
-      .from("vlad_engagement_events")
-      .select("id", { count: "exact", head: true })
-      .eq("type", "visit")
-      .eq("is_bot", true),
-    supabase
-      .from("vlad_engagement_events")
-      .select("id", { count: "exact", head: true })
-      .eq("type", "visit")
-      .eq("is_bot", false)
-      .eq("device_type", "mobile"),
-    supabase
-      .from("vlad_engagement_events")
-      .select("id", { count: "exact", head: true })
-      .eq("type", "visit")
-      .eq("is_bot", false),
-    fetchAllTimeUniqueVisitors(),
-    fetchAllTimeFunnelAndBins(),
-    fetchAllTimeSharedAndGeo(),
-  ]);
+  // Visit-row counters are derived during the SharedAndGeo pagination
+  // (see allTimeSharedAndGeo.visitCounter) so the same filter predicate
+  // applies. Saved 4 separate SQL count() queries that couldn't honor
+  // the predicate anyway.
+  const [allTimeUnique, allTimeFunnelAndBins, allTimeSharedAndGeo] =
+    await Promise.all([
+      fetchAllTimeUniqueVisitors(eventAllowed),
+      fetchAllTimeFunnelAndBins(tsAll, eventAllowed),
+      fetchAllTimeSharedAndGeo(tsAll, eventAllowed),
+    ]);
 
-  const totalAll = allVisitsCount ?? 0;
-  const humansAll = allHumansCount ?? 0;
+  const vc = allTimeSharedAndGeo.visitCounter;
   const allTime: EventCounts = {
-    totalVisits: totalAll,
+    totalVisits: vc.visits,
     uniqueVisitors: allTimeUnique,
-    mobilePct: humansAll > 0 ? (allMobileCount ?? 0) / humansAll : null,
-    botPct: totalAll > 0 ? (allBotsCount ?? 0) / totalAll : null,
+    mobilePct: vc.humans > 0 ? vc.mobile / vc.humans : null,
+    botPct: vc.visits > 0 ? vc.bots / vc.visits : null,
   };
 
   const eventCounts = {
@@ -939,6 +1153,62 @@ export async function GET() {
     allTime: cityToOutput(allTimeSharedAndGeo.city),
   };
 
+  // Resolve presenter (the user who created the share) per slug. The
+  // slug→user_id mapping already lives in `slugMeta` from the top-of-
+  // request fetch; we just need vlad_users for display names.
+  const presenterBySlug = new Map<string, TopSharePresenter>();
+  const presenterUserIds = new Set<string>();
+  for (const acc of [ts7, ts30, ts90, tsAll]) {
+    for (const slug of acc.keys()) {
+      const meta = slugMeta.get(slug);
+      if (meta?.userId) presenterUserIds.add(meta.userId);
+    }
+  }
+  if (presenterUserIds.size > 0) {
+    type UserRow = { id: string; first_name: string; last_name: string };
+    const { data: userRows } = await supabase
+      .from("vlad_users")
+      .select("id, first_name, last_name")
+      .in("id", [...presenterUserIds]);
+    const userMap = new Map<string, TopSharePresenter>();
+    for (const u of (userRows ?? []) as UserRow[]) {
+      userMap.set(u.id, {
+        email: u.id,
+        firstName: u.first_name,
+        lastName: u.last_name,
+      });
+    }
+    for (const [slug, meta] of slugMeta) {
+      if (!meta.userId) continue;
+      const p = userMap.get(meta.userId);
+      if (p) presenterBySlug.set(slug, p);
+    }
+  }
+
+  function topSharesToOutput(acc: TopSharesAcc): TopShareEntry[] {
+    return [...acc.entries()]
+      .map(([slug, e]) => ({
+        slug,
+        presenter: presenterBySlug.get(slug) ?? null,
+        visits: e.visits,
+        uniqueVisitors: e.visitorIds.size,
+        plays: e.plays.size,
+        videoEnds: e.videoEnds.size,
+        copyLinkClicks: e.copyLinkCount,
+        downloadClicks: e.downloadCount,
+        interactiveClicks: e.interactiveCount,
+        bookDemoClicks: e.bookDemoCount,
+      }))
+      .sort((a, b) => b.visits - a.visits);
+  }
+
+  const topShares = {
+    last7d: topSharesToOutput(ts7),
+    last30d: topSharesToOutput(ts30),
+    last90d: topSharesToOutput(ts90),
+    allTime: topSharesToOutput(tsAll),
+  };
+
   const lengthBinDropoff = {
     last7d: lengthBinsToArray(b7),
     last30d: lengthBinsToArray(b30),
@@ -953,6 +1223,83 @@ export async function GET() {
     allTime: pauseDropoffToOutput(allTimeFunnelAndBins.pauses),
   };
 
+  // ---- Filter options for the dashboard filters modal ----
+  // Parallel reads for the four chip-input data sources. All small —
+  // each is a metadata query, not an event scan.
+  const [
+    { data: presenterRows },
+    { data: productRows },
+    { data: merchantRows },
+    { data: regionRows },
+  ] = await Promise.all([
+    supabase
+      .from("vlad_users")
+      .select("id, first_name, last_name"),
+    supabase
+      .from("vlad_renders")
+      .select("product_name")
+      .not("product_name", "is", null),
+    supabase
+      .from("vlad_renders")
+      .select("brand, brand_name, brand_url")
+      .not("brand_url", "is", null),
+    supabase
+      .from("vlad_engagement_events")
+      .select("region")
+      .eq("type", "visit")
+      .eq("is_bot", false)
+      .not("region", "is", null),
+  ]);
+
+  const presenterOptions = ((presenterRows ?? []) as {
+    id: string;
+    first_name: string;
+    last_name: string;
+  }[])
+    .map((u) => ({
+      value: u.id,
+      label: `${u.first_name} ${u.last_name}`.trim() || u.id,
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  const productSet = new Set<string>();
+  for (const r of (productRows ?? []) as { product_name: string | null }[]) {
+    if (r.product_name) productSet.add(r.product_name);
+  }
+  const productOptions = [...productSet]
+    .map((name) => ({ value: name, label: name }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  const merchantMap = new Map<string, string>();
+  for (const r of (merchantRows ?? []) as {
+    brand: string | null;
+    brand_name: string | null;
+    brand_url: string | null;
+  }[]) {
+    const value = r.brand_url ?? r.brand ?? null;
+    if (!value) continue;
+    const label = r.brand_name?.trim() || r.brand || value;
+    if (!merchantMap.has(value)) merchantMap.set(value, label);
+  }
+  const merchantOptions = [...merchantMap.entries()]
+    .map(([value, label]) => ({ value, label }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  const regionSet = new Set<string>();
+  for (const r of (regionRows ?? []) as { region: string | null }[]) {
+    if (r.region) regionSet.add(r.region);
+  }
+  const regionOptions = [...regionSet]
+    .map((name) => ({ value: name, label: name }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  const filterOptions: FilterOptions = {
+    presenters: presenterOptions,
+    products: productOptions,
+    merchants: merchantOptions,
+    regions: regionOptions,
+  };
+
   const response: EngagementResponse = {
     seriesDays: SERIES_DAYS,
     visitsSeries,
@@ -963,6 +1310,8 @@ export async function GET() {
     pauseDropoff,
     geoVisits,
     cityVisits,
+    topShares,
+    filterOptions,
   };
   return NextResponse.json(response);
 }

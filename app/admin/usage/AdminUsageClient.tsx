@@ -3,8 +3,17 @@
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import Modal from '@/app/components/Modal'
-import UsageSettingsModal from './UsageSettingsModal'
 import type { AdminUser } from '@/app/api/admin/users/route'
+import { AdminFiltersModal } from '@/app/admin/_components/AdminFiltersModal'
+import { AdminSettingsButton } from '@/app/admin/_components/AdminSettingsButton'
+import {
+  EMPTY_FILTER_OPTIONS,
+  encodeFiltersForApi,
+  type FilterChipKind,
+} from '@/app/admin/_components/filters'
+import { useAdminFilters } from '@/app/admin/_components/useAdminFilters'
+
+const USAGE_FILTER_KINDS: FilterChipKind[] = ['presenter', 'product', 'merchant']
 import {
   ResponsiveContainer,
   BarChart,
@@ -132,51 +141,34 @@ export default function AdminUsageClient() {
   const [productWindow, setProductWindow] = useState<PieWindow>('all')
   const [contentPieWindow, setContentPieWindow] = useState<PieWindow>('all')
 
-  // Settings — excluded users persist in localStorage so the admin's
-  // preference survives reloads. Server-side filtered via ?excludeUsers=.
-  const [excludedUsers, setExcludedUsers] = useState<string[]>([])
-  const [settingsOpen, setSettingsOpen] = useState(false)
-  // Hydration state: gate the data fetch until localStorage has been read,
-  // so we don't issue a wasted fetch with an empty exclude list and then
-  // a second fetch with the real one.
-  const [hydrated, setHydrated] = useState(false)
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem('vlad_usage_excluded_users')
-      if (raw) {
-        const parsed = JSON.parse(raw) as unknown
-        if (Array.isArray(parsed)) {
-          setExcludedUsers(parsed.filter((v): v is string => typeof v === 'string'))
-        }
-      }
-    } catch {
-      /* ignore */
-    }
-    setHydrated(true)
-  }, [])
-  useEffect(() => {
-    if (!hydrated) return
-    try {
-      localStorage.setItem('vlad_usage_excluded_users', JSON.stringify(excludedUsers))
-    } catch {
-      /* ignore */
-    }
-  }, [hydrated, excludedUsers])
+  // Filters from the new shared modal — persists in localStorage,
+  // forwarded to the API as the encoded `filters` query param.
+  // `excludeUsers` is also derived from `filters.exclude` (presenter
+  // chips) so the existing server-side user exclusion logic keeps
+  // working until per-kind filtering is fully wired server-side.
+  const [filters, setFilters] = useAdminFilters('vlad_admin_filters_usage')
+  const [filtersOpen, setFiltersOpen] = useState(false)
+
+  const filtersParam = encodeFiltersForApi(filters)
 
   useEffect(() => {
-    if (!hydrated) return
+    // Synchronous state resets at the top of the effect would trip the
+    // set-state-in-effect lint rule and aren't needed: success/failure
+    // setters below clear or replace the previous values, and stale
+    // data stays visible during refetch (better UX than blanking).
     let cancelled = false
-    setLoading(true)
-    setError(null)
-    const qs = excludedUsers.length > 0
-      ? `?excludeUsers=${encodeURIComponent(excludedUsers.join(','))}`
-      : ''
-    fetch(`/api/admin/usage${qs}`, { cache: 'no-store' })
+    const url = filtersParam
+      ? `/api/admin/usage?filters=${encodeURIComponent(filtersParam)}`
+      : '/api/admin/usage'
+    fetch(url, { cache: 'no-store' })
       .then((r) => r.json())
       .then((d: UsageResponse | { error: string }) => {
         if (cancelled) return
         if ('error' in d) setError(d.error)
-        else setData(d)
+        else {
+          setData(d)
+          setError(null)
+        }
       })
       .catch(() => {
         if (!cancelled) setError('Failed to load.')
@@ -187,7 +179,7 @@ export default function AdminUsageClient() {
     return () => {
       cancelled = true
     }
-  }, [hydrated, excludedUsers])
+  }, [filtersParam])
 
   const dauChartData = useMemo(
     () =>
@@ -372,8 +364,22 @@ export default function AdminUsageClient() {
       .slice(0, 20)
   }, [data, leaderboardWindow])
 
+  const filtersActive =
+    filters.include.length > 0 || filters.exclude.length > 0
+  const filterOptions = data?.filterOptions ?? EMPTY_FILTER_OPTIONS
+
   return (
     <div className="flex min-h-screen w-full justify-center bg-background px-4 py-10 font-sans">
+      <AdminSettingsButton active={filtersActive} onClick={() => setFiltersOpen(true)} />
+      {filtersOpen && (
+        <AdminFiltersModal
+          filters={filters}
+          onChange={setFilters}
+          options={filterOptions}
+          enabledKinds={USAGE_FILTER_KINDS}
+          onClose={() => setFiltersOpen(false)}
+        />
+      )}
       <div className="w-full max-w-5xl space-y-6">
         <div className="grid grid-cols-3 items-start">
           <div className="col-start-1">
@@ -382,17 +388,6 @@ export default function AdminUsageClient() {
             </h1>
             <h3 className="mt-1 text-muted">How VLAD is being used internally.</h3>
           </div>
-          <button
-            onClick={() => setSettingsOpen(true)}
-            className="col-start-2 mt-1 justify-self-center rounded-md p-2 text-muted transition-colors hover:bg-surface hover:text-foreground"
-            title="Dashboard settings"
-            aria-label="Dashboard settings"
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="3" />
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-            </svg>
-          </button>
           <Link
             href="/admin"
             className="col-start-3 mt-1 justify-self-end text-sm text-muted hover:text-foreground"
@@ -706,14 +701,6 @@ export default function AdminUsageClient() {
           </>
         )}
       </div>
-
-      {settingsOpen && (
-        <UsageSettingsModal
-          excludedUsers={excludedUsers}
-          onChange={setExcludedUsers}
-          onClose={() => setSettingsOpen(false)}
-        />
-      )}
 
       {dauDetail && (
         <Modal

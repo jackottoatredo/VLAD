@@ -49,9 +49,9 @@ export type VisitsPoint = {
 // denominator is zero (so the client can render "—" instead of "0%"
 // where the distinction matters).
 //
-// totalPageVisits = count of every visit + visit_linked event (no
+// totalPageVisits = count of every bot_visit + human_visit event (no
 // dedup). uniquePageVisitors = count of distinct (visitor_id, slug)
-// pairs from visit_linked. The page-pair unit matters: if a presenter
+// pairs from human_visit. The page-pair unit matters: if a presenter
 // sends a viewer five follow-up shares for different products, that's
 // five distinct funnel entries — collapsing them by visitor_id alone
 // would hide the conversion picture for the follow-ups.
@@ -70,7 +70,7 @@ export type EventCounts = {
 // separately so the funnel reveals which CTA each engaged page-visit
 // chose, not just "an action happened".
 export type FunnelCounts = {
-  visit_linked: number;
+  human_visit: number;
   video_play: number;
   q25: number;
   q50: number;
@@ -153,7 +153,7 @@ export type CityVisitsEntry = {
   count: number;
 };
 
-// Top-shares leaderboard row. pageVisits = count of visit + visit_linked
+// Top-shares leaderboard row. pageVisits = count of bot_visit + human_visit
 // rows for this slug; uniquePageVisitors / plays / videoEnds are
 // distinct viewer counts on this page. (Within a single TopShareEntry
 // the slug is fixed, so unique-visitor and unique-page-visitor are
@@ -297,7 +297,7 @@ function counterToCounts(c: Counter): EventCounts {
 // reached this stage at least once in the window." A single viewer can
 // land in multiple click_* sets if they hit more than one CTA.
 type FunnelSets = {
-  visit_linked: Set<string>;
+  human_visit: Set<string>;
   video_play: Set<string>;
   q25: Set<string>;
   q50: Set<string>;
@@ -311,7 +311,7 @@ type FunnelSets = {
 
 function makeFunnel(): FunnelSets {
   return {
-    visit_linked: new Set(),
+    human_visit: new Set(),
     video_play: new Set(),
     q25: new Set(),
     q50: new Set(),
@@ -337,8 +337,8 @@ function applyToFunnel(
   if (!visitorId || !slug) return;
   const key = `${visitorId}|${slug}`;
   switch (type) {
-    case "visit_linked":
-      f.visit_linked.add(key);
+    case "human_visit":
+      f.human_visit.add(key);
       return;
     case "video_play":
       f.video_play.add(key);
@@ -370,7 +370,7 @@ function applyToFunnel(
 
 function funnelToCounts(f: FunnelSets): FunnelCounts {
   return {
-    visit_linked: f.visit_linked.size,
+    human_visit: f.human_visit.size,
     video_play: f.video_play.size,
     q25: f.q25.size,
     q50: f.q50.size,
@@ -568,7 +568,7 @@ function pauseDropoffToOutput(acc: PauseDropoffAcc): PauseDropoff {
 // hotspots all share the read. video_pause doesn't feed the funnel
 // itself; it's bucketed into the pause histogram below.
 const FUNNEL_TYPES = [
-  "visit_linked",
+  "human_visit",
   "video_play",
   "video_pause",
   "video_quartile",
@@ -781,7 +781,7 @@ function applyEventToTopShares(
 ): void {
   if (!slug) return;
   switch (type) {
-    case "visit_linked":
+    case "human_visit":
       if (visitorId) getOrCreateTopShares(acc, slug).visitorIds.add(visitorId);
       return;
     case "video_play":
@@ -808,7 +808,7 @@ function applyEventToTopShares(
 // All-time distinct page-visitor count via paginated fetch — Supabase
 // JS can't compute COUNT(DISTINCT) directly without an RPC. At v1
 // volume this is a few KB; revisit with an RPC if the table grows
-// past ~100k visit_linked rows. Deduplicates by (visitor_id, slug)
+// past ~100k human_visit rows. Deduplicates by (visitor_id, slug)
 // so a viewer who visits two shares counts twice — see EventCounts
 // docstring.
 async function fetchAllTimePageVisitors(
@@ -821,7 +821,7 @@ async function fetchAllTimePageVisitors(
     const { data, error } = await supabase
       .from("vlad_engagement_events")
       .select("slug, visitor_id")
-      .eq("type", "visit_linked")
+      .eq("type", "human_visit")
       .not("visitor_id", "is", null)
       .range(from, from + PAGE - 1);
     if (error || !data || data.length === 0) break;
@@ -838,11 +838,11 @@ async function fetchAllTimePageVisitors(
 }
 
 // All-time shared-breakdown + top-shares-visits + visit counters built
-// by paginating every visit/visit_linked row. Bot visits come through
-// `visit`; humans through `visit_linked`. Geo + city are built later
-// from the union of `geoSeen` collected here AND in
+// by paginating every bot_visit/human_visit row. Bot visits come
+// through `bot_visit`; humans through `human_visit`. Geo + city are
+// built later from the union of `geoSeen` collected here AND in
 // fetchAllTimeFunnelAndBins so we capture every visitor that has any
-// event, not just visit_linked rows (a dropped beacon shouldn't drop
+// event, not just human_visit rows (a dropped beacon shouldn't drop
 // the visitor from the map).
 async function fetchAllTimeSharedAndGeo(
   topShares: TopSharesAcc,
@@ -863,7 +863,7 @@ async function fetchAllTimeSharedAndGeo(
       .select(
         "type, slug, is_bot, bot_kind, visitor_id, referrer_kind, ip_hash",
       )
-      .in("type", ["visit", "visit_linked"])
+      .in("type", ["bot_visit", "human_visit"])
       .range(from, from + PAGE - 1);
     if (error || !data || data.length === 0) break;
     for (const r of data as {
@@ -878,13 +878,13 @@ async function fetchAllTimeSharedAndGeo(
       if (!eventAllowed(r.slug, r.visitor_id)) continue;
       visitCounter.visits++;
       applyVisitToTopShares(topShares, r.slug);
-      if (r.type === "visit") {
+      if (r.type === "bot_visit") {
         // Server-side bot visit — no visitor row, no geo, never counted
         // as human. Feeds unfurl-bot donut and bot %.
         visitCounter.bots++;
         applyToShared(s, true, r.bot_kind, r.referrer_kind, r.ip_hash);
       } else {
-        // visit_linked — human page-load.
+        // human_visit — human page-load.
         visitCounter.humans++;
         if (r.visitor_id && r.slug) {
           const visitor = visitorRows.get(r.visitor_id);
@@ -977,7 +977,7 @@ export async function GET(request: Request) {
       .select(
         "type, slug, created_at, is_bot, bot_kind, visitor_id, ip_hash, referrer_kind, payload",
       )
-      .in("type", ["visit", ...FUNNEL_TYPES])
+      .in("type", ["bot_visit", ...FUNNEL_TYPES])
       .gte("created_at", since)
       .order("created_at", { ascending: true }),
     supabase
@@ -1028,8 +1028,8 @@ export async function GET(request: Request) {
   const eventAllowed = makeEventAllowed(filters, slugMeta, visitorMeta);
 
   // ---- Visits series (per-day stack) ----
-  // Bots come through `visit` (server-side, UA-gated). Humans come
-  // through `visit_linked` (client beacon w/ visitor_id); device split
+  // Bots come through `bot_visit` (server-side, UA-gated). Humans come
+  // through `human_visit` (client beacon w/ visitor_id); device split
   // resolves via the visitor row.
   const range = buildDateRange(SERIES_DAYS);
   const buckets = new Map<string, VisitsPoint>();
@@ -1037,11 +1037,11 @@ export async function GET(request: Request) {
     buckets.set(d, { date: d, bot: 0, desktop: 0, mobile: 0, tablet: 0, other: 0 });
   }
   for (const e of events) {
-    if (e.type !== "visit" && e.type !== "visit_linked") continue;
+    if (e.type !== "bot_visit" && e.type !== "human_visit") continue;
     if (!eventAllowed(e.slug, e.visitor_id)) continue;
     const point = buckets.get(dayKey(e.created_at));
     if (!point) continue;
-    if (e.type === "visit") {
+    if (e.type === "bot_visit") {
       point.bot++;
       continue;
     }
@@ -1099,7 +1099,7 @@ export async function GET(request: Request) {
   // Dedup sets for geo/city aggregation. We want one count per unique
   // visitor per window — not per-event — so a visitor with many events
   // in the window contributes once, and a visitor with only CTA events
-  // (no visit_linked, e.g. a dropped beacon) still appears on the map.
+  // (no human_visit, e.g. a dropped beacon) still appears on the map.
   const geoSeen7 = new Set<string>();
   const geoSeen30 = new Set<string>();
   const geoSeen90 = new Set<string>();
@@ -1110,7 +1110,7 @@ export async function GET(request: Request) {
     // through visitor_id, so the predicate is uniform across event types.
     if (!eventAllowed(e.slug, e.visitor_id)) continue;
 
-    if (e.type === "visit") {
+    if (e.type === "bot_visit") {
       // Bot visit (server-side emit, UA-gated). No visitor row, no geo.
       const apply = (c: Counter) => {
         c.visits++;
@@ -1131,7 +1131,7 @@ export async function GET(request: Request) {
       continue;
     }
 
-    // Non-visit event. visit_linked carries the human page-load
+    // Non-bot event. human_visit carries the human page-load
     // semantics; other engagement events feed funnel/length/pause.
     const visitor = e.visitor_id ? visitorRows.get(e.visitor_id) : undefined;
     const pageKey = e.visitor_id && e.slug ? `${e.visitor_id}|${e.slug}` : null;
@@ -1139,7 +1139,7 @@ export async function GET(request: Request) {
     // Geo + city: dedup by (visitor, page) per window so each share a
     // viewer sees pulls them onto the map once. A viewer with five
     // follow-up shares contributes five dot-counts at their location;
-    // robust to dropped visit_linked beacons since any event suffices.
+    // robust to dropped human_visit beacons since any event suffices.
     if (pageKey && visitor) {
       if (ts >= cutoff90 && !geoSeen90.has(pageKey)) {
         geoSeen90.add(pageKey);
@@ -1158,7 +1158,7 @@ export async function GET(request: Request) {
       }
     }
 
-    if (e.type === "visit_linked") {
+    if (e.type === "human_visit") {
       const isMobile = visitor?.device_type === "mobile";
       const apply = (c: Counter) => {
         c.visits++;

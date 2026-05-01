@@ -88,11 +88,22 @@ export default function ShareVideoPlayer({ slug, src, poster, className }: Props
     const v = videoRef.current
     if (!v) return
 
-    const beacon = (type: EventType, payload?: Record<string, unknown>) => {
+    // Read the video duration at beacon time so the dashboard can bin
+    // events by video length. Returns null if metadata hasn't loaded yet,
+    // in which case the field is omitted (older rows + bin-by-length
+    // analytics simply skip those events).
+    const durationOrNull = (): number | null => {
+      const d = v.duration
+      return Number.isFinite(d) && d > 0 ? d : null
+    }
+
+    const beacon = (type: EventType, payload: Record<string, unknown> = {}) => {
+      const dur = durationOrNull()
+      const enriched = dur != null ? { ...payload, duration: dur } : payload
       sendEvent({
         type,
         slug,
-        payload,
+        payload: enriched,
         originalReferrer: originalReferrerRef.current || undefined,
         visitorId: visitorIdRef.current ?? undefined,
       })

@@ -21,7 +21,7 @@ import {
 import type { UsageResponse } from '@/app/api/admin/usage/route'
 import { Card, CardHeader, StatBox } from '@/app/admin/_components/Card'
 import { SegmentedControl } from '@/app/admin/_components/SegmentedControl'
-import { TOOLTIP_STYLE, PALETTE } from '@/app/admin/_components/chartTheme'
+import { TOOLTIP_STYLE, PALETTE, pickStableColor } from '@/app/admin/_components/chartTheme'
 import { sliceLast } from '@/app/admin/_components/series'
 
 type WindowDays = 7 | 30 | 90
@@ -38,17 +38,28 @@ const COLOR_RENDER = PALETTE.ORANGE
 const COLOR_OK = PALETTE.GREEN
 const COLOR_RATIO = PALETTE.CYAN
 
-// Pie palette for the product breakdown — orange first so the largest
-// slice anchors the accent, then cool complements; slate is reserved for
-// the "Other" bucket so it never competes with real categories.
-const PRODUCT_PIE_COLORS = [
+// Pie palette for the product breakdown. Stable per product name —
+// pickStableColor hashes the name to a fallback color so the same
+// product always renders in the same color regardless of count order
+// or which other products are present this window. Slate is reserved
+// for the synthetic "Other" bucket so it never competes with real
+// categories.
+const PRODUCT_FALLBACK_COLORS = [
   PALETTE.ORANGE,
   PALETTE.BLUE,
   PALETTE.TEAL,
   PALETTE.CYAN,
   PALETTE.INDIGO,
-  PALETTE.SLATE, // for "Other"
-]
+  PALETTE.VIOLET,
+] as const
+
+const PRODUCT_EXPLICIT_COLORS: Record<string, string> = {
+  Other: PALETTE.SLATE,
+}
+
+function productColor(name: string): string {
+  return pickStableColor(name, PRODUCT_EXPLICIT_COLORS, PRODUCT_FALLBACK_COLORS)
+}
 
 const WINDOW_OPTIONS: { value: WindowDays; label: string }[] = [
   { value: 7, label: '7d' },
@@ -73,9 +84,13 @@ function presenterLabel(p: { firstName: string; lastName: string; email: string 
   return name || p.email
 }
 
+// `-z-10` places the total behind the chart so a hover tooltip drawn
+// over the center sits in front. Donut hole is transparent so the text
+// still shows through. Parent must form a stacking context (`isolate`)
+// or the negative z escapes the card.
 function PieCenterTotal({ value }: { value: number }) {
   return (
-    <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+    <div className="pointer-events-none absolute inset-0 -z-10 flex flex-col items-center justify-center">
       <span className="text-2xl font-semibold tabular-nums text-foreground">{value}</span>
       <span className="mt-0.5 text-[10px] uppercase tracking-wider text-muted">Total</span>
     </div>
@@ -497,7 +512,7 @@ export default function AdminUsageClient() {
                   }
                 />
                 <div className="h-64">
-                  <div className="relative h-48">
+                  <div className="relative isolate h-48">
                     <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                       <PieChart>
                         <Pie
@@ -657,7 +672,7 @@ export default function AdminUsageClient() {
                   <p className="text-sm text-muted">No renders in this window.</p>
                 ) : (
                   <div className="h-64">
-                    <div className="relative h-48">
+                    <div className="relative isolate h-48">
                       <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                         <PieChart>
                           <Pie
@@ -668,15 +683,8 @@ export default function AdminUsageClient() {
                             outerRadius="80%"
                             stroke="var(--surface)"
                           >
-                            {productBreakdown.map((row, i) => (
-                              <Cell
-                                key={row.name}
-                                fill={
-                                  row.name === 'Other'
-                                    ? PRODUCT_PIE_COLORS[PRODUCT_PIE_COLORS.length - 1]
-                                    : PRODUCT_PIE_COLORS[i % (PRODUCT_PIE_COLORS.length - 1)]
-                                }
-                              />
+                            {productBreakdown.map((row) => (
+                              <Cell key={row.name} fill={productColor(row.name)} />
                             ))}
                           </Pie>
                           <Tooltip contentStyle={TOOLTIP_STYLE} />
@@ -685,13 +693,10 @@ export default function AdminUsageClient() {
                       <PieCenterTotal value={productPieTotal} />
                     </div>
                     <PieLegend
-                      entries={productBreakdown.map((row, i) => ({
+                      entries={productBreakdown.map((row) => ({
                         name: row.name,
                         value: row.value,
-                        color:
-                          row.name === 'Other'
-                            ? PRODUCT_PIE_COLORS[PRODUCT_PIE_COLORS.length - 1]
-                            : PRODUCT_PIE_COLORS[i % (PRODUCT_PIE_COLORS.length - 1)],
+                        color: productColor(row.name),
                       }))}
                     />
                   </div>

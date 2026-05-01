@@ -12,22 +12,9 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const type = searchParams.get("type");
-  const name = searchParams.get("name");
 
   if (type && type !== "product" && type !== "merchant") {
     return NextResponse.json({ error: "Invalid type." }, { status: 400 });
-  }
-
-  // Live duplicate check used by the name modal.
-  if (name != null) {
-    const { data, error } = await supabase
-      .from("vlad_recordings")
-      .select("id")
-      .eq("user_id", session.email)
-      .eq("name", name)
-      .maybeSingle();
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ exists: !!data });
   }
 
   let query = supabase

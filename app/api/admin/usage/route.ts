@@ -4,6 +4,7 @@ import { requireSession } from "@/lib/apiAuth";
 import { findProductLabel } from "@/lib/products";
 import { MS_PER_DAY, dayKey, buildDateRange } from "@/lib/stats/dateRange";
 import type { AdminUser } from "@/app/api/admin/users/route";
+import { decodeFiltersFromApi, type FilterOptions } from "@/app/admin/_components/filters";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -62,6 +63,10 @@ export type UsageResponse = {
   productTotalsAllTime: ProductTotalRow[];
   // Lookup map for any user email referenced anywhere in the response.
   users: AdminUser[];
+  // Available chips for the dashboard filters modal — autocomplete data
+  // for presenter / product / merchant. Regions are always empty here
+  // since usage data isn't geo-tagged.
+  filterOptions: FilterOptions;
 };
 
 type EventRow = {
@@ -79,13 +84,35 @@ export async function GET(request: Request) {
   if (session.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const { searchParams } = new URL(request.url);
-  const excludeUsers = new Set(
-    (searchParams.get("excludeUsers") ?? "")
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean),
-  );
+
+  // Filters from the shared admin modal. Presenter chips drive event-
+  // row filtering directly via user_id. Product/merchant chips are
+  // accepted but not yet applied — usage events live in vlad_event_log
+  // which only carries user_id and target_id; resolving target_id to
+  // recording/render → product/merchant requires extra joins not yet
+  // wired here.
+  const filters = decodeFiltersFromApi(searchParams.get("filters"));
+  const excludeUsers = new Set<string>();
+  // Legacy ?excludeUsers= is still respected for any caller that hasn't
+  // migrated to the filters payload yet (none today, but cheap to keep).
+  for (const id of (searchParams.get("excludeUsers") ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)) {
+    excludeUsers.add(id);
+  }
+  for (const c of filters.exclude) {
+    if (c.kind === "presenter") excludeUsers.add(c.value);
+  }
+  const includeUsers = new Set<string>();
+  for (const c of filters.include) {
+    if (c.kind === "presenter") includeUsers.add(c.value);
+  }
   const isExcluded = (userId: string | null) => userId != null && excludeUsers.has(userId);
+  const isIncluded = (userId: string | null) => {
+    if (includeUsers.size === 0) return true;
+    return userId != null && includeUsers.has(userId);
+  };
 
   const since = new Date(Date.now() - SERIES_DAYS * MS_PER_DAY).toISOString();
 
@@ -104,14 +131,19 @@ export async function GET(request: Request) {
   const allEvents = (eventsData ?? []) as EventRow[];
   // Filter once up front — every downstream aggregation just iterates `events`.
   const events =
-    excludeUsers.size > 0
-      ? allEvents.filter((e) => !isExcluded(e.user_id))
+    excludeUsers.size > 0 || includeUsers.size > 0
+      ? allEvents.filter(
+          (e) => !isExcluded(e.user_id) && isIncluded(e.user_id),
+        )
       : allEvents;
 
   // All-time user count.
   let usersQuery = supabase.from("vlad_users").select("id", { count: "exact", head: true });
   if (excludeUsers.size > 0) {
     usersQuery = usersQuery.not("id", "in", `(${[...excludeUsers].join(",")})`);
+  }
+  if (includeUsers.size > 0) {
+    usersQuery = usersQuery.in("id", [...includeUsers]);
   }
   const { count: allTimeUsers } = await usersQuery;
 
@@ -126,6 +158,11 @@ export async function GET(request: Request) {
     const list = `(${[...excludeUsers].join(",")})`;
     recQuery = recQuery.not("user_id", "in", list);
     renderCountQuery = renderCountQuery.not("user_id", "in", list);
+  }
+  if (includeUsers.size > 0) {
+    const list = [...includeUsers];
+    recQuery = recQuery.in("user_id", list);
+    renderCountQuery = renderCountQuery.in("user_id", list);
   }
   const [allRecordings, allRenders] = await Promise.all([recQuery, renderCountQuery]);
   let allTimeIntros = 0;
@@ -168,6 +205,9 @@ export async function GET(request: Request) {
       "in",
       `(${[...excludeUsers].join(",")})`,
     );
+  }
+  if (includeUsers.size > 0) {
+    priorAnyQuery = priorAnyQuery.in("user_id", [...includeUsers]);
   }
   const { data: priorAnyData } = await priorAnyQuery;
   const existedBefore = new Set(
@@ -412,6 +452,9 @@ export async function GET(request: Request) {
       `(${[...excludeUsers].join(",")})`,
     );
   }
+  if (includeUsers.size > 0) {
+    allRendersQuery = allRendersQuery.in("user_id", [...includeUsers]);
+  }
   const { data: allRendersData } = await allRendersQuery;
   type AllRenderRow = { vlad_recordings: { product_name: string | null } | null };
   const productTotalsMap = new Map<string, { name: string; count: number }>();
@@ -426,6 +469,49 @@ export async function GET(request: Request) {
   const productTotalsAllTime: ProductTotalRow[] = [...productTotalsMap.entries()].map(
     ([key, { name, count }]) => ({ product: { key, name }, count }),
   );
+
+  // Filter options — chip autocomplete data for the dashboard filters
+  // modal. Presenters reuse `usersList` (already fetched above);
+  // products reuse productTotalsMap (the canonical product catalog
+  // observed in renders); merchants come from a small distinct query
+  // on vlad_renders.brand_name. Regions are always empty here.
+  const presenterOptions = usersList
+    .map((u) => ({
+      value: u.email,
+      label: `${u.firstName} ${u.lastName}`.trim() || u.email,
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+  const productOptions = [...productTotalsMap.entries()]
+    .filter(([key]) => key !== "_unknown")
+    .map(([key, { name }]) => ({ value: key, label: name }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  const { data: brandRows } = await supabase
+    .from("vlad_renders")
+    .select("brand, brand_name, brand_url")
+    .not("brand_url", "is", null);
+  const merchantMap = new Map<string, string>();
+  for (const r of (brandRows ?? []) as {
+    brand: string | null;
+    brand_name: string | null;
+    brand_url: string | null;
+  }[]) {
+    const value = r.brand_url ?? r.brand ?? null;
+    if (!value) continue;
+    const label = r.brand_name?.trim() || r.brand || value;
+    if (!merchantMap.has(value)) merchantMap.set(value, label);
+  }
+  const merchantOptions = [...merchantMap.entries()]
+    .map(([value, label]) => ({ value, label }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  const filterOptions: FilterOptions = {
+    presenters: presenterOptions,
+    products: productOptions,
+    merchants: merchantOptions,
+    regions: [],
+  };
+
 
   const response: UsageResponse = {
     seriesDays: SERIES_DAYS,
@@ -444,6 +530,7 @@ export async function GET(request: Request) {
     productSeries,
     productTotalsAllTime,
     users: usersList,
+    filterOptions,
   };
 
   return NextResponse.json(response);

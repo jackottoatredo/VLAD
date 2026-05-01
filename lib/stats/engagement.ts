@@ -5,7 +5,7 @@ import { detectBot, type BotKind } from "@/lib/stats/botDetection";
 import { parseUaFamily } from "@/lib/stats/uaFamily";
 import { parseDeviceType } from "@/lib/stats/deviceType";
 import { parseReferrer, type ReferrerKind } from "@/lib/stats/referrer";
-import { lookupGeo } from "@/lib/stats/geoLookup";
+import { upsertVisitor } from "@/lib/stats/visitors";
 
 export type EngagementType =
   | "visit"
@@ -26,9 +26,10 @@ export type LogEngagementArgs = {
   // so every call site goes through the same bot detection and hashing.
   headers: Headers;
   // Per-browser stable identifier read from localStorage on the client.
-  // Server-side calls (visit, asset_download from the redirect endpoint
-  // with no JS access) leave this null and the dashboard falls back to
-  // ip_hash for dedup.
+  // Server-side calls (bot `visit` rows, asset_download fired without
+  // ?v=) leave this null. Events with a visitor_id additionally trigger
+  // an upsert of the visitor profile row (geo enrichment on first
+  // sight, last_seen + ip_hash refresh thereafter).
   visitorId?: string | null;
   payload?: Record<string, unknown>;
   // Override referrer fields for client-posted events whose Referer
@@ -37,9 +38,15 @@ export type LogEngagementArgs = {
   override?: Partial<{ referrerHost: string; referrerKind: ReferrerKind }>;
 };
 
-// Append a row to vlad_engagement_events. Errors are swallowed —
+// Append a row to vlad_engagement_events AND keep the matching visitor
+// profile in vlad_engagement_visitors fresh. Errors are swallowed —
 // engagement logging must never break the share page or block a redirect.
 // Safe to await or fire-and-forget via `void logEngagementEvent(...)`.
+//
+// Per-event row carries only the fields that vary per-event (ip_hash,
+// referrer, host, payload, bot_kind). Stable per-visitor attributes
+// (geo, ua_family, device_type) live on the visitor row; aggregations
+// JOIN through visitor_id when they need them.
 //
 // All branches that drop an event log an explicit warning so you can see
 // in the dev server output why nothing's landing in the DB.
@@ -58,8 +65,7 @@ export async function logEngagementEvent(args: LogEngagementArgs): Promise<void>
     const ua = args.headers.get("user-agent");
     const { isBot, kind } = detectBot(ua);
     const uaFamily = parseUaFamily(ua);
-    // Device type is meaningless for bots, leave null so dashboards don't
-    // pollute the mobile/desktop split with unfurl traffic.
+    // Device type is meaningless for bots; visitor row stays null.
     const deviceType = isBot ? null : parseDeviceType(ua);
     const refHeader = args.headers.get("referer");
     const ref = parseReferrer(refHeader);
@@ -68,23 +74,6 @@ export async function logEngagementEvent(args: LogEngagementArgs): Promise<void>
     // environment (localhost vs beta vs prod).
     const host =
       args.headers.get("x-forwarded-host") ?? args.headers.get("host") ?? null;
-
-    let country: string | null = null;
-    let region: string | null = null;
-    let city: string | null = null;
-    let latitude: number | null = null;
-    let longitude: number | null = null;
-    if (args.type === "visit" && !isBot) {
-      // Only `visit` events spend iplocate quota; downstream events
-      // (video_play, clicks) inherit nothing — the dashboard joins
-      // them to the visit row by ip_hash + slug.
-      const geo = await lookupGeo(ip);
-      country = geo.country;
-      region = geo.region;
-      city = geo.city;
-      latitude = geo.latitude;
-      longitude = geo.longitude;
-    }
 
     const referrerHost = args.override?.referrerHost ?? ref.host;
     const referrerKind: ReferrerKind = args.override?.referrerKind ?? ref.kind;
@@ -97,13 +86,6 @@ export async function logEngagementEvent(args: LogEngagementArgs): Promise<void>
       ip_hash: ipHash,
       is_bot: isBot,
       bot_kind: kind,
-      ua_family: uaFamily,
-      device_type: deviceType,
-      country,
-      region,
-      city,
-      latitude,
-      longitude,
       referrer_host: referrerHost,
       referrer_kind: referrerKind,
       payload: args.payload ?? {},
@@ -118,6 +100,21 @@ export async function logEngagementEvent(args: LogEngagementArgs): Promise<void>
       );
     } else if (process.env.NODE_ENV !== "production") {
       console.log(`[engagement] logged ${args.type}/${args.slug}`);
+    }
+
+    // Maintain the visitor profile when this event identifies a real
+    // human. Bots never get a visitor row; events without a visitor_id
+    // (server-side `visit` for bots, edge-case server callers without
+    // ?v=) skip this entirely. Fire-and-forget — visitor maintenance
+    // failures shouldn't surface to the caller.
+    if (args.visitorId && !isBot) {
+      void upsertVisitor({
+        visitorId: args.visitorId,
+        ip,
+        ipHash,
+        uaFamily,
+        deviceType,
+      });
     }
   } catch (err) {
     console.error(`[engagement] insert threw for ${args.type}/${args.slug}:`, err);

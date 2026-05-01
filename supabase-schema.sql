@@ -86,22 +86,43 @@ create index vlad_event_log_target_idx
 -- from vlad_event_log because the audience (anonymous, public) and schema
 -- (network/UA fields, no user_id) differ. No FK on slug — events outlive
 -- their source render.
-create table vlad_engagement_events (
-  id            uuid primary key default gen_random_uuid(),
-  type          text not null,
-  slug          text not null,
-  host          text,
-  visitor_id    text,
+-- Per-visitor profile. Stable attributes (geo, UA, device) live here so
+-- they're set once per visitor and queried via JOIN from the events
+-- table. Keyed on visitor_id (the per-browser localStorage identifier
+-- generated client-side); null for bot visits which are tracked
+-- separately on the events table.
+create table vlad_engagement_visitors (
+  visitor_id    text primary key,
   ip_hash       text not null,
-  is_bot        boolean not null default false,
-  bot_kind      text,
-  ua_family     text,
-  device_type   text,
   country       text,
   region        text,
   city          text,
   latitude      real,
   longitude     real,
+  ua_family     text,
+  device_type   text,
+  first_seen_at timestamptz not null default now(),
+  last_seen_at  timestamptz not null default now()
+);
+
+create index vlad_engagement_visitors_region_idx
+  on vlad_engagement_visitors (region) where region is not null;
+
+create index vlad_engagement_visitors_country_idx
+  on vlad_engagement_visitors (country) where country is not null;
+
+create index vlad_engagement_visitors_ip_hash_idx
+  on vlad_engagement_visitors (ip_hash);
+
+create table vlad_engagement_events (
+  id            uuid primary key default gen_random_uuid(),
+  type          text not null,
+  slug          text not null,
+  host          text,
+  visitor_id    text references vlad_engagement_visitors (visitor_id) on delete set null deferrable initially deferred,
+  ip_hash       text not null,
+  is_bot        boolean not null default false,
+  bot_kind      text,
   referrer_host text,
   referrer_kind text,
   payload       jsonb not null default '{}',

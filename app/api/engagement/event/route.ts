@@ -19,7 +19,7 @@ export const runtime = "nodejs";
 // All paths return { ok: true } regardless of whether a row was inserted.
 
 const ALLOWED_TYPES = new Set<EngagementType>([
-  "visit_linked",
+  "human_visit",
   "video_play",
   "video_pause",
   "video_quartile",

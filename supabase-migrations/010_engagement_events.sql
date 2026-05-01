@@ -24,9 +24,10 @@ BEGIN;
 
 CREATE TABLE IF NOT EXISTS vlad_engagement_events (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  type          text NOT NULL,                -- 'visit' | 'video_play' | 'video_quartile' | 'video_end'
+  type          text NOT NULL,                -- 'bot_visit' | 'human_visit' | 'video_play' | 'video_quartile' | 'video_end'
                                               -- | 'click_copy_link' | 'click_book_demo' | 'click_interactive_demo'
                                               -- | 'asset_download'
+                                              -- (bot_visit/human_visit were renamed from visit/visit_linked in migration 015)
   slug          text NOT NULL,                -- share slug; every panel filters on it
   visitor_id    text,                         -- nullable; reserved for future cookie-based stable ID
   ip_hash       text NOT NULL,                -- HMAC-SHA256(ip, ENGAGEMENT_IP_SALT) truncated to 16 hex chars

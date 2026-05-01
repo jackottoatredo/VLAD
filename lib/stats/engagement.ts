@@ -8,8 +8,8 @@ import { parseReferrer, type ReferrerKind } from "@/lib/stats/referrer";
 import { upsertVisitor } from "@/lib/stats/visitors";
 
 export type EngagementType =
-  | "visit"
-  | "visit_linked"
+  | "bot_visit"
+  | "human_visit"
   | "video_play"
   | "video_pause"
   | "video_quartile"
@@ -78,6 +78,24 @@ export async function logEngagementEvent(args: LogEngagementArgs): Promise<void>
     const referrerHost = args.override?.referrerHost ?? ref.host;
     const referrerKind: ReferrerKind = args.override?.referrerKind ?? ref.kind;
 
+    // Visitor profile MUST be upserted before the event insert. The
+    // events table has an FK on visitor_id → vlad_engagement_visitors,
+    // and Supabase JS doesn't wrap the two writes in a single
+    // transaction (the FK is DEFERRABLE but DEFERRED only matters
+    // intra-transaction). If we insert the event first, the very first
+    // beacon from a new visitor — visit_linked on page-mount — fails
+    // FK and silently drops, leaving funnel/visit metrics empty even
+    // though the visitor row gets created on the same call.
+    if (args.visitorId && !isBot) {
+      await upsertVisitor({
+        visitorId: args.visitorId,
+        ip,
+        ipHash,
+        uaFamily,
+        deviceType,
+      });
+    }
+
     const row = {
       type: args.type,
       slug: args.slug,
@@ -100,21 +118,6 @@ export async function logEngagementEvent(args: LogEngagementArgs): Promise<void>
       );
     } else if (process.env.NODE_ENV !== "production") {
       console.log(`[engagement] logged ${args.type}/${args.slug}`);
-    }
-
-    // Maintain the visitor profile when this event identifies a real
-    // human. Bots never get a visitor row; events without a visitor_id
-    // (server-side `visit` for bots, edge-case server callers without
-    // ?v=) skip this entirely. Fire-and-forget — visitor maintenance
-    // failures shouldn't surface to the caller.
-    if (args.visitorId && !isBot) {
-      void upsertVisitor({
-        visitorId: args.visitorId,
-        ip,
-        ipHash,
-        uaFamily,
-        deviceType,
-      });
     }
   } catch (err) {
     console.error(`[engagement] insert threw for ${args.type}/${args.slug}:`, err);

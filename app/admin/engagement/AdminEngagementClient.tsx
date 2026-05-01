@@ -900,7 +900,7 @@ function ConversionFunnel({ counts }: { counts: FunnelCounts }) {
   // saving → exploring → talking to sales) reads as a natural funnel
   // tail without misrepresenting the per-stage independence.
   const stages: { label: string; key: keyof FunnelCounts }[] = [
-    { label: 'Visited', key: 'visit_linked' },
+    { label: 'Visited', key: 'human_visit' },
     { label: 'Played', key: 'video_play' },
     { label: '25%', key: 'q25' },
     { label: '50%', key: 'q50' },
@@ -911,7 +911,7 @@ function ConversionFunnel({ counts }: { counts: FunnelCounts }) {
     { label: 'Interactive', key: 'click_interactive_demo' },
     { label: 'Book Demo', key: 'click_book_demo' },
   ]
-  const top = counts.visit_linked
+  const top = counts.human_visit
   return (
     <div className="space-y-2 py-2">
       {stages.map((s) => {
@@ -1068,7 +1068,7 @@ export default function AdminEngagementClient() {
             Click a column header to sort. Slug links to the share page in a new
             tab. <span className="font-medium">Visits</span> counts page renders
             (humans + bots); <span className="font-medium">Unique</span> = distinct
-            visitor_id from visit_linked; <span className="font-medium">Play</span>{' '}
+            visitor_id from human_visit; <span className="font-medium">Play</span>{' '}
             / <span className="font-medium">End</span> count distinct viewers who
             pressed play / reached the end of the video. The four icon columns
             count raw click events on each CTA button (multiple clicks per viewer

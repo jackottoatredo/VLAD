@@ -158,7 +158,7 @@ export default async function SharePage({
   const requestHeaders = await headers();
   if (detectBot(requestHeaders.get("user-agent")).isBot) {
     void logEngagementEvent({
-      type: "visit",
+      type: "bot_visit",
       slug,
       headers: requestHeaders,
     });

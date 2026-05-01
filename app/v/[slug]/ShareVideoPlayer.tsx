@@ -11,7 +11,7 @@ type Props = {
 }
 
 type EventType =
-  | 'visit_linked'
+  | 'human_visit'
   | 'video_play'
   | 'video_pause'
   | 'video_quartile'
@@ -56,7 +56,7 @@ export default function ShareVideoPlayer({ slug, src, poster, className }: Props
   const lastPauseMsRef = useRef(0)
   const quartilesFiredRef = useRef<Set<25 | 50 | 75>>(new Set())
   const endFiredRef = useRef(false)
-  const visitLinkedFiredRef = useRef(false)
+  const humanVisitFiredRef = useRef(false)
   const originalReferrerRef = useRef<string>('')
   // Mirror visitorId into a ref so the listeners (closed over the
   // initial render's value) always read the latest resolved ID.
@@ -74,10 +74,10 @@ export default function ShareVideoPlayer({ slug, src, poster, className }: Props
   // Fires after the localStorage read resolves; the dashboard uses this
   // event to count unique humans even if they don't engage further.
   useEffect(() => {
-    if (!visitorId || visitLinkedFiredRef.current) return
-    visitLinkedFiredRef.current = true
+    if (!visitorId || humanVisitFiredRef.current) return
+    humanVisitFiredRef.current = true
     sendEvent({
-      type: 'visit_linked',
+      type: 'human_visit',
       slug,
       visitorId,
       originalReferrer: originalReferrerRef.current || undefined,

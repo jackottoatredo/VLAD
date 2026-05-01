@@ -284,7 +284,7 @@ function formatPct(v: number | null): string {
 }
 
 // Compact variant of the shared StatBox: smaller, centered, single-line
-// label so the longest engagement label ("Unique Human Visitors") fits
+// label so the longest engagement label ("Unique Page Visitors") fits
 // without wrapping inside the col-1 grid cell.
 function CompactStatBox({ label, value }: { label: string; value: number | string }) {
   return (
@@ -300,8 +300,8 @@ function CompactStatBox({ label, value }: { label: string; value: number | strin
 function EventCountsQuad({ counts }: { counts: EventCounts }) {
   return (
     <div className="grid flex-1 grid-cols-2 grid-rows-2 gap-3">
-      <CompactStatBox label="Total Visits" value={counts.totalVisits.toLocaleString()} />
-      <CompactStatBox label="Unique Human Visitors" value={counts.uniqueVisitors.toLocaleString()} />
+      <CompactStatBox label="Total Page Visits" value={counts.totalPageVisits.toLocaleString()} />
+      <CompactStatBox label="Unique Page Visitors" value={counts.uniquePageVisitors.toLocaleString()} />
       <CompactStatBox label="Mobile %" value={formatPct(counts.mobilePct)} />
       <CompactStatBox label="Bot %" value={formatPct(counts.botPct)} />
     </div>
@@ -426,8 +426,8 @@ function selectTopShares(
 type TopSharesSortKey =
   | 'slug'
   | 'presenter'
-  | 'visits'
-  | 'uniqueVisitors'
+  | 'pageVisits'
+  | 'uniquePageVisitors'
   | 'plays'
   | 'videoEnds'
   | 'copyLinkClicks'
@@ -436,8 +436,8 @@ type TopSharesSortKey =
   | 'bookDemoClicks'
 
 const NUMERIC_KEYS: ReadonlySet<TopSharesSortKey> = new Set([
-  'visits',
-  'uniqueVisitors',
+  'pageVisits',
+  'uniquePageVisitors',
   'plays',
   'videoEnds',
   'copyLinkClicks',
@@ -558,7 +558,7 @@ function IconCalendar() {
 }
 
 function TopSharesTable({ rows }: { rows: TopShareEntry[] }) {
-  const [sortKey, setSortKey] = useState<TopSharesSortKey>('visits')
+  const [sortKey, setSortKey] = useState<TopSharesSortKey>('pageVisits')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
 
   const sorted = useMemo(
@@ -626,18 +626,18 @@ function TopSharesTable({ rows }: { rows: TopShareEntry[] }) {
       },
     },
     {
-      key: 'visits',
+      key: 'pageVisits',
       label: 'Visits',
-      title: 'Total visit rows (humans + bots)',
+      title: 'Total page visits (humans + bots)',
       align: 'right',
-      render: (r) => r.visits.toLocaleString(),
+      render: (r) => r.pageVisits.toLocaleString(),
     },
     {
-      key: 'uniqueVisitors',
+      key: 'uniquePageVisitors',
       label: 'Unique',
-      title: 'Distinct visitor_id from visit_linked',
+      title: 'Distinct page-visitors (visitor_id × slug)',
       align: 'right',
-      render: (r) => r.uniqueVisitors.toLocaleString(),
+      render: (r) => r.uniquePageVisitors.toLocaleString(),
     },
     {
       key: 'plays',

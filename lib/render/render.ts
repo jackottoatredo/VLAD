@@ -1,14 +1,16 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import ffmpeg from "fluent-ffmpeg";
-import ffmpegPath from "ffmpeg-static";
 import { chromium, type Page } from "playwright";
 import { type CursorPosition, type RenderAction } from "@/lib/render/actions";
 import { installVirtualTimeClock, type VirtualTimeClock } from "@/lib/render/virtual-time";
 import { uploadToR2 } from "@/lib/storage/r2";
+import { resolvedFfmpegPath } from "@/lib/render/ffmpeg-bin";
+import { injectOverlay, tickOverlay } from "@/lib/render/overlay";
+import type { RenderSpec } from "@/lib/render/spec";
 import { VIRTUAL_PREVIEW_SCALE_FACTOR, PREVIEW_DOWNSCALE_FACTOR } from "@/app/config";
 
 export type RenderOptions = {
@@ -28,6 +30,12 @@ export type RenderOptions = {
   settleHint?: { x: number; y: number };
   /** If true, render at reduced DPR and apply ffmpeg downscale — used for the fast preview tier. */
   preview?: boolean;
+  /** Resolved render config for the DOM overlay (webcam, throb, morph). When omitted, no overlay is injected. */
+  spec?: RenderSpec;
+  /** Local fs path to webcam.webm (caller downloaded from R2). Null when no webcam. */
+  webcamPath?: string | null;
+  /** Pre-baked amplitude samples [0,1] at `fps`. Null when no audio data. */
+  amplitudeSamples?: number[] | null;
 };
 
 export type RenderResult = {
@@ -39,38 +47,6 @@ export type RenderResult = {
 const CURSOR_ID = "__videobot_cursor__";
 const CURSOR_FILE_PATH = path.join(process.cwd(), "public", "cursor.svg");
 const CURSOR_SIZE_PX = 32;
-const FFMPEG_FILENAME = process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg";
-
-function normalizeBundledRootPath(binaryPath: string): string {
-  const rootPrefixPattern = /^([\\/])ROOT([\\/])/;
-
-  if (!rootPrefixPattern.test(binaryPath)) {
-    return binaryPath;
-  }
-
-  const relativePath = binaryPath
-    .replace(rootPrefixPattern, "")
-    .replace(/[\\/]/g, path.sep);
-
-  return path.join(process.cwd(), relativePath);
-}
-
-function resolveFfmpegBinaryPath(): string | null {
-  const candidates = [
-    ffmpegPath,
-    ffmpegPath ? normalizeBundledRootPath(ffmpegPath) : null,
-    path.join(process.cwd(), "node_modules", "ffmpeg-static", FFMPEG_FILENAME),
-    path.join(process.cwd(), "node_modules", "ffmpeg-static", "ffmpeg"),
-  ].filter((value): value is string => Boolean(value));
-
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  return null;
-}
 
 function resolveCursorSrc(): string {
   try {
@@ -82,12 +58,14 @@ function resolveCursorSrc(): string {
   }
 }
 
-export const resolvedFfmpegPath = resolveFfmpegBinaryPath();
 const resolvedCursorSrc = resolveCursorSrc();
 
 if (resolvedFfmpegPath) {
   ffmpeg.setFfmpegPath(resolvedFfmpegPath);
 }
+
+// Re-export so existing importers (compose, produce, merge) keep working.
+export { resolvedFfmpegPath };
 
 async function setCursorPosition(
   page: Page,
@@ -125,7 +103,8 @@ async function renderFrames(
   page: Page,
   framesDir: string,
   options: RenderOptions,
-  clock: VirtualTimeClock
+  clock: VirtualTimeClock,
+  hasOverlay: boolean,
 ): Promise<number> {
   const actions = options.actions ?? [];
 
@@ -158,6 +137,12 @@ async function renderFrames(
 
         await page.mouse.move(x, y, { steps: 1 });
         await setCursorPosition(page, x, y);
+
+        // Drive overlay state (webcam currentTime, throb, morph) for THIS frame
+        // before screenshot, so the rasterised frame reflects the correct state.
+        if (hasOverlay) {
+          await tickOverlay(page, renderedFrames);
+        }
 
         renderedFrames += 1;
         options.onProgress?.(renderedFrames, totalFrames);
@@ -249,6 +234,20 @@ export async function renderUrlToMp4(options: RenderOptions): Promise<RenderResu
       timeout: 30_000,
     });
 
+    // Inject the webcam/audio-circle overlay before settle so the badge is
+    // already in the DOM when capture starts. tickOverlay (per-frame) drives
+    // morph/throb state and webcam currentTime sync.
+    const hasOverlay = !!options.spec;
+    if (hasOverlay) {
+      await injectOverlay(page, {
+        spec: options.spec!,
+        webcamPath: options.webcamPath ?? null,
+        amplitudeSamples: options.amplitudeSamples ?? null,
+        fps: options.fps,
+        zoom,
+      });
+    }
+
     // Wiggle the mouse near the first cursor position for 4s of virtual time
     // so the page receives real interaction events and settles (lazy loaders,
     // hover-gated initialisation, etc.) before capture begins.
@@ -265,7 +264,7 @@ export async function renderUrlToMp4(options: RenderOptions): Promise<RenderResu
       await clock.advance(SETTLE_STEP_MS);
     }
 
-    const totalDurationMs = await renderFrames(page, framesDir, options, clock);
+    const totalDurationMs = await renderFrames(page, framesDir, options, clock, hasOverlay);
     await encodeVideo(framesDir, outputPath, {
       ...options,
       durationMs: totalDurationMs,

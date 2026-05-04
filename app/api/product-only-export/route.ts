@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { requireSession } from "@/lib/apiAuth";
+import { shortJobId } from "@/lib/queue/jobId";
 import { DEFAULT_FPS, VIDEO_WIDTH, VIDEO_HEIGHT, RENDER_ZOOM, TARGET_URL } from "@/app/config";
 import { eventsToKeyframes } from "@/lib/render/keyframes";
-import { type WebcamSettings, DEFAULT_WEBCAM_SETTINGS } from "@/types/webcam";
 import { jobsQueue } from "@/lib/queue/connection";
 import type { ProduceJobPayload } from "@/lib/queue/payloads";
 import { downloadBufferFromR2 } from "@/lib/storage/r2";
@@ -11,6 +11,18 @@ import { findCachedRender } from "@/lib/cache/render-cache";
 import { supabase } from "@/lib/db/supabase";
 import { joinNameParts, slugifyPart } from "@/lib/naming";
 import { reserveUniqueName } from "@/lib/db/reserveName";
+import {
+  type RenderSpec,
+  type SectionFormSettings,
+  type Webcam,
+  DEFAULT_THROB_MIN,
+  DEFAULT_THROB_MAX,
+  extractWebcamFromMetadata,
+  resolveSectionWebcam,
+  hashSpec,
+  trimKeyOf,
+} from "@/lib/render/spec";
+import { amplitudeKeyForWebcam } from "@/lib/audio/amplitude";
 
 export const runtime = "nodejs";
 
@@ -24,31 +36,12 @@ function hashBuffer(buf: Buffer): string {
   return createHash("sha256").update(buf).digest("hex");
 }
 
-function webcamFingerprint(s: WebcamSettings): string {
-  return `${s.webcamMode}_${s.webcamVertical}_${s.webcamHorizontal}`;
-}
-
-function trimKey(startSec: number | undefined, endSec: number | undefined): string {
-  return `${(startSec ?? 0).toFixed(3)}_${(endSec ?? 0).toFixed(3)}`;
-}
-
-function extractWebcamSettings(meta: Record<string, unknown>): WebcamSettings {
-  return {
-    webcamMode: typeof meta.webcamMode === "string" && ["video", "audio", "off"].includes(meta.webcamMode)
-      ? meta.webcamMode as WebcamSettings["webcamMode"]
-      : DEFAULT_WEBCAM_SETTINGS.webcamMode,
-    webcamVertical: typeof meta.webcamVertical === "string" && ["top", "bottom"].includes(meta.webcamVertical)
-      ? meta.webcamVertical as WebcamSettings["webcamVertical"]
-      : DEFAULT_WEBCAM_SETTINGS.webcamVertical,
-    webcamHorizontal: typeof meta.webcamHorizontal === "string" && ["left", "right"].includes(meta.webcamHorizontal)
-      ? meta.webcamHorizontal as WebcamSettings["webcamHorizontal"]
-      : DEFAULT_WEBCAM_SETTINGS.webcamHorizontal,
-  };
-}
-
 type RequestBody = {
   productRecordingId?: unknown;
   merchantBrand?: unknown;
+  /** Optional resolved form settings from the modal — when omitted the
+   *  recording's metadata is used directly (legacy default). */
+  productSettings?: unknown;
 };
 
 type MerchantBrand = {
@@ -64,17 +57,28 @@ function parseMerchantBrand(v: unknown): MerchantBrand | null {
   return { websiteUrl: o.websiteUrl.trim(), brandName: o.brandName };
 }
 
-/**
- * Enqueues a single produce job that renders a product recording with a
- * `?brand=…` URL param, and tells the worker to insert a vlad_renders row on
- * completion. Caller hits this once per merchant chip.
- *
- * Naming follows AGENTS.md spec:
- *   brand label = `{merchant-name}-{product-rec-name}-{count}` (per-user)
- *   slug        = `{merchant-name}-{product-name}-{count}`     (global)
- * Both are reserved here at enqueue time so the dashboard can show the share
- * URL immediately.
- */
+function parseSectionForm(v: unknown): SectionFormSettings | null {
+  if (!v || typeof v !== "object") return null;
+  const o = v as Record<string, unknown>;
+  const isSource = (s: unknown): s is SectionFormSettings["modeSource"] =>
+    s === "self" || s === "other" || s === "custom";
+  const isMode = (m: unknown): m is Webcam["mode"] => m === "video" || m === "audio" || m === "off";
+  const isVert = (v: unknown): v is "top" | "bottom" => v === "top" || v === "bottom";
+  const isHorz = (h: unknown): h is "left" | "right" => h === "left" || h === "right";
+
+  if (!isSource(o.modeSource) || !isSource(o.positionSource)) return null;
+  if (!isMode(o.customMode)) return null;
+  const cp = o.customPosition as Record<string, unknown> | undefined;
+  if (!cp || !isVert(cp.vertical) || !isHorz(cp.horizontal)) return null;
+
+  return {
+    modeSource: o.modeSource,
+    customMode: o.customMode,
+    positionSource: o.positionSource,
+    customPosition: { vertical: cp.vertical, horizontal: cp.horizontal },
+  };
+}
+
 export async function POST(request: Request) {
   const session = await requireSession();
   if (!session) {
@@ -98,6 +102,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Missing or invalid merchantBrand." }, { status: 400 });
   }
 
+  const productForm = parseSectionForm(body.productSettings);
+
   const { data: product, error: productErr } = await supabase
     .from("vlad_recordings")
     .select("id, user_id, type, name, product_name, mouse_events_url, webcam_url, metadata")
@@ -114,9 +120,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Recording is not a product." }, { status: 400 });
   }
 
-  // Fetch mouse events for keyframes + cache hash. Same source the produce
-  // route reads, so the cache key matches if a /api/produce render of the same
-  // (product, brand) tuple already happened.
   let mouseBuffer: Buffer;
   try {
     mouseBuffer = await downloadBufferFromR2(product.mouse_events_url);
@@ -144,19 +147,40 @@ export async function POST(request: Request) {
   const settleHint = keyframes.length > 0 ? { x: keyframes[0].x, y: keyframes[0].y } : undefined;
 
   const productMeta = (product.metadata ?? {}) as Record<string, unknown>;
-  const webcamSettings = extractWebcamSettings(productMeta);
+  const productSelfWebcam = extractWebcamFromMetadata(productMeta);
+  // 'other' is undefined here — single-section flow falls back to self.
+  const resolvedWebcam = resolveSectionWebcam(productForm, productSelfWebcam);
+
   const trimStartSec = typeof productMeta.trimStartSec === "number" ? productMeta.trimStartSec : undefined;
   const trimEndSec = typeof productMeta.trimEndSec === "number" ? productMeta.trimEndSec : undefined;
 
-  // The iframe brand target rejects URLs with http(s):// — strip before passing.
+  const webcamR2Key: string | null = product.webcam_url ?? null;
+
+  // Final-render flow (product-only export): enable throb on audio mode.
+  const spec: RenderSpec = {
+    webcam: resolvedWebcam,
+    throb: resolvedWebcam.mode === "audio" && webcamR2Key
+      ? {
+          enabled: true,
+          amplitudeKey: amplitudeKeyForWebcam(webcamR2Key),
+          minScale: DEFAULT_THROB_MIN,
+          maxScale: DEFAULT_THROB_MAX,
+        }
+      : undefined,
+    trim:
+      trimStartSec || trimEndSec
+        ? { startSec: trimStartSec ?? 0, endSec: trimEndSec ?? 0 }
+        : undefined,
+  };
+
   const cleanedBrandUrl = merchant.websiteUrl.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
   const renderUrl = `${TARGET_URL}?product=${encodeURIComponent(product.product_name ?? "")}&brand=${encodeURIComponent(cleanedBrandUrl)}`;
 
   const userId = session.email;
   const urlHash = hashUrl(renderUrl);
   const mouseHash = hashBuffer(mouseBuffer);
-  const wcFP = webcamFingerprint(webcamSettings);
-  const tKey = trimKey(trimStartSec, trimEndSec);
+  const specHash = hashSpec(spec);
+  const tKey = trimKeyOf(spec);
 
   const merchantNameSlug = slugifyPart(merchant.brandName);
   if (!merchantNameSlug) {
@@ -169,7 +193,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Product recording has no product_name (SKU)." }, { status: 400 });
   }
 
-  // brand label (per-user dedup): `{merchant-name}-{product-rec-name}-{count}`
   const brandBase = joinNameParts([merchantNameSlug, product.name]);
   const brand = await reserveUniqueName({
     table: "vlad_renders",
@@ -178,7 +201,6 @@ export async function POST(request: Request) {
     base: brandBase,
   });
 
-  // slug (global dedup): `{merchant-name}-{product-name}-{count}`
   const slugBase = joinNameParts([merchantNameSlug, product.product_name]);
   const slug = await reserveUniqueName({
     table: "vlad_renders",
@@ -186,9 +208,7 @@ export async function POST(request: Request) {
     base: slugBase,
   });
 
-  // Cache lookup — if we've already rendered this exact (product, brand, webcam, trim)
-  // we can skip the render entirely and just create a vlad_renders row pointing at it.
-  const cached = await findCachedRender(userId, productRecordingId, urlHash, mouseHash, wcFP, tKey, "full");
+  const cached = await findCachedRender(userId, productRecordingId, urlHash, mouseHash, specHash, tKey, "full");
   if (cached.trimmedR2Key) {
     const { data: renderRow, error: rErr } = await supabase
       .from("vlad_renders")
@@ -214,12 +234,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ cached: true, renderId: renderRow?.id, videoR2Key: cached.trimmedR2Key, slug });
   }
 
-  const newJobId = randomUUID().slice(0, 8);
+  const newJobId = shortJobId();
   const dirName = `${userId}_product-only_${productRecordingId}_${urlHash}`;
 
-  // Stub the vlad_renders row at job-enqueue time so the UI can resume polling
-  // on reload. The worker UPDATEs this row on completion (status='done',
-  // video_url, share assets); worker.on('failed') marks status='error'.
   const { data: stub, error: stubErr } = await supabase
     .from("vlad_renders")
     .insert({
@@ -261,23 +278,19 @@ export async function POST(request: Request) {
       durationMs,
       keyframes,
       settleHint,
-      webcamSettings,
-      webcamR2Key: product.webcam_url,
-      trimStartSec,
-      trimEndSec,
+      spec,
+      webcamR2Key,
       startFromStep: cached.startFromStep,
       existingRenderR2Key: cached.renderR2Key,
       existingRenderDurationMs: cached.renderDurationMs,
       existingCompositeR2Key: cached.compositeR2Key,
       urlHash,
       mouseHash,
-      wcFingerprint: wcFP,
+      specHash,
       trimKeyStr: tKey,
       preview: false,
       flowId: null,
-      mergeRenderInsert: {
-        renderId,
-      },
+      mergeRenderInsert: { renderId },
     } satisfies ProduceJobPayload,
     {
       jobId: newJobId,

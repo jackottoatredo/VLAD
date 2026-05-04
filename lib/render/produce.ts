@@ -2,14 +2,12 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import path from "node:path";
-import { renderUrlToMp4, resolvedFfmpegPath } from "@/lib/render/render";
+import { renderUrlToMp4 } from "@/lib/render/render";
+import { FFMPEG_BIN } from "@/lib/render/ffmpeg-bin";
 import { compositeSessionVideo } from "@/lib/compose/compose";
 import { type RenderAction } from "@/lib/render/actions";
-import { type WebcamSettings } from "@/types/webcam";
+import type { RenderSpec } from "@/lib/render/spec";
 import { uploadToR2 } from "@/lib/storage/r2";
-import { VIRTUAL_PREVIEW_SCALE_FACTOR, PREVIEW_DOWNSCALE_FACTOR } from "@/app/config";
-
-const FFMPEG_BIN = resolvedFfmpegPath ?? "ffmpeg";
 
 export type ProduceOptions = {
   userId: string;
@@ -26,24 +24,25 @@ export type ProduceOptions = {
   onRenderProgress?: (rendered: number, total: number) => void;
   onRenderComplete?: () => void;
   onComposeProgress?: (step: number, total: number) => void;
-  webcamSettings?: WebcamSettings;
-  trimStartSec?: number;
-  trimEndSec?: number;
+  /** Resolved render spec — drives the DOM overlay (webcam, throb, morph) and trim. */
+  spec: RenderSpec;
   settleHint?: { x: number; y: number };
 
-  // Webcam file — absolute temp path (downloaded from R2 by caller). Null if no webcam.
+  /** Webcam file — absolute temp path (downloaded from R2 by caller). Null if no webcam. */
   webcamPath?: string | null;
+
+  /** Pre-baked amplitude samples for throb. Null when no audio. */
+  amplitudeSamples?: number[] | null;
 
   // Warm-start: skip expensive stages by providing cached R2 keys
   startFromStep?: 1 | 2 | 3;
   existingRenderR2Key?: string;
-  existingRenderOutputPath?: string;   // local temp path — required if startFromStep >= 2
+  existingRenderOutputPath?: string;
   existingRenderDurationMs?: number;
   existingCompositeR2Key?: string;
-  existingCompositeOutputPath?: string; // local temp path — required if startFromStep >= 3
+  existingCompositeOutputPath?: string;
 
-  // Quality tier — preview reduces render DPR, applies ffmpeg downscale, and shrinks
-  // the webcam overlay proportionally so it still fits the smaller screen video.
+  // Quality tier — preview reduces render DPR + ffmpeg downscale.
   preview?: boolean;
 };
 
@@ -72,13 +71,8 @@ async function trimVideoFile(
   const trimmedPath = path.join(path.dirname(composedPath), trimmedName);
   const r2Key = `trims/${userId}/${sessionName}/${trimmedName}`;
 
-  // Frame-accurate trim via re-encode. The previous implementation used
-  // `-c copy` with fast-seek (`-ss` before `-i`), which keyframe-aligns the
-  // cut: video starts at the nearest keyframe ≤ trimStart while audio seeks
-  // precisely. For short trims inside the first GOP the video didn't move at
-  // all; for longer trims video and audio landed on different offsets,
-  // desyncing the webcam overlay from its audio. Re-encoding costs one more
-  // pass but gives an exact cut with video and audio aligned.
+  // Frame-accurate trim via re-encode (see prior commit history for why
+  // -c copy with fast-seek desyncs the webcam audio).
   const args: string[] = [];
   if (startSec > 0) args.push("-ss", String(startSec));
   args.push("-i", composedPath);
@@ -107,7 +101,6 @@ async function trimVideoFile(
     proc.on("error", reject);
   });
 
-  // Upload trimmed video to R2
   const buffer = await readFile(trimmedPath);
   await uploadToR2(r2Key, buffer, "video/mp4");
 
@@ -117,7 +110,7 @@ async function trimVideoFile(
 export async function produceSessionVideo(options: ProduceOptions): Promise<ProduceResult> {
   const step = options.startFromStep ?? 1;
 
-  // ---- Step 1: Playwright render ----
+  // ---- Step 1: Playwright render+composite (webcam overlay baked in) ----
   let renderR2Key: string;
   let renderOutputPath: string;
   let renderDurationMs: number;
@@ -138,8 +131,11 @@ export async function produceSessionVideo(options: ProduceOptions): Promise<Prod
       onProgress: options.onRenderProgress,
       settleHint: options.settleHint,
       preview: options.preview,
+      spec: options.spec,
+      webcamPath: options.webcamPath,
+      amplitudeSamples: options.amplitudeSamples,
     });
-    renderR2Key = renderResult.videoUrl; // now an R2 key
+    renderR2Key = renderResult.videoUrl;
     renderOutputPath = renderResult.outputPath;
     renderDurationMs = renderResult.totalDurationMs;
     options.onRenderComplete?.();
@@ -149,26 +145,18 @@ export async function produceSessionVideo(options: ProduceOptions): Promise<Prod
     renderDurationMs = options.existingRenderDurationMs!;
   }
 
-  // ---- Step 2: Webcam composite ----
+  // ---- Step 2: Audio mux (formerly the heavyweight composite step) ----
   let compositeR2Key: string;
   let compositeOutputPath: string;
 
   if (step <= 2) {
-    // In preview mode the screen video is ~1/4 × 1/4 of virtual pixels; shrink the
-    // webcam badge by the same factor so it sits correctly and doesn't clip.
-    const overlayScaleFactor = options.preview
-      ? VIRTUAL_PREVIEW_SCALE_FACTOR / PREVIEW_DOWNSCALE_FACTOR
-      : 1;
-
     const composeResult = await compositeSessionVideo({
       userId: options.userId,
       sessionName: options.sessionName,
       screenVideoPath: renderOutputPath,
       durationMs: renderDurationMs,
       onProgress: options.onComposeProgress ?? (() => {}),
-      webcamSettings: options.webcamSettings,
       webcamPath: options.webcamPath,
-      overlayScaleFactor,
     });
     compositeR2Key = composeResult.r2Key;
     compositeOutputPath = composeResult.outputPath;
@@ -178,9 +166,13 @@ export async function produceSessionVideo(options: ProduceOptions): Promise<Prod
   }
 
   // ---- Step 3: Trim ----
+  const trim = options.spec.trim;
   const trimResult = await trimVideoFile(
-    compositeOutputPath, options.userId, options.sessionName,
-    options.trimStartSec, options.trimEndSec,
+    compositeOutputPath,
+    options.userId,
+    options.sessionName,
+    trim?.startSec,
+    trim?.endSec,
   );
 
   const finalR2Key = trimResult?.trimmedR2Key ?? compositeR2Key;

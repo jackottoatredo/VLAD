@@ -230,11 +230,26 @@ export default function MergeExportPage() {
     setRenders((prev) => [optimistic, ...prev])
   }
 
-  async function runTask(merchantRecordingId: string, productRecordingId: string) {
-    const brand = `${merchantLabel(merchantRecordingId)}-${productLabel(productRecordingId)}`
+  async function runTask(state: MergeFormState, merchantRecordingId: string | null, productRecordingId: string | null) {
+    const merchantLabelText = merchantRecordingId ? merchantLabel(merchantRecordingId) : null
+    const productLabelText = productRecordingId ? productLabel(productRecordingId) : null
+    const brand = [merchantLabelText, productLabelText].filter(Boolean).join('-') || 'Render'
+    const introSettings = sectionSettingsForApi(state.intro)
+    const productSettings = sectionSettingsForApi(state.product)
+    const body = {
+      merchantRecordingId: merchantRecordingId ?? undefined,
+      productRecordingId: productRecordingId ?? undefined,
+      introEnabled: !!merchantRecordingId,
+      productEnabled: !!productRecordingId,
+      introSettings,
+      productSettings,
+      transition: state.transition.enabled
+        ? { audio: state.transition.audio, video: state.transition.video, overlay: state.transition.overlay }
+        : { audio: 'none', video: 'none', overlay: 'none' },
+    }
     try {
-      const { jobId, renderId } = await startMergeJob(merchantRecordingId, productRecordingId, brand)
-      insertOptimistic(renderId, jobId, brand, '/api/merge-export', { merchantRecordingId, productRecordingId, brand })
+      const { jobId, renderId } = await startMergeJob(body)
+      insertOptimistic(renderId, jobId, brand, '/api/merge-export', body)
     } catch {
       // The user has no row to retry — surface an inline error via a transient
       // failed entry would require a fake id. Rely on the modal-level UX.
@@ -242,23 +257,37 @@ export default function MergeExportPage() {
   }
 
   async function runProductOnlyTask(
+    state: MergeFormState,
     productRecordingId: string,
     merchantBrand: { websiteUrl: string; brandName: string },
   ) {
     const merchantLabelText = merchantBrand.brandName || merchantBrand.websiteUrl
     const productLabelText = productLabel(productRecordingId)
     const brand = `${merchantLabelText}-${productLabelText}`
+    const productSettings = sectionSettingsForApi(state.product)
+    const body = { productRecordingId, merchantBrand, productSettings }
     try {
-      const result = await startProductOnlyJob(productRecordingId, merchantBrand)
+      const result = await startProductOnlyJob(body)
       if ('cached' in result && result.cached) {
         // Cache hit — server inserted a 'done' row directly. Refresh.
         fetchRenders()
         return
       }
       const { jobId, renderId } = result
-      insertOptimistic(renderId, jobId, brand, '/api/product-only-export', { productRecordingId, merchantBrand })
+      insertOptimistic(renderId, jobId, brand, '/api/product-only-export', body)
     } catch {
       /* see runTask comment */
+    }
+  }
+
+  // Strip recording-id fields and shape the section settings so they can be
+  // safely round-tripped through the retry path.
+  function sectionSettingsForApi(section: MergeFormState['intro'] | MergeFormState['product']) {
+    return {
+      modeSource: section.modeSource,
+      customMode: section.customMode,
+      positionSource: section.positionSource,
+      customPosition: section.customPosition,
     }
   }
 
@@ -292,24 +321,36 @@ export default function MergeExportPage() {
   }
 
   function handleGenerate(state: MergeFormState) {
-    if (state.preset === 'p1' && state.intro.enabled && state.product.enabled) {
+    // p1 (intro+product) and the custom flow with both sections enabled share
+    // the same merge-export dispatch path. p2 (product-only) and custom with
+    // intro disabled fan out via product-only-export. Custom with only intro
+    // enabled hits merge-export with productEnabled=false (intro-only flow).
+    const wantsBoth = state.intro.enabled && state.product.enabled
+    const introOnly = state.intro.enabled && !state.product.enabled
+    const productOnlyFlow =
+      !state.intro.enabled && state.product.enabled
+
+    if (wantsBoth) {
       const prodId = state.product.productRecordingId
       for (const merchantId of state.intro.merchantRecordingIds) {
-        runTask(merchantId, prodId)
+        runTask(state, merchantId, prodId)
       }
-    } else if (state.preset === 'p2' && state.product.enabled) {
+    } else if (introOnly) {
+      // Intro-only: one merge-export per selected merchant intro, no product.
+      for (const merchantId of state.intro.merchantRecordingIds) {
+        runTask(state, merchantId, null)
+      }
+    } else if (productOnlyFlow) {
       const prodId = state.product.productRecordingId
       // Only dispatch DB-matched merchants whose scrape is complete. Pending /
       // incomplete scrapes and free-text URL chips need a finished scrape
-      // first, so they're held back and surfaced via the chip's tooltip
-      // action. The modal's button count mirrors this filter.
+      // first, so they're held back and surfaced via the chip's tooltip action.
       for (const chip of state.product.brandMerchants) {
         if (chip.kind === 'merchant' && chip.status === 'complete') {
-          runProductOnlyTask(prodId, { websiteUrl: chip.websiteUrl, brandName: chip.brandName })
+          runProductOnlyTask(state, prodId, { websiteUrl: chip.websiteUrl, brandName: chip.brandName })
         }
       }
     }
-    // Custom preset is banner-blocked at the modal level; nothing to do here.
     setShowGenerateModal(false)
   }
 

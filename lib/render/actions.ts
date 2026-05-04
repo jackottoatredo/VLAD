@@ -31,6 +31,51 @@ function clampCoordinate(value: number, max: number): number {
 }
 
 /**
+ * Smooth ease-in-out curve over [0,1]. Used for the cross-section mouse
+ * handoff so the cursor doesn't snap into place at the section seam.
+ */
+function easeInOut(t: number): number {
+  return t * t * (3 - 2 * t);
+}
+
+/**
+ * Glide the cursor from `(fromX, fromY)` to `(toX, toY)` over `durationMs`
+ * with an eased curve. Captures every frame — produces visible output.
+ *
+ * Used as the first action of a section in a merge, after the previous
+ * section's last cursor position has been computed and threaded through
+ * via spec.mouseHandoff.
+ */
+export function createMouseHandoffAction(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  durationMs: number,
+): RenderAction {
+  return {
+    name: "mouse-handoff",
+    durationMs,
+    async run(context): Promise<CursorPosition> {
+      const totalFrames = Math.max(1, Math.round((durationMs / 1000) * context.fps));
+
+      let last: CursorPosition = {
+        x: clampCoordinate(Math.round(from.x), context.width),
+        y: clampCoordinate(Math.round(from.y), context.height),
+      };
+
+      for (let i = 0; i < totalFrames; i++) {
+        const t = (i + 1) / totalFrames;
+        const eased = easeInOut(t);
+        const x = clampCoordinate(Math.round(from.x + (to.x - from.x) * eased), context.width);
+        const y = clampCoordinate(Math.round(from.y + (to.y - from.y) * eased), context.height);
+        await context.moveAndCapture(x, y);
+        last = { x, y };
+      }
+      return last;
+    },
+  };
+}
+
+/**
  * Creates a replay action from keyframes.
  *
  * When `trimStartMs` is provided, Playwright replays ALL events from the

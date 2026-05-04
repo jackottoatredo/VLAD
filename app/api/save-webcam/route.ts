@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/apiAuth";
 import { uploadToR2 } from "@/lib/storage/r2";
+import { bakeAmplitudeForWebcam } from "@/lib/audio/amplitude";
 
 export const runtime = "nodejs";
 
@@ -34,6 +35,12 @@ export async function POST(request: Request) {
   const r2Key = `sessions/${session.email}/${flowId}/webcam.webm`;
 
   await uploadToR2(r2Key, buffer, "video/webm");
+
+  // Pre-bake the amplitude track so the renderer's audio-mode throb is free at
+  // render time. Best-effort — failures shouldn't block the upload response.
+  void bakeAmplitudeForWebcam(r2Key).catch((err) => {
+    console.error(`[save-webcam] amplitude bake failed for ${r2Key}:`, err);
+  });
 
   return NextResponse.json({ ok: true, r2Key });
 }

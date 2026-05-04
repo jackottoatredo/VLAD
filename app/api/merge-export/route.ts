@@ -1,33 +1,125 @@
 import { NextResponse } from "next/server";
-import { randomUUID } from "node:crypto";
 import { supabase } from "@/lib/db/supabase";
+import { shortJobId } from "@/lib/queue/jobId";
 import { requireSession } from "@/lib/apiAuth";
 import { downloadRecording } from "@/lib/render/download";
 import { eventsToKeyframes } from "@/lib/render/keyframes";
 import { jobsQueue } from "@/lib/queue/connection";
-import { DEFAULT_MERGE_JOB_SETTINGS, type MergeJobPayload, type MergeRecordingPayload } from "@/lib/queue/payloads";
+import type { MergeJobPayload, MergeRecordingPayload } from "@/lib/queue/payloads";
 import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { TARGET_URL, MERCHANT_TARGET_URL } from "@/app/config";
-import { type WebcamSettings, DEFAULT_WEBCAM_SETTINGS } from "@/types/webcam";
 import { joinNameParts, slugifyPart, deriveMerchantNameFromUrl } from "@/lib/naming";
 import { reserveUniqueName } from "@/lib/db/reserveName";
+import {
+  type RenderSpec,
+  type Webcam,
+  type SectionFormSettings,
+  type MergeRenderSpec,
+  type Transitions,
+  DEFAULT_TRANSITIONS,
+  DEFAULT_THROB_MIN,
+  DEFAULT_THROB_MAX,
+  DEFAULT_MORPH_DURATION_MS,
+  DEFAULT_MOUSE_HANDOFF_MS,
+  extractWebcamFromMetadata,
+  resolveMergeWebcams,
+  webcamEquals,
+} from "@/lib/render/spec";
+import { computeLastMousePos } from "@/lib/render/mouse-handoff";
+import { amplitudeKeyForWebcam } from "@/lib/audio/amplitude";
 
 export const runtime = "nodejs";
 
 type RequestBody = {
   merchantRecordingId?: unknown;
   productRecordingId?: unknown;
+  /** Full modal state — when present, drives custom settings end-to-end. */
+  introSettings?: unknown;
+  productSettings?: unknown;
+  transition?: unknown;
+  /** When false, skip the intro section (intro-only / product-only flows live here). */
+  introEnabled?: unknown;
+  productEnabled?: unknown;
 };
 
-/**
- * Enqueue a merge (intro + product) render. Naming follows AGENTS.md spec:
- *   brand label = `{intro-name}-{product-rec-name}-{count}`     (per-user dedup)
- *   slug        = `{merchant-name}-{product-name}-{count}`      (global dedup)
- * Both reserved at enqueue time so the dashboard can show the share URL
- * immediately. Worker only fills in video_url + share assets on completion.
- */
+function parseSectionForm(v: unknown): SectionFormSettings | null {
+  if (!v || typeof v !== "object") return null;
+  const o = v as Record<string, unknown>;
+  const isSource = (s: unknown): s is SectionFormSettings["modeSource"] =>
+    s === "self" || s === "other" || s === "custom";
+  const isMode = (m: unknown): m is Webcam["mode"] => m === "video" || m === "audio" || m === "off";
+  const isVert = (v: unknown): v is "top" | "bottom" => v === "top" || v === "bottom";
+  const isHorz = (h: unknown): h is "left" | "right" => h === "left" || h === "right";
+
+  if (!isSource(o.modeSource) || !isSource(o.positionSource)) return null;
+  if (!isMode(o.customMode)) return null;
+  const cp = o.customPosition as Record<string, unknown> | undefined;
+  if (!cp || !isVert(cp.vertical) || !isHorz(cp.horizontal)) return null;
+
+  return {
+    modeSource: o.modeSource,
+    customMode: o.customMode,
+    positionSource: o.positionSource,
+    customPosition: { vertical: cp.vertical, horizontal: cp.horizontal },
+  };
+}
+
+function parseTransitions(v: unknown): Transitions {
+  if (!v || typeof v !== "object") return DEFAULT_TRANSITIONS;
+  const o = v as Record<string, unknown>;
+  // v1: schema-only — accept the values but worker honors only 'none'.
+  return {
+    audio: o.audio === "crossfade" ? "crossfade" : "none",
+    video: o.video === "crossfade" ? "crossfade" : "none",
+    overlay: o.overlay === "animated" ? "animated" : "none",
+  };
+}
+
+function buildSectionSpec(args: {
+  webcam: Webcam;
+  webcamR2Key: string | null;
+  trimStartSec: number | undefined;
+  trimEndSec: number | undefined;
+  morphFrom?: Webcam;
+  mouseHandoffFrom?: { x: number; y: number };
+}): RenderSpec {
+  const { webcam, webcamR2Key, trimStartSec, trimEndSec, morphFrom, mouseHandoffFrom } = args;
+  return {
+    webcam,
+    morph:
+      morphFrom && !webcamEquals(morphFrom, webcam)
+        ? {
+            fromMode: morphFrom.mode,
+            fromPosition: morphFrom.position,
+            durationMs: DEFAULT_MORPH_DURATION_MS,
+          }
+        : undefined,
+    throb:
+      webcam.mode === "audio" && webcamR2Key
+        ? {
+            enabled: true,
+            amplitudeKey: amplitudeKeyForWebcam(webcamR2Key),
+            minScale: DEFAULT_THROB_MIN,
+            maxScale: DEFAULT_THROB_MAX,
+          }
+        : undefined,
+    mouseHandoff: mouseHandoffFrom
+      ? {
+          fromX: mouseHandoffFrom.x,
+          fromY: mouseHandoffFrom.y,
+          durationMs: DEFAULT_MOUSE_HANDOFF_MS,
+          easing: "easeInOut",
+        }
+      : undefined,
+    trim:
+      trimStartSec || trimEndSec
+        ? { startSec: trimStartSec ?? 0, endSec: trimEndSec ?? 0 }
+        : undefined,
+  };
+}
+
 export async function POST(request: Request) {
   const session = await requireSession();
   if (!session) {
@@ -41,119 +133,149 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid JSON." }, { status: 400 });
   }
 
-  if (typeof body.merchantRecordingId !== "string" || typeof body.productRecordingId !== "string") {
-    return NextResponse.json({ error: "Missing merchantRecordingId or productRecordingId." }, { status: 400 });
+  const introEnabled = body.introEnabled !== false; // default true
+  const productEnabled = body.productEnabled !== false; // default true
+
+  if (!introEnabled && !productEnabled) {
+    return NextResponse.json({ error: "At least one section must be enabled." }, { status: 400 });
   }
 
-  const merchantRecordingId = body.merchantRecordingId;
-  const productRecordingId = body.productRecordingId;
+  const introForm = parseSectionForm(body.introSettings);
+  const productForm = parseSectionForm(body.productSettings);
+  const transition = parseTransitions(body.transition);
 
-  // Fetch both recordings from DB
+  if (
+    introEnabled &&
+    (typeof body.merchantRecordingId !== "string" || !body.merchantRecordingId)
+  ) {
+    return NextResponse.json({ error: "Missing merchantRecordingId." }, { status: 400 });
+  }
+  if (
+    productEnabled &&
+    (typeof body.productRecordingId !== "string" || !body.productRecordingId)
+  ) {
+    return NextResponse.json({ error: "Missing productRecordingId." }, { status: 400 });
+  }
+
+  const merchantRecordingId = introEnabled ? (body.merchantRecordingId as string) : null;
+  const productRecordingId = productEnabled ? (body.productRecordingId as string) : null;
+
+  // Fetch enabled recordings.
   const [merchantRes, productRes] = await Promise.all([
-    supabase.from("vlad_recordings").select("*").eq("id", merchantRecordingId).single(),
-    supabase.from("vlad_recordings").select("*").eq("id", productRecordingId).single(),
+    merchantRecordingId
+      ? supabase.from("vlad_recordings").select("*").eq("id", merchantRecordingId).single()
+      : Promise.resolve({ data: null, error: null } as const),
+    productRecordingId
+      ? supabase.from("vlad_recordings").select("*").eq("id", productRecordingId).single()
+      : Promise.resolve({ data: null, error: null } as const),
   ]);
 
-  if (merchantRes.error || !merchantRes.data) {
+  if (introEnabled && (merchantRes.error || !merchantRes.data)) {
     return NextResponse.json({ error: "Merchant recording not found." }, { status: 404 });
   }
-  if (productRes.error || !productRes.data) {
+  if (productEnabled && (productRes.error || !productRes.data)) {
     return NextResponse.json({ error: "Product recording not found." }, { status: 404 });
   }
 
-  const merchant = merchantRes.data as {
-    id: string; name: string; merchant_id: string | null; merchant_name: string | null;
-    mouse_events_url: string; webcam_url: string | null; metadata: Record<string, unknown>;
-  };
+  const merchant = merchantRes.data as
+    | {
+        id: string; name: string; merchant_id: string | null; merchant_name: string | null;
+        mouse_events_url: string; webcam_url: string | null; metadata: Record<string, unknown>;
+      }
+    | null;
+  const product = productRes.data as
+    | {
+        id: string; name: string; product_name: string | null; mouse_events_url: string;
+        webcam_url: string | null; metadata: Record<string, unknown>;
+      }
+    | null;
 
-  // Resolve the merchant brand URL + display name. previews.data.brandName is
-  // the human-readable form ("And Collar"); the URL host is the slug-y form
-  // ("and-collar.com"). Old recordings stored merchantUrl in their own metadata
-  // but never the brand name, so we always hit previews when merchant_id is set.
-  const merchantMeta = (merchant.metadata ?? {}) as Record<string, unknown>;
-  let merchantBrandUrl = typeof merchantMeta.merchantUrl === "string" ? merchantMeta.merchantUrl : "";
+  // Resolve merchant brand metadata (URL + name) — needed for naming and the
+  // merchant-render's URL parameter, plus product URL when both sections exist.
+  let merchantBrandUrl = "";
   let merchantBrandName: string | null = null;
   let previewsWebsiteUrl = "";
-
-  if (merchant.merchant_id) {
-    const { data: previewRow } = await supabase
-      .from("previews")
-      .select("website_url, data")
-      .eq("id", merchant.merchant_id)
-      .maybeSingle();
-    const pRow = previewRow as { website_url?: string; data?: { brandName?: string } | null } | null;
-    if (typeof pRow?.data?.brandName === "string" && pRow.data.brandName) {
-      merchantBrandName = pRow.data.brandName;
+  if (merchant) {
+    const merchantMeta = (merchant.metadata ?? {}) as Record<string, unknown>;
+    if (typeof merchantMeta.merchantUrl === "string") {
+      merchantBrandUrl = merchantMeta.merchantUrl;
     }
-    if (typeof pRow?.website_url === "string") {
-      previewsWebsiteUrl = pRow.website_url;
-    }
-    if (!merchantBrandUrl) {
-      // The iframe brand target rejects URLs with http(s):// — strip before using.
-      merchantBrandUrl = previewsWebsiteUrl.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+    if (merchant.merchant_id) {
+      const { data: previewRow } = await supabase
+        .from("previews")
+        .select("website_url, data")
+        .eq("id", merchant.merchant_id)
+        .maybeSingle();
+      const pRow = previewRow as { website_url?: string; data?: { brandName?: string } | null } | null;
+      if (typeof pRow?.data?.brandName === "string" && pRow.data.brandName) {
+        merchantBrandName = pRow.data.brandName;
+      }
+      if (typeof pRow?.website_url === "string") {
+        previewsWebsiteUrl = pRow.website_url;
+      }
+      if (!merchantBrandUrl) {
+        merchantBrandUrl = previewsWebsiteUrl.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+      }
     }
   }
 
-  // Canonical merchant-name slug. Prefer the persisted column (set by
-  // save-recording on new rows), fall back to live previews lookup, then to
-  // the cleaned URL. No fallback to merchant_id (no internal IDs in slugs).
-  const merchantNameSlug =
-    slugifyPart(merchant.merchant_name) ||
-    slugifyPart(merchantBrandName) ||
-    deriveMerchantNameFromUrl(previewsWebsiteUrl || merchantBrandUrl);
-  if (!merchantNameSlug) {
+  const merchantNameSlug = merchant
+    ? slugifyPart(merchant.merchant_name) ||
+      slugifyPart(merchantBrandName) ||
+      deriveMerchantNameFromUrl(previewsWebsiteUrl || merchantBrandUrl)
+    : null;
+  if (introEnabled && !merchantNameSlug) {
     return NextResponse.json({ error: "Cannot derive merchant-name for slug." }, { status: 400 });
   }
 
-  const product = productRes.data as {
-    id: string; name: string; product_name: string | null; mouse_events_url: string;
-    webcam_url: string | null; metadata: Record<string, unknown>;
-  };
-  if (!product.product_name) {
+  if (product && !product.product_name) {
     return NextResponse.json({ error: "Product recording has no product_name (SKU)." }, { status: 400 });
-  }
-  if (!product.name || !merchant.name) {
-    return NextResponse.json({ error: "Source recordings must have names." }, { status: 400 });
   }
 
   const userId = session.email;
-  const jobId = randomUUID().slice(0, 8);
+  const jobId = shortJobId();
   const outputSessionName = `merge_${jobId}`;
 
-  // brand label (per-user dedup): `{intro-name}-{product-rec-name}-{count}`
-  const brandBase = joinNameParts([merchant.name, product.name]);
+  // Naming: brand label + slug.
+  let brandBase: string;
+  let slugBase: string;
+  if (merchant && product) {
+    brandBase = joinNameParts([merchant.name, product.name]);
+    slugBase = joinNameParts([merchantNameSlug!, product.product_name!]);
+  } else if (merchant) {
+    brandBase = merchant.name;
+    slugBase = merchantNameSlug!;
+  } else if (product) {
+    brandBase = product.name;
+    slugBase = product.product_name!;
+  } else {
+    return NextResponse.json({ error: "Neither section has a recording." }, { status: 400 });
+  }
+
   const brand = await reserveUniqueName({
     table: "vlad_renders",
     column: "brand",
     userId,
     base: brandBase,
   });
-
-  // slug (global dedup): `{merchant-name}-{product-name}-{count}`
-  const slugBase = joinNameParts([merchantNameSlug, product.product_name]);
   const slug = await reserveUniqueName({
     table: "vlad_renders",
     column: "slug",
     base: slugBase,
   });
 
-  // Stub the vlad_renders row at job-enqueue time. The UI hydrates this on
-  // mount so an in-progress render survives page reloads — without the stub,
-  // refresh wipes the only client-side reference to the job. The worker
-  // UPDATEs this same row when the job completes (status='done', video_url,
-  // share assets). On failure, worker.on('failed') marks status='error'.
   const { data: stub, error: stubErr } = await supabase
     .from("vlad_renders")
     .insert({
       user_id: userId,
       job_id: jobId,
       job_request: { endpoint: "/api/merge-export", body },
-      merchant_recording_id: merchant.id,
-      product_recording_id: product.id,
+      merchant_recording_id: merchant?.id ?? null,
+      product_recording_id: product?.id ?? null,
       brand,
       brand_name: merchantBrandName,
       brand_url: merchantBrandUrl || null,
-      product_name: product.product_name,
+      product_name: product?.product_name ?? null,
       slug,
       status: "rendering",
       progress: 0,
@@ -166,64 +288,131 @@ export async function POST(request: Request) {
   }
   const renderId = stub.id as string;
 
-  // Download recordings from R2 to compute keyframes for the payload
+  // Download mouse events to compute keyframes.
   const workDir = path.join(tmpdir(), `vlad-merge-prep-${jobId}`);
   const merchantPrepDir = path.join(workDir, "merchant");
   const productPrepDir = path.join(workDir, "product");
-  await mkdir(merchantPrepDir, { recursive: true });
-  await mkdir(productPrepDir, { recursive: true });
+  if (merchant) await mkdir(merchantPrepDir, { recursive: true });
+  if (product) await mkdir(productPrepDir, { recursive: true });
 
   try {
     const [merchantRec, productRec] = await Promise.all([
-      downloadRecording(merchant.mouse_events_url, null, merchantPrepDir),
-      downloadRecording(product.mouse_events_url, null, productPrepDir),
+      merchant
+        ? downloadRecording(merchant.mouse_events_url, null, merchantPrepDir)
+        : Promise.resolve(null),
+      product
+        ? downloadRecording(product.mouse_events_url, null, productPrepDir)
+        : Promise.resolve(null),
     ]);
 
-    // Prepare merchant payload
-    const merchantKeyframes = eventsToKeyframes(merchantRec.mouseData.events as Parameters<typeof eventsToKeyframes>[0]);
-    const merchantDuration = merchantKeyframes.length > 0 ? merchantKeyframes[merchantKeyframes.length - 1].t : 1000;
-    const merchantUrl = merchantBrandUrl
-      ? `${MERCHANT_TARGET_URL}?brand=${encodeURIComponent(merchantBrandUrl)}`
-      : MERCHANT_TARGET_URL;
-    const merchantSessionName = `merge_${jobId}_merchant`;
-    const merchantWebcam = extractWebcamSettings(merchantMeta);
+    // Resolve webcams using the form state with sibling cross-references.
+    const introSelfWebcam = merchant ? extractWebcamFromMetadata(merchant.metadata) : undefined;
+    const productSelfWebcam = product ? extractWebcamFromMetadata(product.metadata) : undefined;
+    const { intro: introWebcam, product: productWebcam } = resolveMergeWebcams(
+      merchant && introSelfWebcam ? { form: introForm, selfWebcam: introSelfWebcam } : null,
+      product && productSelfWebcam ? { form: productForm, selfWebcam: productSelfWebcam } : null,
+    );
 
-    // Prepare product payload
-    const productMeta = (product.metadata ?? {}) as Record<string, unknown>;
-    const productKeyframes = eventsToKeyframes(productRec.mouseData.events as Parameters<typeof eventsToKeyframes>[0]);
-    const productDuration = productKeyframes.length > 0 ? productKeyframes[productKeyframes.length - 1].t : 1000;
-    const productUrl = `${TARGET_URL}?product=${encodeURIComponent(product.product_name ?? "")}&brand=${encodeURIComponent(merchantBrandUrl)}`;
-    const productSessionName = `merge_${jobId}_product`;
-    const productWebcam = extractWebcamSettings(productMeta);
+    // Merchant payload.
+    let merchantPayload: MergeRecordingPayload | null = null;
+    if (merchant && merchantRec && introWebcam) {
+      const merchantMeta = (merchant.metadata ?? {}) as Record<string, unknown>;
+      const merchantKeyframes = eventsToKeyframes(
+        merchantRec.mouseData.events as Parameters<typeof eventsToKeyframes>[0],
+      );
+      const merchantDuration = merchantKeyframes.length > 0
+        ? merchantKeyframes[merchantKeyframes.length - 1].t
+        : 1000;
+      const merchantUrl = merchantBrandUrl
+        ? `${MERCHANT_TARGET_URL}?brand=${encodeURIComponent(merchantBrandUrl)}`
+        : MERCHANT_TARGET_URL;
+      const merchantTrimStart = typeof merchantMeta.trimStartSec === "number" ? merchantMeta.trimStartSec : undefined;
+      const merchantTrimEnd = typeof merchantMeta.trimEndSec === "number" ? merchantMeta.trimEndSec : undefined;
 
-    const merchantPayload: MergeRecordingPayload = {
-      url: merchantUrl,
-      sessionName: merchantSessionName,
-      width: merchantRec.mouseData.virtualWidth,
-      height: merchantRec.mouseData.virtualHeight,
-      keyframes: merchantKeyframes,
-      settleHint: merchantKeyframes.length > 0 ? { x: merchantKeyframes[0].x, y: merchantKeyframes[0].y } : undefined,
-      webcamSettings: merchantWebcam,
-      durationMs: merchantDuration,
-      trimStartSec: typeof merchantMeta.trimStartSec === "number" ? merchantMeta.trimStartSec : undefined,
-      trimEndSec: typeof merchantMeta.trimEndSec === "number" ? merchantMeta.trimEndSec : undefined,
-      mouseEventsR2Key: merchant.mouse_events_url,
-      webcamR2Key: merchant.webcam_url,
-    };
+      const merchantSpec = buildSectionSpec({
+        webcam: introWebcam,
+        webcamR2Key: merchant.webcam_url ?? null,
+        trimStartSec: merchantTrimStart,
+        trimEndSec: merchantTrimEnd,
+        // Intro never receives morph or handoff (it opens the merge).
+      });
 
-    const productPayload: MergeRecordingPayload = {
-      url: productUrl,
-      sessionName: productSessionName,
-      width: productRec.mouseData.virtualWidth,
-      height: productRec.mouseData.virtualHeight,
-      keyframes: productKeyframes,
-      settleHint: productKeyframes.length > 0 ? { x: productKeyframes[0].x, y: productKeyframes[0].y } : undefined,
-      webcamSettings: productWebcam,
-      durationMs: productDuration,
-      trimStartSec: typeof productMeta.trimStartSec === "number" ? productMeta.trimStartSec : undefined,
-      trimEndSec: typeof productMeta.trimEndSec === "number" ? productMeta.trimEndSec : undefined,
-      mouseEventsR2Key: product.mouse_events_url,
-      webcamR2Key: product.webcam_url,
+      merchantPayload = {
+        url: merchantUrl,
+        sessionName: `merge_${jobId}_merchant`,
+        width: merchantRec.mouseData.virtualWidth,
+        height: merchantRec.mouseData.virtualHeight,
+        keyframes: merchantKeyframes,
+        settleHint: merchantKeyframes.length > 0
+          ? { x: merchantKeyframes[0].x, y: merchantKeyframes[0].y }
+          : undefined,
+        spec: merchantSpec,
+        durationMs: merchantDuration,
+        mouseEventsR2Key: merchant.mouse_events_url,
+        webcamR2Key: merchant.webcam_url,
+      };
+    }
+
+    // Product payload.
+    let productPayload: MergeRecordingPayload | null = null;
+    if (product && productRec && productWebcam) {
+      const productMeta = (product.metadata ?? {}) as Record<string, unknown>;
+      const productKeyframes = eventsToKeyframes(
+        productRec.mouseData.events as Parameters<typeof eventsToKeyframes>[0],
+      );
+      const productDuration = productKeyframes.length > 0
+        ? productKeyframes[productKeyframes.length - 1].t
+        : 1000;
+      const productUrl = `${TARGET_URL}?product=${encodeURIComponent(product.product_name ?? "")}&brand=${encodeURIComponent(merchantBrandUrl)}`;
+      const productTrimStart = typeof productMeta.trimStartSec === "number" ? productMeta.trimStartSec : undefined;
+      const productTrimEnd = typeof productMeta.trimEndSec === "number" ? productMeta.trimEndSec : undefined;
+
+      // Compute mouse handoff: only when both sections are enabled. The
+      // intro's last cursor position seeds the product's opening glide.
+      let mouseHandoffFrom: { x: number; y: number } | undefined;
+      if (merchantPayload && merchant) {
+        const merchantMeta = (merchant.metadata ?? {}) as Record<string, unknown>;
+        const merchantTS = typeof merchantMeta.trimStartSec === "number" ? merchantMeta.trimStartSec : undefined;
+        const merchantTE = typeof merchantMeta.trimEndSec === "number" ? merchantMeta.trimEndSec : undefined;
+        const last = computeLastMousePos(merchantPayload.keyframes, merchantTS, merchantTE);
+        if (last) mouseHandoffFrom = last;
+      }
+
+      // Morph emitted only when both sections exist AND intro's resolved
+      // end-state webcam ≠ product's start-state webcam.
+      const morphFrom = introWebcam ?? undefined;
+
+      const productSpec = buildSectionSpec({
+        webcam: productWebcam,
+        webcamR2Key: product.webcam_url ?? null,
+        trimStartSec: productTrimStart,
+        trimEndSec: productTrimEnd,
+        morphFrom,
+        mouseHandoffFrom,
+      });
+
+      productPayload = {
+        url: productUrl,
+        sessionName: `merge_${jobId}_product`,
+        width: productRec.mouseData.virtualWidth,
+        height: productRec.mouseData.virtualHeight,
+        keyframes: productKeyframes,
+        // When mouse handoff is in play, settle wiggles around intro's last pos
+        // so the cursor doesn't jump at the start of capture.
+        settleHint: mouseHandoffFrom ?? (productKeyframes.length > 0
+          ? { x: productKeyframes[0].x, y: productKeyframes[0].y }
+          : undefined),
+        spec: productSpec,
+        durationMs: productDuration,
+        mouseEventsR2Key: product.mouse_events_url,
+        webcamR2Key: product.webcam_url,
+      };
+    }
+
+    const merge: MergeRenderSpec = {
+      intro: merchantPayload?.spec,
+      product: productPayload?.spec,
+      transition,
     };
 
     const job = await jobsQueue.add("merge", {
@@ -232,11 +421,11 @@ export async function POST(request: Request) {
       renderId,
       brand,
       outputSessionName,
-      merchantRecordingId: merchant.id,
-      productRecordingId: product.id,
+      merchantRecordingId: merchant?.id ?? null,
+      productRecordingId: product?.id ?? null,
       merchant: merchantPayload,
       product: productPayload,
-      settings: { ...DEFAULT_MERGE_JOB_SETTINGS },
+      merge,
     } satisfies MergeJobPayload, {
       jobId,
       priority: 5,
@@ -244,22 +433,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ jobId: job.id, renderId, slug });
   } finally {
-    // Clean up prep temp dir (only downloaded mouse JSON for keyframe computation)
     const { rm } = await import("node:fs/promises");
     rm(workDir, { recursive: true, force: true }).catch(() => {});
   }
-}
-
-function extractWebcamSettings(meta: Record<string, unknown>): WebcamSettings {
-  return {
-    webcamMode: typeof meta.webcamMode === "string" && ["video", "audio", "off"].includes(meta.webcamMode)
-      ? meta.webcamMode as WebcamSettings["webcamMode"]
-      : DEFAULT_WEBCAM_SETTINGS.webcamMode,
-    webcamVertical: typeof meta.webcamVertical === "string" && ["top", "bottom"].includes(meta.webcamVertical)
-      ? meta.webcamVertical as WebcamSettings["webcamVertical"]
-      : DEFAULT_WEBCAM_SETTINGS.webcamVertical,
-    webcamHorizontal: typeof meta.webcamHorizontal === "string" && ["left", "right"].includes(meta.webcamHorizontal)
-      ? meta.webcamHorizontal as WebcamSettings["webcamHorizontal"]
-      : DEFAULT_WEBCAM_SETTINGS.webcamHorizontal,
-  };
 }

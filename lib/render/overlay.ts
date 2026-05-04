@@ -24,6 +24,9 @@ export type InjectOverlayOptions = {
   fps: number;
   /** Render zoom factor — overlay sizes are virtual-px / zoom = CSS-px. */
   zoom: number;
+  /** Total number of capture frames in this section — needed so the exit
+   *  morph can compute `exitStartFrame = totalFrames - exitDurationFrames`. */
+  totalFrames: number;
 };
 
 /**
@@ -86,6 +89,7 @@ const OVERLAY_INSTALL_SCRIPT = `
         fps: cfg.fps,
         plateSize: cfg.plateSize,
         PAD: cfg.PAD,
+        totalFrames: cfg.totalFrames,
         videoWrap: videoWrap,
         audioWrap: audioWrap,
         video: video,
@@ -100,16 +104,37 @@ const OVERLAY_INSTALL_SCRIPT = `
       var fps = state.fps;
       var plateSize = state.plateSize;
       var PAD = state.PAD;
+      var totalFrames = state.totalFrames;
 
-      var fromMode = spec.morph ? spec.morph.fromMode : spec.webcam.mode;
+      // Resolve from/to webcam state and morph progress. Routes never emit
+      // both entry morph and exit morph on the same section, so at most one
+      // branch fires per frame.
+      var fromMode = spec.webcam.mode;
       var targetMode = spec.webcam.mode;
-      var fromPos = spec.morph ? spec.morph.fromPosition : spec.webcam.position;
+      var fromPos = spec.webcam.position;
       var targetPos = spec.webcam.position;
-
       var morphT = 1;
+
       if (spec.morph) {
-        var elapsedMs = frameIdx * (1000 / fps);
-        morphT = Math.max(0, Math.min(elapsedMs / spec.morph.durationMs, 1));
+        // Entry morph: animates FROM (morph.fromMode/fromPos) TO (webcam) over the first N frames.
+        fromMode = spec.morph.fromMode;
+        fromPos = spec.morph.fromPosition;
+        var entryElapsedMs = frameIdx * (1000 / fps);
+        morphT = Math.max(0, Math.min(entryElapsedMs / spec.morph.durationMs, 1));
+      } else if (spec.exitMorph) {
+        // Exit morph: animates FROM (webcam) TO (exitMorph.toMode/toPos) over the LAST N frames.
+        var exitFrameCount = Math.max(1, Math.ceil((spec.exitMorph.durationMs / 1000) * fps));
+        var exitStart = totalFrames - exitFrameCount;
+        if (frameIdx >= exitStart) {
+          targetMode = spec.exitMorph.toMode;
+          targetPos = spec.exitMorph.toPosition;
+          morphT = Math.max(0, Math.min((frameIdx - exitStart + 1) / exitFrameCount, 1));
+        } else {
+          // Pre-exit: still in steady state, no morph yet.
+          targetMode = spec.webcam.mode;
+          targetPos = spec.webcam.position;
+          morphT = 0;
+        }
       }
 
       var throbScale = 1;
@@ -224,6 +249,7 @@ export async function injectOverlay(page: Page, options: InjectOverlayOptions): 
     spec,
     amplitude: amplitudeSamples,
     fps,
+    totalFrames: options.totalFrames,
   };
 
   // String-form evaluate — no closure to transpile, no __name calls inserted.

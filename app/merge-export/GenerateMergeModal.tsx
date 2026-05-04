@@ -41,14 +41,32 @@ export type ProductSettings = {
 export type AudioTransition = 'none' | 'crossfade'
 export type OverlayTransition = 'none' | 'animated'
 export type VideoTransition = 'none' | 'crossfade'
+/**
+ * Mouse glide style during transitions:
+ *   - none:    cursor jumps at the boundary (no glide).
+ *   - linear:  straight A→B path with cubic ease-in-out velocity.
+ *   - arched:  quadratic Bezier arc bowing up, with cubic ease-in-out velocity.
+ *   - natural: arched path with sine-perturbed speed stutter (most human-feeling).
+ */
+export type MouseTransition = 'none' | 'linear' | 'arched' | 'natural'
+export type TransitionSide = 'end-of-intro' | 'start-of-product'
 
 export type TransitionSettings = {
-  /** When false, the three sub-fields are forced to `'none'` and the dropdowns are hidden. */
+  /** When false, all sub-fields are treated as `'none'` and the dropdowns are hidden. */
   enabled: boolean
   audio: AudioTransition
-  overlay: OverlayTransition
   video: VideoTransition
+  overlay: OverlayTransition
+  mouse: MouseTransition
+  side: TransitionSide
+  /** 100..1000 ms, snapped to 100 ms grid. */
+  durationMs: number
 }
+
+export const TRANSITION_DURATIONS_MS = [
+  100, 200, 300, 400, 500, 600, 700, 800, 900, 1000,
+  1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000,
+] as const
 
 export type PresetKey = 'p1' | 'p2' | 'custom'
 
@@ -83,8 +101,23 @@ const BLANK_PRODUCT: ProductSettings = {
 const BLANK_TRANSITION: TransitionSettings = {
   enabled: false,
   audio: 'none',
-  overlay: 'none',
   video: 'none',
+  overlay: 'none',
+  mouse: 'none',
+  side: 'start-of-product',
+  durationMs: 400,
+}
+
+/** p1 default — full transitions at start-of-product, 400ms. Matches the
+ *  pipeline's continuity behavior between intro and product sections. */
+const P1_TRANSITION: TransitionSettings = {
+  enabled: true,
+  audio: 'crossfade',
+  video: 'crossfade',
+  overlay: 'animated',
+  mouse: 'natural',
+  side: 'start-of-product',
+  durationMs: 400,
 }
 
 function applyPreset(key: 'p1' | 'p2', prev: MergeFormState): MergeFormState {
@@ -99,7 +132,7 @@ function applyPreset(key: 'p1' | 'p2', prev: MergeFormState): MergeFormState {
           customMode: 'video',
           positionSource: 'other',
         },
-        transition: prev.transition,
+        transition: { ...P1_TRANSITION },
         product: {
           ...prev.product,
           enabled: true,
@@ -112,7 +145,7 @@ function applyPreset(key: 'p1' | 'p2', prev: MergeFormState): MergeFormState {
       return {
         preset: 'p2',
         intro: { ...prev.intro, enabled: false },
-        transition: prev.transition,
+        transition: { ...BLANK_TRANSITION },
         product: { ...prev.product, enabled: true, modeSource: 'self', positionSource: 'self' },
       }
   }
@@ -143,7 +176,8 @@ function p1Snapshot(): CustomSnapshot {
       positionSource: 'other',
       customPosition: DEFAULT_POSITION,
     },
-    transition: BLANK_TRANSITION,
+    // Custom default mirrors p1 — the user can dial back from there.
+    transition: { ...P1_TRANSITION },
     product: {
       enabled: true,
       modeSource: 'custom',
@@ -161,7 +195,8 @@ function loadCustomSnapshot(): CustomSnapshot {
     if (!raw) return p1Snapshot()
     const parsed = JSON.parse(raw) as Partial<CustomSnapshot>
     if (!parsed.intro || !parsed.transition || !parsed.product) return p1Snapshot()
-    // Migrate older snapshots that pre-date `transition.enabled`.
+    // Forward-compat: older snapshots may lack the new transition fields
+    // (mouse/side/durationMs). Layer over BLANK_TRANSITION to fill them in.
     return {
       ...parsed,
       transition: { ...BLANK_TRANSITION, ...parsed.transition },
@@ -300,7 +335,7 @@ export default function GenerateMergeModal({ merchants, products, onClose, onSub
   const [state, setState] = useState<MergeFormState>({
     preset: 'p1',
     intro: { ...BLANK_INTRO, modeSource: 'custom', customMode: 'video', positionSource: 'other' },
-    transition: BLANK_TRANSITION,
+    transition: { ...P1_TRANSITION },
     product: { ...BLANK_PRODUCT, modeSource: 'custom', customMode: 'audio', positionSource: 'self' },
   })
   const [customSnapshot, setCustomSnapshot] = useState<CustomSnapshot>(loadCustomSnapshot)
@@ -562,39 +597,77 @@ export default function GenerateMergeModal({ merchants, products, onClose, onSub
                 enabled={state.transition.enabled}
                 onEnabledChange={(enabled) => {
                   if (enabled) updateTransition({ enabled: true })
-                  else updateTransition({ enabled: false, audio: 'none', video: 'none', overlay: 'none' })
+                  else updateTransition({
+                    enabled: false,
+                    audio: 'none',
+                    video: 'none',
+                    overlay: 'none',
+                    mouse: 'none',
+                  })
                 }}
-                hint="Stubbed — wiring lands later"
               >
                 {state.transition.enabled && (
-                  <div className="grid grid-cols-3 gap-3 pl-1">
-                    <SelectField
-                      label="Audio"
-                      value={state.transition.audio}
-                      onChange={(audio) => updateTransition({ audio: audio as AudioTransition })}
-                      options={[
-                        { value: 'none', label: 'None' },
-                        { value: 'crossfade', label: 'Crossfade (soon)', disabled: true },
-                      ]}
-                    />
-                    <SelectField
-                      label="Video"
-                      value={state.transition.video}
-                      onChange={(video) => updateTransition({ video: video as VideoTransition })}
-                      options={[
-                        { value: 'none', label: 'None' },
-                        { value: 'crossfade', label: 'Crossfade (soon)', disabled: true },
-                      ]}
-                    />
-                    <SelectField
-                      label="Overlay"
-                      value={state.transition.overlay}
-                      onChange={(overlay) => updateTransition({ overlay: overlay as OverlayTransition })}
-                      options={[
-                        { value: 'none', label: 'None' },
-                        { value: 'animated', label: 'Animated (soon)', disabled: true },
-                      ]}
-                    />
+                  <div className="space-y-3 pl-1">
+                    <div className="grid grid-cols-2 gap-3">
+                      <SelectField
+                        label="Audio"
+                        value={state.transition.audio}
+                        onChange={(audio) => updateTransition({ audio: audio as AudioTransition })}
+                        options={[
+                          { value: 'none', label: 'None' },
+                          { value: 'crossfade', label: 'Crossfade' },
+                        ]}
+                      />
+                      <SelectField
+                        label="Video"
+                        value={state.transition.video}
+                        onChange={(video) => updateTransition({ video: video as VideoTransition })}
+                        options={[
+                          { value: 'none', label: 'None' },
+                          { value: 'crossfade', label: 'Crossfade' },
+                        ]}
+                      />
+                      <SelectField
+                        label="Overlay"
+                        value={state.transition.overlay}
+                        onChange={(overlay) => updateTransition({ overlay: overlay as OverlayTransition })}
+                        options={[
+                          { value: 'none', label: 'None' },
+                          { value: 'animated', label: 'Animated' },
+                        ]}
+                      />
+                      <SelectField
+                        label="Mouse"
+                        value={state.transition.mouse}
+                        onChange={(mouse) => updateTransition({ mouse: mouse as MouseTransition })}
+                        options={[
+                          { value: 'none', label: 'None' },
+                          { value: 'linear', label: 'Linear' },
+                          { value: 'arched', label: 'Arched' },
+                          { value: 'natural', label: 'Natural' },
+                        ]}
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <SelectField
+                        label="Side"
+                        value={state.transition.side}
+                        onChange={(side) => updateTransition({ side: side as TransitionSide })}
+                        options={[
+                          { value: 'start-of-product', label: 'Start of product' },
+                          { value: 'end-of-intro', label: 'End of intro' },
+                        ]}
+                      />
+                      <SelectField
+                        label="Duration"
+                        value={String(state.transition.durationMs)}
+                        onChange={(ms) => updateTransition({ durationMs: parseInt(ms, 10) || 400 })}
+                        options={TRANSITION_DURATIONS_MS.map((ms) => ({
+                          value: String(ms),
+                          label: `${ms} ms`,
+                        }))}
+                      />
+                    </div>
                   </div>
                 )}
               </Section>

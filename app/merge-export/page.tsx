@@ -244,8 +244,22 @@ export default function MergeExportPage() {
       introSettings,
       productSettings,
       transition: state.transition.enabled
-        ? { audio: state.transition.audio, video: state.transition.video, overlay: state.transition.overlay }
-        : { audio: 'none', video: 'none', overlay: 'none' },
+        ? {
+            audio: state.transition.audio,
+            video: state.transition.video,
+            overlay: state.transition.overlay,
+            mouse: state.transition.mouse,
+            side: state.transition.side,
+            durationMs: state.transition.durationMs,
+          }
+        : {
+            audio: 'none',
+            video: 'none',
+            overlay: 'none',
+            mouse: 'none',
+            side: state.transition.side,
+            durationMs: state.transition.durationMs,
+          },
     }
     try {
       const { jobId, renderId } = await startMergeJob(body)

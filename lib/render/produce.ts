@@ -157,6 +157,9 @@ export async function produceSessionVideo(options: ProduceOptions): Promise<Prod
       durationMs: renderDurationMs,
       onProgress: options.onComposeProgress ?? (() => {}),
       webcamPath: options.webcamPath,
+      // Honour the section's mode='off' choice so the muxed mp4 has no
+      // webcam audio when the user explicitly turned the badge off.
+      muteAudio: options.spec.webcam.mode === "off",
     });
     compositeR2Key = composeResult.r2Key;
     compositeOutputPath = composeResult.outputPath;

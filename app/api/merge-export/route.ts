@@ -18,16 +18,18 @@ import {
   type SectionFormSettings,
   type MergeRenderSpec,
   type Transitions,
+  type MouseTransitionStyle,
+  type MouseGlideShape,
   DEFAULT_TRANSITIONS,
   DEFAULT_THROB_MIN,
   DEFAULT_THROB_MAX,
-  DEFAULT_MORPH_DURATION_MS,
-  DEFAULT_MOUSE_HANDOFF_MS,
   extractWebcamFromMetadata,
   resolveMergeWebcams,
+  resolveGlideShape,
   webcamEquals,
+  snapTransitionDurationMs,
 } from "@/lib/render/spec";
-import { computeLastMousePos } from "@/lib/render/mouse-handoff";
+import { computeLastMousePos, computeMousePosAtExitStart } from "@/lib/render/mouse-handoff";
 import { amplitudeKeyForWebcam } from "@/lib/audio/amplitude";
 
 export const runtime = "nodejs";
@@ -69,31 +71,82 @@ function parseSectionForm(v: unknown): SectionFormSettings | null {
 function parseTransitions(v: unknown): Transitions {
   if (!v || typeof v !== "object") return DEFAULT_TRANSITIONS;
   const o = v as Record<string, unknown>;
-  // v1: schema-only — accept the values but worker honors only 'none'.
+  const validMouseStyles: MouseTransitionStyle[] = ["none", "linear", "arched", "natural"];
+  const mouse: MouseTransitionStyle =
+    typeof o.mouse === "string" && (validMouseStyles as string[]).includes(o.mouse)
+      ? (o.mouse as MouseTransitionStyle)
+      : "none";
   return {
     audio: o.audio === "crossfade" ? "crossfade" : "none",
     video: o.video === "crossfade" ? "crossfade" : "none",
     overlay: o.overlay === "animated" ? "animated" : "none",
+    mouse,
+    side: o.side === "end-of-intro" ? "end-of-intro" : "start-of-product",
+    durationMs: snapTransitionDurationMs(o.durationMs),
   };
 }
 
-function buildSectionSpec(args: {
+type SectionSpecArgs = {
   webcam: Webcam;
   webcamR2Key: string | null;
   trimStartSec: number | undefined;
   trimEndSec: number | undefined;
-  morphFrom?: Webcam;
-  mouseHandoffFrom?: { x: number; y: number };
-}): RenderSpec {
-  const { webcam, webcamR2Key, trimStartSec, trimEndSec, morphFrom, mouseHandoffFrom } = args;
+  /** Entry morph source (only when overlay='animated' and side='start-of-product'). */
+  entryMorphFrom?: Webcam;
+  /** Exit morph target (only when overlay='animated' and side='end-of-intro'). */
+  exitMorphTo?: Webcam;
+  /** Entry mouse glide source (only when mouse !== 'none' and entry side). */
+  entryMouseFrom?: { x: number; y: number };
+  /** Exit mouse glide target (only when mouse !== 'none' and exit side). */
+  exitMouseTo?: { x: number; y: number };
+  /** Optional explicit exit-glide source (crossfade path passes the same
+   *  point as the sibling's entry handoff so paths align exactly). */
+  exitMouseFrom?: { x: number; y: number };
+  /** Shared duration for whichever morph/glide above is set. */
+  transitionDurationMs?: number;
+  /** Resolved glide shape (arc + stutter knobs). Required when any mouse
+   *  glide is active; ignored otherwise. */
+  glideShape?: MouseGlideShape;
+};
+
+function buildSectionSpec(args: SectionSpecArgs): RenderSpec {
+  const {
+    webcam,
+    webcamR2Key,
+    trimStartSec,
+    trimEndSec,
+    entryMorphFrom,
+    exitMorphTo,
+    entryMouseFrom,
+    exitMouseTo,
+    exitMouseFrom,
+    transitionDurationMs,
+    glideShape,
+  } = args;
+  const dur = transitionDurationMs ?? 400;
+  // Fall back to a no-op shape (straight, no stutter) if a glide is requested
+  // but no shape was supplied — defensive; the caller normally provides both.
+  const shape: MouseGlideShape = glideShape ?? {
+    arcFraction: 0,
+    stutterAmplitude: 0,
+    stutterFrequency: 0,
+  };
   return {
     webcam,
     morph:
-      morphFrom && !webcamEquals(morphFrom, webcam)
+      entryMorphFrom && !webcamEquals(entryMorphFrom, webcam)
         ? {
-            fromMode: morphFrom.mode,
-            fromPosition: morphFrom.position,
-            durationMs: DEFAULT_MORPH_DURATION_MS,
+            fromMode: entryMorphFrom.mode,
+            fromPosition: entryMorphFrom.position,
+            durationMs: dur,
+          }
+        : undefined,
+    exitMorph:
+      exitMorphTo && !webcamEquals(webcam, exitMorphTo)
+        ? {
+            toMode: exitMorphTo.mode,
+            toPosition: exitMorphTo.position,
+            durationMs: dur,
           }
         : undefined,
     throb:
@@ -105,12 +158,28 @@ function buildSectionSpec(args: {
             maxScale: DEFAULT_THROB_MAX,
           }
         : undefined,
-    mouseHandoff: mouseHandoffFrom
+    mouseHandoff: entryMouseFrom
       ? {
-          fromX: mouseHandoffFrom.x,
-          fromY: mouseHandoffFrom.y,
-          durationMs: DEFAULT_MOUSE_HANDOFF_MS,
-          easing: "easeInOut",
+          fromX: entryMouseFrom.x,
+          fromY: entryMouseFrom.y,
+          durationMs: dur,
+          easing: "cubicEaseInOut",
+          shape,
+        }
+      : undefined,
+    exitMouseGlide: exitMouseTo
+      ? {
+          // Explicit fromX/fromY only when caller supplied one (crossfade path).
+          // Otherwise the renderer captures from the recorded cursor at the
+          // exit-start frame.
+          ...(exitMouseFrom
+            ? { fromX: exitMouseFrom.x, fromY: exitMouseFrom.y }
+            : {}),
+          toX: exitMouseTo.x,
+          toY: exitMouseTo.y,
+          durationMs: dur,
+          easing: "cubicEaseInOut",
+          shape,
         }
       : undefined,
     trim:
@@ -313,13 +382,54 @@ export async function POST(request: Request) {
       product && productSelfWebcam ? { form: productForm, selfWebcam: productSelfWebcam } : null,
     );
 
+    const dualSection = !!(merchant && product);
+    const overlayAnimated = dualSection && transition.overlay === "animated";
+    // Resolve the mouse-style enum into glide-shape numbers (or null for 'none').
+    const glideShape = dualSection ? resolveGlideShape(transition.mouse) : null;
+    const mouseAnimated = !!glideShape;
+    const sideEndOfIntro = transition.side === "end-of-intro";
+    const sideStartOfProduct = transition.side === "start-of-product";
+    // When any crossfade is on, the xfade window simultaneously shows the
+    // last N frames of intro and first N frames of product. To keep cursor
+    // motion smooth across that overlap, BOTH sections must trace the same
+    // glide path — so we wire entry+exit glides regardless of `side`.
+    const hasCrossfade =
+      dualSection && (transition.audio === "crossfade" || transition.video === "crossfade");
+
+    // Pre-compute keyframes for both sections so we can derive the cross-
+    // section mouse handoff endpoints before building either spec.
+    const merchantKeyframes = merchantRec
+      ? eventsToKeyframes(merchantRec.mouseData.events as Parameters<typeof eventsToKeyframes>[0])
+      : [];
+    const productKeyframes = productRec
+      ? eventsToKeyframes(productRec.mouseData.events as Parameters<typeof eventsToKeyframes>[0])
+      : [];
+
+    // Mouse anchor points across the boundary.
+    // - introLastMousePos: cursor at intro's natural END (used for concat path).
+    // - introExitStartPos: cursor at intro's exit-window start
+    //   (= sessionEnd - transition.durationMs). Used for crossfade path so
+    //   both glides start from the same point and trace identical curves.
+    let introLastMousePos: { x: number; y: number } | undefined;
+    let introExitStartPos: { x: number; y: number } | undefined;
+    if (merchant && merchantKeyframes.length > 0) {
+      const meta = (merchant.metadata ?? {}) as Record<string, unknown>;
+      const ts = typeof meta.trimStartSec === "number" ? meta.trimStartSec : undefined;
+      const te = typeof meta.trimEndSec === "number" ? meta.trimEndSec : undefined;
+      const last = computeLastMousePos(merchantKeyframes, ts, te);
+      if (last) introLastMousePos = last;
+      const exitStart = computeMousePosAtExitStart(merchantKeyframes, ts, te, transition.durationMs);
+      if (exitStart) introExitStartPos = exitStart;
+    }
+    const productFirstMousePos =
+      productKeyframes.length > 0
+        ? { x: productKeyframes[0].x, y: productKeyframes[0].y }
+        : undefined;
+
     // Merchant payload.
     let merchantPayload: MergeRecordingPayload | null = null;
     if (merchant && merchantRec && introWebcam) {
       const merchantMeta = (merchant.metadata ?? {}) as Record<string, unknown>;
-      const merchantKeyframes = eventsToKeyframes(
-        merchantRec.mouseData.events as Parameters<typeof eventsToKeyframes>[0],
-      );
       const merchantDuration = merchantKeyframes.length > 0
         ? merchantKeyframes[merchantKeyframes.length - 1].t
         : 1000;
@@ -329,12 +439,29 @@ export async function POST(request: Request) {
       const merchantTrimStart = typeof merchantMeta.trimStartSec === "number" ? merchantMeta.trimStartSec : undefined;
       const merchantTrimEnd = typeof merchantMeta.trimEndSec === "number" ? merchantMeta.trimEndSec : undefined;
 
+      // Intro carries exit transitions when side='end-of-intro' (concat path)
+      // OR whenever crossfade is enabled with the relevant transition. This
+      // keeps the xfade overlap visually coherent — both halves animate.
+      const introExitMorphActive =
+        overlayAnimated && (sideEndOfIntro || hasCrossfade);
+      const introExitMouseActive =
+        mouseAnimated && (sideEndOfIntro || hasCrossfade);
+
       const merchantSpec = buildSectionSpec({
         webcam: introWebcam,
         webcamR2Key: merchant.webcam_url ?? null,
         trimStartSec: merchantTrimStart,
         trimEndSec: merchantTrimEnd,
-        // Intro never receives morph or handoff (it opens the merge).
+        exitMorphTo: introExitMorphActive ? productWebcam : undefined,
+        exitMouseTo:
+          introExitMouseActive && productFirstMousePos ? productFirstMousePos : undefined,
+        // Crossfade path: pin the from to the same point product uses for
+        // its entry handoff. Concat path leaves it undefined so the renderer
+        // anchors at intro's recorded cursor at exit-start.
+        exitMouseFrom:
+          introExitMouseActive && hasCrossfade ? introExitStartPos : undefined,
+        transitionDurationMs: transition.durationMs,
+        glideShape: glideShape ?? undefined,
       });
 
       merchantPayload = {
@@ -357,9 +484,6 @@ export async function POST(request: Request) {
     let productPayload: MergeRecordingPayload | null = null;
     if (product && productRec && productWebcam) {
       const productMeta = (product.metadata ?? {}) as Record<string, unknown>;
-      const productKeyframes = eventsToKeyframes(
-        productRec.mouseData.events as Parameters<typeof eventsToKeyframes>[0],
-      );
       const productDuration = productKeyframes.length > 0
         ? productKeyframes[productKeyframes.length - 1].t
         : 1000;
@@ -367,28 +491,31 @@ export async function POST(request: Request) {
       const productTrimStart = typeof productMeta.trimStartSec === "number" ? productMeta.trimStartSec : undefined;
       const productTrimEnd = typeof productMeta.trimEndSec === "number" ? productMeta.trimEndSec : undefined;
 
-      // Compute mouse handoff: only when both sections are enabled. The
-      // intro's last cursor position seeds the product's opening glide.
-      let mouseHandoffFrom: { x: number; y: number } | undefined;
-      if (merchantPayload && merchant) {
-        const merchantMeta = (merchant.metadata ?? {}) as Record<string, unknown>;
-        const merchantTS = typeof merchantMeta.trimStartSec === "number" ? merchantMeta.trimStartSec : undefined;
-        const merchantTE = typeof merchantMeta.trimEndSec === "number" ? merchantMeta.trimEndSec : undefined;
-        const last = computeLastMousePos(merchantPayload.keyframes, merchantTS, merchantTE);
-        if (last) mouseHandoffFrom = last;
-      }
+      // Product carries entry transitions when side='start-of-product'
+      // (concat path) OR whenever crossfade is enabled with the relevant
+      // transition. In the crossfade case, the entry-glide source must be
+      // intro's cursor at exit-window start (NOT intro's natural last pos)
+      // so that both halves' glides trace the same curve through the xfade
+      // overlap. In the concat case the source is intro's natural last pos.
+      const productEntryMorphActive =
+        overlayAnimated && (sideStartOfProduct || hasCrossfade);
+      const productEntryMouseActive =
+        mouseAnimated && (sideStartOfProduct || hasCrossfade);
 
-      // Morph emitted only when both sections exist AND intro's resolved
-      // end-state webcam ≠ product's start-state webcam.
-      const morphFrom = introWebcam ?? undefined;
+      const entryMorphFrom = productEntryMorphActive ? introWebcam : undefined;
+      const entryMouseSource = hasCrossfade ? introExitStartPos : introLastMousePos;
+      const entryMouseFrom =
+        productEntryMouseActive && entryMouseSource ? entryMouseSource : undefined;
 
       const productSpec = buildSectionSpec({
         webcam: productWebcam,
         webcamR2Key: product.webcam_url ?? null,
         trimStartSec: productTrimStart,
         trimEndSec: productTrimEnd,
-        morphFrom,
-        mouseHandoffFrom,
+        entryMorphFrom,
+        entryMouseFrom,
+        transitionDurationMs: transition.durationMs,
+        glideShape: glideShape ?? undefined,
       });
 
       productPayload = {
@@ -399,7 +526,7 @@ export async function POST(request: Request) {
         keyframes: productKeyframes,
         // When mouse handoff is in play, settle wiggles around intro's last pos
         // so the cursor doesn't jump at the start of capture.
-        settleHint: mouseHandoffFrom ?? (productKeyframes.length > 0
+        settleHint: entryMouseFrom ?? (productKeyframes.length > 0
           ? { x: productKeyframes[0].x, y: productKeyframes[0].y }
           : undefined),
         spec: productSpec,

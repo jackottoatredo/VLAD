@@ -123,13 +123,34 @@ function buildActions(
   keyframes: ProduceJobPayload["keyframes"],
   durationMs: number,
 ): ReturnType<typeof createReplayAction>[] {
-  const replay = createReplayAction(keyframes, durationMs);
+  // Exit glide rides INSIDE the replay action — overrides the cursor visual
+  // during the last N frames of capture without changing the section length.
+  // Forward the explicit (fromX, fromY) so the crossfade path's intro and
+  // product glides anchor at the same point (no sub-frame drift between
+  // route's pre-computed source and the action's runtime-captured one).
+  const replay = createReplayAction(keyframes, durationMs, {
+    exitGlide: spec.exitMouseGlide
+      ? {
+          fromX: spec.exitMouseGlide.fromX,
+          fromY: spec.exitMouseGlide.fromY,
+          toX: spec.exitMouseGlide.toX,
+          toY: spec.exitMouseGlide.toY,
+          durationMs: spec.exitMouseGlide.durationMs,
+          easing: spec.exitMouseGlide.easing,
+          shape: spec.exitMouseGlide.shape,
+        }
+      : undefined,
+  });
+
+  // Entry mouseHandoff is a separate captured action prepended to replay.
   if (!spec.mouseHandoff || keyframes.length === 0) return [replay];
 
   const handoff = createMouseHandoffAction(
     { x: spec.mouseHandoff.fromX, y: spec.mouseHandoff.fromY },
     { x: keyframes[0].x, y: keyframes[0].y },
     spec.mouseHandoff.durationMs,
+    spec.mouseHandoff.easing,
+    spec.mouseHandoff.shape,
   );
   return [handoff, replay];
 }
@@ -471,12 +492,36 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
         downloadFromR2(productResult!.finalR2Key, productFinalPath),
       ]);
 
+      // Audio crossfade is gated on BOTH sections having real audio. A
+      // section is silent when its mode is 'off' or it has no webcam at all
+      // — crossfading silence with audio produces an unwanted dip.
+      const introHasAudio =
+        d.merchant!.spec.webcam.mode !== "off" && !!d.merchant!.webcamR2Key;
+      const productHasAudio =
+        d.product!.spec.webcam.mode !== "off" && !!d.product!.webcamR2Key;
+      const effectiveAudio =
+        d.merge.transition.audio === "crossfade" && introHasAudio && productHasAudio
+          ? "crossfade"
+          : "none";
+
+      // xfade needs the actual duration of the first input — probe the file.
+      // Fall back to merchant duration from spec if probe fails (rare).
+      const probedSec = await probeVideoDurationSec(merchantFinalPath);
+      const introDurationSec =
+        probedSec ?? (merchantResult!.renderDurationMs / 1000);
+
       const { mergedPath } = await mergeVideoFiles(
         merchantFinalPath,
         productFinalPath,
         mergeOutputDir,
         d.brand,
         (pct) => updateStep(4, pct),
+        {
+          audio: effectiveAudio,
+          video: d.merge.transition.video,
+          durationMs: d.merge.transition.durationMs,
+          introDurationSec,
+        },
       );
       completeStep(4);
 

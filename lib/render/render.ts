@@ -239,12 +239,18 @@ export async function renderUrlToMp4(options: RenderOptions): Promise<RenderResu
     // morph/throb state and webcam currentTime sync.
     const hasOverlay = !!options.spec;
     if (hasOverlay) {
+      // Compute total capture frames so the exit morph knows when to start.
+      const totalFrames = (options.actions ?? []).reduce(
+        (sum, action) => sum + Math.max(1, Math.round((action.durationMs / 1000) * options.fps)),
+        0,
+      );
       await injectOverlay(page, {
         spec: options.spec!,
         webcamPath: options.webcamPath ?? null,
         amplitudeSamples: options.amplitudeSamples ?? null,
         fps: options.fps,
         zoom,
+        totalFrames,
       });
     }
 

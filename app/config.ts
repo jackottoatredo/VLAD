@@ -18,6 +18,21 @@ export const WEBCAM_BORDER_COLOR      = "rgb(233, 77, 30)"; // CSS color string
 export const WEBCAM_BORDER_COLOR_HEX  = "E94D1E";          // FFmpeg hex (no 0x prefix)
 export const WEBCAM_RECORDER_TIMESLICE_MS = 100; // MediaRecorder chunk interval
 
+// Mouse-glide path shape during transitions (entry handoff + exit glide).
+// The cursor follows a quadratic Bezier from A to B with a control point
+// pinned UP (toward y=0) by `arcFraction × distance`. Higher = bigger arc.
+// 0 = straight line, ~0.1–0.15 = subtle natural curve, 0.4 = pronounced bow.
+// Always bows up to mimic the natural pivot of an arm/wrist over a desk.
+export const MOUSE_GLIDE_ARC_FRACTION = 0.2;
+
+// Speed stutter — a small sine perturbation on the eased `t` so velocity isn't
+// perfectly uniform along the arc. Endpoints stay exact (envelope = sin(π·t)
+// pins the perturbation to 0 at t=0 and t=1). Amplitude is the max ± offset
+// to the eased t value; frequency is the number of speed wobbles across the
+// glide. Set amplitude to 0 to disable stutter entirely.
+export const MOUSE_GLIDE_STUTTER_AMPLITUDE: number = 0.02;
+export const MOUSE_GLIDE_STUTTER_FREQUENCY: number = 3;
+
 // Preview render quality. MUST stay > 0.5 — Chromium clamps deviceScaleFactor there.
 export const VIRTUAL_PREVIEW_SCALE_FACTOR = 0.5;
 // FFmpeg post-render downscale divisor for preview output (integer >= 1).

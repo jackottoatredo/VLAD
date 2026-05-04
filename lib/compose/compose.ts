@@ -26,6 +26,13 @@ export type ComposeOptions = {
   onProgress: (step: number, total: number) => void;
   /** Absolute path to webcam.webm on disk (downloaded from R2 by caller). Null when no webcam. */
   webcamPath?: string | null;
+  /**
+   * When true, synthesise silence regardless of `webcamPath`. Set by callers
+   * for sections whose webcam mode is 'off' — keeps the muxed audio honest
+   * about the section's intended audio status (and lets transitions skip
+   * audio crossfade when one side is silent).
+   */
+  muteAudio?: boolean;
 };
 
 export type ComposeResult = {
@@ -53,7 +60,7 @@ function parseTimemark(mark: string): number {
 export async function compositeSessionVideo(options: ComposeOptions): Promise<ComposeResult> {
   const { userId, sessionName, screenVideoPath, durationMs, onProgress } = options;
   const webcamPath = options.webcamPath ?? null;
-  const hasWebcamAudio = !!webcamPath && existsSync(webcamPath);
+  const hasWebcamAudio = !options.muteAudio && !!webcamPath && existsSync(webcamPath);
 
   const durationSec = durationMs / 1000;
   const outputDir = path.dirname(screenVideoPath);

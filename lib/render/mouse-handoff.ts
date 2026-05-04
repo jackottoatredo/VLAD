@@ -1,34 +1,23 @@
 import type { Keyframe } from "@/lib/render/keyframes";
 
 /**
- * Compute the cursor position at the END of a section's playback window —
- * used to seed the next section's mouse handoff so the cursor doesn't
- * teleport across the merge boundary.
- *
- * Returns the position at `trimEndMs` (clamped to last keyframe), or null
- * if the section has no keyframes.
+ * Cursor position at session time `targetT` (in ms from session start),
+ * interpolated linearly between the surrounding position keyframes.
+ * Returns null when there are no keyframes.
  */
-export function computeLastMousePos(
+export function computeMousePosAtTime(
   keyframes: ReadonlyArray<Keyframe>,
-  trimStartSec: number | undefined,
-  trimEndSec: number | undefined,
+  targetT: number,
 ): { x: number; y: number } | null {
   if (keyframes.length === 0) return null;
 
   const sessionEndMs = keyframes[keyframes.length - 1].t;
-  const startMs = trimStartSec != null && trimStartSec > 0 ? trimStartSec * 1000 : 0;
-  const endMs =
-    trimEndSec != null && trimEndSec > 0
-      ? Math.min(trimEndSec * 1000, sessionEndMs)
-      : sessionEndMs;
-  // After trim we always have at least one frame; default to the final clamped t.
-  const targetT = Math.max(startMs, endMs);
+  const clamped = Math.max(0, Math.min(targetT, sessionEndMs));
 
-  // Find the last keyframe at or before targetT (binary search).
-  if (targetT <= keyframes[0].t) {
+  if (clamped <= keyframes[0].t) {
     return { x: Math.round(keyframes[0].x), y: Math.round(keyframes[0].y) };
   }
-  if (targetT >= sessionEndMs) {
+  if (clamped >= sessionEndMs) {
     const last = keyframes[keyframes.length - 1];
     return { x: Math.round(last.x), y: Math.round(last.y) };
   }
@@ -37,14 +26,60 @@ export function computeLastMousePos(
   let hi = keyframes.length - 1;
   while (lo < hi) {
     const mid = (lo + hi) >> 1;
-    if (keyframes[mid].t <= targetT) lo = mid + 1;
+    if (keyframes[mid].t <= clamped) lo = mid + 1;
     else hi = mid;
   }
   const prev = keyframes[lo - 1];
   const next = keyframes[lo];
-  const alpha = (targetT - prev.t) / (next.t - prev.t);
+  const alpha = (clamped - prev.t) / (next.t - prev.t);
   return {
     x: Math.round(prev.x + (next.x - prev.x) * alpha),
     y: Math.round(prev.y + (next.y - prev.y) * alpha),
   };
+}
+
+/**
+ * Cursor position at the END of a section's playback window. Honours trim:
+ * the section's end is min(trimEndSec, sessionEnd). Used to seed the next
+ * section's mouse handoff for the no-crossfade (concat) merge path.
+ */
+export function computeLastMousePos(
+  keyframes: ReadonlyArray<Keyframe>,
+  trimStartSec: number | undefined,
+  trimEndSec: number | undefined,
+): { x: number; y: number } | null {
+  if (keyframes.length === 0) return null;
+  const sessionEndMs = keyframes[keyframes.length - 1].t;
+  const startMs = trimStartSec != null && trimStartSec > 0 ? trimStartSec * 1000 : 0;
+  const endMs =
+    trimEndSec != null && trimEndSec > 0
+      ? Math.min(trimEndSec * 1000, sessionEndMs)
+      : sessionEndMs;
+  return computeMousePosAtTime(keyframes, Math.max(startMs, endMs));
+}
+
+/**
+ * Cursor position at the START of a section's exit window — i.e.
+ * `transitionDurationMs` ms before the section's end. Used in the crossfade
+ * path so intro's exit glide and product's entry glide both anchor to the
+ * same starting point and trace identical paths during the xfade overlap.
+ */
+export function computeMousePosAtExitStart(
+  keyframes: ReadonlyArray<Keyframe>,
+  trimStartSec: number | undefined,
+  trimEndSec: number | undefined,
+  transitionDurationMs: number,
+): { x: number; y: number } | null {
+  if (keyframes.length === 0) return null;
+  const sessionEndMs = keyframes[keyframes.length - 1].t;
+  const startMs = trimStartSec != null && trimStartSec > 0 ? trimStartSec * 1000 : 0;
+  const endMs =
+    trimEndSec != null && trimEndSec > 0
+      ? Math.min(trimEndSec * 1000, sessionEndMs)
+      : sessionEndMs;
+  // Don't go before the section's start — degenerate case: exit window is
+  // longer than the section itself. Clamp to startMs so the glide still
+  // resolves, even if the duration ends up being shorter than requested.
+  const exitStart = Math.max(startMs, endMs - transitionDurationMs);
+  return computeMousePosAtTime(keyframes, exitStart);
 }

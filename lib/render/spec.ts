@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 import type { WebcamMode, WebcamVertical, WebcamHorizontal } from "@/types/webcam";
 import { DEFAULT_WEBCAM_SETTINGS, type WebcamSettings } from "@/types/webcam";
+import {
+  MOUSE_GLIDE_ARC_FRACTION,
+  MOUSE_GLIDE_STUTTER_AMPLITUDE,
+  MOUSE_GLIDE_STUTTER_FREQUENCY,
+} from "@/app/config";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -41,15 +46,71 @@ export type MorphSpec = {
 };
 
 /**
- * Mouse handoff between sections. Before recorded events fire, glide the
- * cursor from `(fromX, fromY)` to the section's first event position.
+ * Cross-section morph (exit). Section runs full duration; during the LAST
+ * `durationMs`, the overlay animates from the section's resolved webcam state
+ * to (toMode, toPosition). Used when transition.side = 'end-of-intro'.
+ */
+export type ExitMorphSpec = {
+  toMode: WebcamMode;
+  toPosition: WebcamPosition;
+  durationMs: number;
+};
+
+/**
+ * Glide path-shape knobs shared by entry and exit. Resolved server-side from
+ * the modal's mouse-transition selection (linear/arched/natural):
+ *   - linear:  arcFraction=0, stutterAmplitude=0
+ *   - arched:  arcFraction>0, stutterAmplitude=0
+ *   - natural: arcFraction>0, stutterAmplitude>0
+ *
+ * Embedding the resolved numbers in the spec keeps cache hashes correct when
+ * the global config tunables change.
+ */
+export type MouseGlideShape = {
+  /** Quadratic Bezier arc — fraction of |A−B| the control point is offset
+   *  perpendicular-up from the straight midpoint. 0 = straight line. */
+  arcFraction: number;
+  /** Sine perturbation on the eased t. 0 = perfectly smooth velocity. */
+  stutterAmplitude: number;
+  /** Cycles of the speed wobble across the glide. Ignored when amplitude=0. */
+  stutterFrequency: number;
+};
+
+/**
+ * Mouse handoff between sections (entry). Before recorded events fire, glide
+ * the cursor from `(fromX, fromY)` to the section's first event position.
  */
 export type MouseHandoffSpec = {
   fromX: number;
   fromY: number;
   durationMs: number;
-  easing: "easeInOut";
+  easing: MouseEasing;
+  shape: MouseGlideShape;
 };
+
+/**
+ * Mouse exit glide. Section runs full replay; during the LAST `durationMs`,
+ * the cursor sprite is overridden to glide from its position at the start of
+ * the exit window to (toX, toY). Discrete events (clicks/keys) still fire at
+ * their recorded positions during this window.
+ *
+ * `fromX`/`fromY` are optional explicit overrides for the start of the glide.
+ * When omitted, the renderer captures the cursor's recorded position at the
+ * exit-start frame. Set explicitly in the crossfade path so intro's exit
+ * glide and product's entry glide trace the same path through the xfade
+ * overlap (no sub-frame quantization drift).
+ */
+export type ExitMouseGlideSpec = {
+  fromX?: number;
+  fromY?: number;
+  toX: number;
+  toY: number;
+  durationMs: number;
+  easing: MouseEasing;
+  shape: MouseGlideShape;
+};
+
+export type MouseEasing = "easeInOut" | "cubicEaseInOut";
 
 export type TrimSpec = {
   startSec: number;
@@ -60,24 +121,49 @@ export type TrimSpec = {
  * Single source of truth for a section's render config. Routes resolve form
  * state + metadata into a RenderSpec; the worker consumes it without
  * re-resolving.
+ *
+ * Entry transitions (morph, mouseHandoff) play in the FIRST N ms of capture.
+ * Exit transitions (exitMorph, exitMouseGlide) play in the LAST N ms of
+ * capture. Routes never emit both entry and exit on the same section — the
+ * `transition.side` choice picks one or the other.
  */
 export type RenderSpec = {
   webcam: Webcam;
   morph?: MorphSpec;
+  exitMorph?: ExitMorphSpec;
   throb?: ThrobSpec;
   mouseHandoff?: MouseHandoffSpec;
+  exitMouseGlide?: ExitMouseGlideSpec;
   trim?: TrimSpec;
 };
 
 /**
- * Cross-section transitions. Schema-only in v1; only `'none'` is honored
- * by the worker. Other values may appear in payloads but should be treated
- * as `'none'`.
+ * Cross-section transitions applied at merge time AND threaded into per-
+ * section RenderSpecs. Audio/video crossfade are pure FFmpeg merge-stage
+ * filters; overlay/mouse are baked into one section's render (the side
+ * field decides which section).
+ *
+ * `audio: 'crossfade'` is gated on both sections having real audio — when
+ * either is silent (mode='off' or no webcam), the merge stage falls back
+ * to plain concat regardless of this value.
  */
+/**
+ * Mouse transition style — picks the glide shape:
+ *   - none:    cursor jumps at the boundary (no glide spec emitted).
+ *   - linear:  straight A→B path, eased speed.
+ *   - arched:  Bezier arc bowing up, eased speed.
+ *   - natural: arched path with sine speed stutter (most human-feeling).
+ */
+export type MouseTransitionStyle = "none" | "linear" | "arched" | "natural";
+
 export type Transitions = {
   audio: "none" | "crossfade";
   video: "none" | "crossfade";
   overlay: "none" | "animated";
+  mouse: MouseTransitionStyle;
+  side: "end-of-intro" | "start-of-product";
+  /** 100..1000 ms in 100 ms steps. */
+  durationMs: number;
 };
 
 export type MergeRenderSpec = {
@@ -98,16 +184,39 @@ export const DEFAULT_WEBCAM: Webcam = {
   },
 };
 
+export const DEFAULT_TRANSITION_DURATION_MS = 400;
+
 export const DEFAULT_TRANSITIONS: Transitions = {
   audio: "none",
   video: "none",
   overlay: "none",
+  mouse: "none",
+  side: "start-of-product",
+  durationMs: DEFAULT_TRANSITION_DURATION_MS,
+};
+
+/** Today's p1 default — overlay morph + natural mouse glide at start of product, both crossfades on. */
+export const P1_TRANSITIONS: Transitions = {
+  audio: "crossfade",
+  video: "crossfade",
+  overlay: "animated",
+  mouse: "natural",
+  side: "start-of-product",
+  durationMs: DEFAULT_TRANSITION_DURATION_MS,
 };
 
 export const DEFAULT_THROB_MIN = 1.0;
 export const DEFAULT_THROB_MAX = 1.2;
+/** Legacy fallback when no transition is configured. */
 export const DEFAULT_MORPH_DURATION_MS = 500;
 export const DEFAULT_MOUSE_HANDOFF_MS = 300;
+
+/** Clamp + snap a transition duration to the allowed 100..2000ms grid. */
+export function snapTransitionDurationMs(ms: unknown): number {
+  const n = typeof ms === "number" && Number.isFinite(ms) ? ms : DEFAULT_TRANSITION_DURATION_MS;
+  const clamped = Math.max(100, Math.min(2000, n));
+  return Math.round(clamped / 100) * 100;
+}
 
 // ---------------------------------------------------------------------------
 // Form-state shapes (mirror of GenerateMergeModal IntroSettings/ProductSettings
@@ -288,6 +397,14 @@ export function specHashInput(spec: RenderSpec): string {
       `md=${spec.morph.durationMs}`,
     );
   }
+  if (spec.exitMorph) {
+    parts.push(
+      `xmm=${spec.exitMorph.toMode}`,
+      `xmv=${spec.exitMorph.toPosition.vertical}`,
+      `xmh=${spec.exitMorph.toPosition.horizontal}`,
+      `xmd=${spec.exitMorph.durationMs}`,
+    );
+  }
   if (spec.throb) {
     parts.push(
       `te=${spec.throb.enabled ? 1 : 0}`,
@@ -301,6 +418,23 @@ export function specHashInput(spec: RenderSpec): string {
       `mhx=${spec.mouseHandoff.fromX}`,
       `mhy=${spec.mouseHandoff.fromY}`,
       `mhd=${spec.mouseHandoff.durationMs}`,
+      `mhe=${spec.mouseHandoff.easing}`,
+      `mha=${spec.mouseHandoff.shape.arcFraction}`,
+      `mhsa=${spec.mouseHandoff.shape.stutterAmplitude}`,
+      `mhsf=${spec.mouseHandoff.shape.stutterFrequency}`,
+    );
+  }
+  if (spec.exitMouseGlide) {
+    parts.push(
+      `xmgx=${spec.exitMouseGlide.toX}`,
+      `xmgy=${spec.exitMouseGlide.toY}`,
+      `xmgfx=${spec.exitMouseGlide.fromX ?? ""}`,
+      `xmgfy=${spec.exitMouseGlide.fromY ?? ""}`,
+      `xmgd=${spec.exitMouseGlide.durationMs}`,
+      `xmge=${spec.exitMouseGlide.easing}`,
+      `xmga=${spec.exitMouseGlide.shape.arcFraction}`,
+      `xmgsa=${spec.exitMouseGlide.shape.stutterAmplitude}`,
+      `xmgsf=${spec.exitMouseGlide.shape.stutterFrequency}`,
     );
   }
   return parts.join("|");
@@ -309,6 +443,32 @@ export function specHashInput(spec: RenderSpec): string {
 /** Stable 16-char hex hash of a RenderSpec — drives cache field keys. */
 export function hashSpec(spec: RenderSpec): string {
   return createHash("sha256").update(specHashInput(spec)).digest("hex").slice(0, 16);
+}
+
+/**
+ * Resolve a `MouseTransitionStyle` (modal selection) into the path-shape
+ * knobs that the renderer applies. Returns null when style='none' — caller
+ * should not emit a handoff/exit-glide spec in that case.
+ */
+export function resolveGlideShape(style: MouseTransitionStyle): MouseGlideShape | null {
+  switch (style) {
+    case "none":
+      return null;
+    case "linear":
+      return { arcFraction: 0, stutterAmplitude: 0, stutterFrequency: 0 };
+    case "arched":
+      return {
+        arcFraction: MOUSE_GLIDE_ARC_FRACTION,
+        stutterAmplitude: 0,
+        stutterFrequency: 0,
+      };
+    case "natural":
+      return {
+        arcFraction: MOUSE_GLIDE_ARC_FRACTION,
+        stutterAmplitude: MOUSE_GLIDE_STUTTER_AMPLITUDE,
+        stutterFrequency: MOUSE_GLIDE_STUTTER_FREQUENCY,
+      };
+  }
 }
 
 /** Stable trim key string — kept separate from spec hash so trim can cache independently. */

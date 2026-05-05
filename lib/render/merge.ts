@@ -1,140 +1,218 @@
 import { randomUUID } from "node:crypto";
+import { mkdir, rm } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { FFMPEG_BIN } from "@/lib/render/ffmpeg-bin";
+import { renderCursorFrames } from "@/lib/render/cursor-layer";
 
-export type MergeTransition = {
+export type LayeredMergeTransition = {
   /** 'crossfade' overlaps audio for `audioDurationMs` at the boundary. */
   audio: "none" | "crossfade";
-  /** 'crossfade' overlaps video for `videoDurationMs` at the boundary. */
+  /** 'crossfade' overlaps the BACKGROUND video for `videoDurationMs` at the
+   *  boundary. The overlay layer (webcam circle / audio icon) is always
+   *  concatenated, never crossfaded — that's the whole point of layering. */
   video: "none" | "crossfade";
   audioDurationMs: number;
   videoDurationMs: number;
-  /** Duration of the first input (intro) in seconds — used to compute the
-   *  xfade `offset`. Caller probes this from the produce result. */
-  introDurationSec: number;
-  /** Path to a WAV/audio file containing the un-trimmed audio chunk
-   *  immediately AFTER intro's trim_end (length = audioDurationMs / 2 ms).
-   *  Required when `audio === 'crossfade'`. */
+  /** Pre-extracted un-trimmed audio chunk (D/2 long) appended to intro
+   *  audio for the symmetric audio crossfade. Required when audio==='crossfade'. */
   introAudioTailPath?: string;
-  /** Path to a WAV/audio file containing the un-trimmed audio chunk
-   *  immediately BEFORE product's trim_start (length = audioDurationMs / 2 ms).
-   *  Required when `audio === 'crossfade'`. */
+  /** Pre-extracted un-trimmed audio chunk (D/2 long) prepended to product
+   *  audio for the symmetric audio crossfade. */
   productAudioHeadPath?: string;
 };
 
+export type SectionMergeInputs = {
+  /** Background-only render — page screenshots, no overlay/cursor. */
+  backgroundVideoPath: string;
+  /** Transparent overlay webm — webcam circle / audio icon, alpha-aware. */
+  overlayVideoPath: string;
+  /** Trim window in session-time seconds. Both undefined / 0 → no trim. */
+  trimStartSec?: number;
+  trimEndSec?: number;
+  /** Webcam.webm for audio source. Null when audio is muted (mode='off' or no webcam). */
+  webcamPath: string | null;
+  /** When true, intro/product audio is silenced regardless of webcamPath. */
+  muteAudio: boolean;
+};
+
+export type LayeredMergeOptions = {
+  outputDir: string;
+  outputName: string;
+  fps: number;
+  width: number;
+  height: number;
+  intro: SectionMergeInputs;
+  product: SectionMergeInputs;
+  transition: LayeredMergeTransition;
+  /** Cursor sprite source — Buffer of public/cursor.svg or a PNG. */
+  cursorSource: Buffer;
+  cursorSizePx: number;
+  /** One (x, y) per OUTPUT frame, in output-frame order. Length must equal
+   *  the merged output's frame count = (T_intro_trimmed + T_product_trimmed) × fps. */
+  cursorPositions: ReadonlyArray<{ x: number; y: number }>;
+  onProgress?: (pct: number) => void;
+};
+
 /**
- * Concatenate two MP4 videos with the symmetric merge model.
+ * One-shot layered FFmpeg merge for the dual-section flow. Operates on
+ * each section's RAW LAYERS (background MP4 + transparent overlay webm),
+ * trims them to their windows inside the filtergraph, then composes:
  *
- * Total output length is always `T_intro + T_product` (where T_x is the
- * input file's actual length). Each transition is symmetric around the
- * boundary, contributing D/2 from each side:
+ *   - Backgrounds: tpad + xfade (the wanted blend) OR plain concat.
+ *   - Overlays:    plain concat (no crossfade — eliminates the
+ *                  webcam-circle dissolve artifact).
+ *   - Cursor:      sprite over the merged result via PNG sequence.
+ *   - Audio:       acrossfade with un-trimmed borrowing OR plain concat.
  *
- *   - video crossfade: each input is padded with D/2 frozen frames via
- *     FFmpeg `tpad` (intro tail clones last frame; product head clones
- *     first frame). The xfade window is then D wide centered on the
- *     boundary, with offset = T_intro - D/2 + D/2 = T_intro. Output:
- *     (T_intro + D/2) + (D/2 + T_product) - D = T_intro + T_product.
- *
- *   - audio crossfade: pre-extracted un-trimmed audio chunks (length D/2
- *     each) are appended to intro audio and prepended to product audio.
- *     The acrossfade window is D wide centered on the boundary. Output:
- *     (T_intro + D/2) + (D/2 + T_product) - D = T_intro + T_product.
- *
- * Audio and video durations are independent — the symmetric model has no
- * cross-coupling because each crossfade's width is absorbed entirely by
- * its own padding/borrow.
- *
- * Without crossfade (both 'none'), uses the concat filter to handle format
- * mismatches between halves transparently.
+ * Output length = T_intro_trimmed + T_product_trimmed always.
  */
-export async function mergeVideoFiles(
-  video1Path: string,
-  video2Path: string,
-  outputDir: string,
-  outputName: string,
-  onProgress?: (pct: number) => void,
-  transition?: MergeTransition,
+export async function composeLayeredMerge(
+  options: LayeredMergeOptions,
 ): Promise<{ mergedPath: string }> {
-  const fileName = `${outputName}-merged-${Date.now()}-${randomUUID().slice(0, 8)}.mp4`;
-  const mergedPath = path.join(outputDir, fileName);
+  const fileName = `${options.outputName}-merged-${Date.now()}-${randomUUID().slice(0, 8)}.mp4`;
+  const mergedPath = path.join(options.outputDir, fileName);
 
-  const audioCross = transition?.audio === "crossfade";
-  const videoCross = transition?.video === "crossfade";
-  const useCrossfade = audioCross || videoCross;
+  const t = options.transition;
+  const audioCross = t.audio === "crossfade";
+  const videoCross = t.video === "crossfade";
 
-  // Extra inputs (audio chunks for crossfade borrowing). Indices are wired
-  // into the filtergraph below.
-  const extraInputs: string[] = [];
+  const fps = options.fps;
+  const videoSec = Math.max(0.1, t.videoDurationMs / 1000);
+  const audioSec = Math.max(0.1, t.audioDurationMs / 1000);
+  const halfVideoSec = videoSec / 2;
+
+  const introTrimStart = options.intro.trimStartSec ?? 0;
+  const introTrimEnd = options.intro.trimEndSec ?? 0;
+  const productTrimStart = options.product.trimStartSec ?? 0;
+  const productTrimEnd = options.product.trimEndSec ?? 0;
+  const introTrimmedSec = (introTrimEnd > 0 ? introTrimEnd : Number.POSITIVE_INFINITY) - introTrimStart;
+  // Note: introTrimmedSec may be Infinity when trimEnd is 0 (no end trim) —
+  // FFmpeg's `trim=start:end` with end=0 means "to the end of the stream",
+  // so we just omit the end clause in that case.
+
+  // ---- Cursor PNG sequence (one frame per OUTPUT frame) ----
+  const cursorFramesDir = path.join(options.outputDir, `cursor-${randomUUID().slice(0, 8)}`);
+  await mkdir(cursorFramesDir, { recursive: true });
+  const cursor = await renderCursorFrames({
+    positions: options.cursorPositions,
+    cursorSource: options.cursorSource,
+    cursorSizePx: options.cursorSizePx,
+    canvasWidth: options.width,
+    canvasHeight: options.height,
+    framesDir: cursorFramesDir,
+  });
+
+  // ---- Build inputs + filtergraph ----
+  const args: string[] = [];
+
+  // Inputs 0..3: layered video for both sections.
+  args.push("-i", options.intro.backgroundVideoPath);
+  args.push("-i", options.intro.overlayVideoPath);
+  args.push("-i", options.product.backgroundVideoPath);
+  args.push("-i", options.product.overlayVideoPath);
+
+  // Input 4: cursor PNG sequence.
+  args.push("-framerate", String(fps), "-i", path.join(cursorFramesDir, cursor.pattern));
+
+  // Inputs 5, 6: section audio sources (webcam.webm or silence).
+  const introAudioInputIdx = 5;
+  const productAudioInputIdx = 6;
+  const useIntroAudio = !options.intro.muteAudio && !!options.intro.webcamPath;
+  const useProductAudio = !options.product.muteAudio && !!options.product.webcamPath;
+  if (useIntroAudio) {
+    args.push("-i", options.intro.webcamPath!);
+  } else {
+    args.push("-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000");
+  }
+  if (useProductAudio) {
+    args.push("-i", options.product.webcamPath!);
+  } else {
+    args.push("-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000");
+  }
+
+  // Inputs 7, 8: borrowed audio chunks (only when audio crossfade is on).
   let introAudioTailIdx: number | null = null;
   let productAudioHeadIdx: number | null = null;
   if (audioCross) {
-    if (!transition?.introAudioTailPath || !transition?.productAudioHeadPath) {
-      throw new Error(
-        "audio crossfade requires introAudioTailPath and productAudioHeadPath",
-      );
+    if (!t.introAudioTailPath || !t.productAudioHeadPath) {
+      throw new Error("audio crossfade requires introAudioTailPath and productAudioHeadPath");
     }
-    introAudioTailIdx = 2 + extraInputs.length;
-    extraInputs.push(transition.introAudioTailPath);
-    productAudioHeadIdx = 2 + extraInputs.length;
-    extraInputs.push(transition.productAudioHeadPath);
+    introAudioTailIdx = 7;
+    productAudioHeadIdx = 8;
+    args.push("-i", t.introAudioTailPath);
+    args.push("-i", t.productAudioHeadPath);
   }
 
-  let filterComplex: string;
-  if (!useCrossfade) {
-    // Plain concat — handles format mismatches between halves.
-    filterComplex = "[0:v:0][0:a:0][1:v:0][1:a:0]concat=n=2:v=1:a=1[outv][outa]";
+  // ---- Filtergraph parts ----
+  const parts: string[] = [];
+
+  const trimSuffix = (start: number, end: number): string => {
+    let s = `trim=start=${start.toFixed(3)}`;
+    if (end > 0) s += `:end=${end.toFixed(3)}`;
+    s += ",setpts=PTS-STARTPTS";
+    return s;
+  };
+  const atrimSuffix = (start: number, end: number): string => {
+    let s = `atrim=start=${start.toFixed(3)}`;
+    if (end > 0) s += `:end=${end.toFixed(3)}`;
+    s += ",asetpts=PTS-STARTPTS";
+    return s;
+  };
+
+  // Trim each section's layers to its window. Force `yuva420p` on the
+  // overlay branch BEFORE trim so the trim/concat filters keep the alpha
+  // channel intact — otherwise FFmpeg may silently downcast to yuv420p
+  // and the merged overlay covers the background as opaque pixels.
+  parts.push(`[0:v]${trimSuffix(introTrimStart, introTrimEnd)}[bg0]`);
+  parts.push(`[1:v]format=yuva420p,${trimSuffix(introTrimStart, introTrimEnd)}[ov0]`);
+  parts.push(`[2:v]${trimSuffix(productTrimStart, productTrimEnd)}[bg1]`);
+  parts.push(`[3:v]format=yuva420p,${trimSuffix(productTrimStart, productTrimEnd)}[ov1]`);
+
+  // Background merge (xfade or concat).
+  if (videoCross) {
+    // Symmetric tpad + xfade. Output length after this stage:
+    //   bg0_padded = T_intro + halfV
+    //   bg1_padded = halfV + T_product
+    //   xfade D=videoSec offset=T_intro - halfV → output = T_intro + T_product
+    parts.push(`[bg0]tpad=stop_mode=clone:stop_duration=${halfVideoSec.toFixed(3)}[bg0pad]`);
+    parts.push(`[bg1]tpad=start_mode=clone:start_duration=${halfVideoSec.toFixed(3)}[bg1pad]`);
+    const xfadeOffsetSec = Math.max(0, introTrimmedSec - halfVideoSec);
+    parts.push(
+      `[bg0pad][bg1pad]xfade=transition=fade:duration=${videoSec.toFixed(3)}:offset=${xfadeOffsetSec.toFixed(3)}[bgmerged]`,
+    );
   } else {
-    const t = transition!;
-    const videoSec = Math.max(0.1, t.videoDurationMs / 1000);
-    const audioSec = Math.max(0.1, t.audioDurationMs / 1000);
-    const halfVideoSec = videoSec / 2;
-    const introSec = t.introDurationSec;
-
-    const parts: string[] = [];
-
-    // ---- Video ----
-    if (videoCross) {
-      // Symmetric tpad: clone last frame on intro tail, first frame on
-      // product head, each by halfVideoSec. With input1 length = T_intro
-      // + D/2 and input2 length = D/2 + T_product, xfade offset = T_intro
-      // - D/2 puts the blend window exactly across [T_intro - D/2,
-      // T_intro + D/2] in output time — centered on the boundary.
-      // Output length = offset + input2_length = T_intro + T_product.
-      const xfadeOffsetSec = Math.max(0, introSec - halfVideoSec);
-      parts.push(
-        `[0:v]tpad=stop_mode=clone:stop_duration=${halfVideoSec.toFixed(3)}[v0pad]`,
-        `[1:v]tpad=start_mode=clone:start_duration=${halfVideoSec.toFixed(3)}[v1pad]`,
-        `[v0pad][v1pad]xfade=transition=fade:duration=${videoSec.toFixed(3)}:offset=${xfadeOffsetSec.toFixed(3)}[outv]`,
-      );
-    } else {
-      parts.push(`[0:v:0][1:v:0]concat=n=2:v=1:a=0[outv]`);
-    }
-
-    // ---- Audio ----
-    if (audioCross) {
-      // Borrow un-trimmed audio chunks (D/2 each side) and stitch them
-      // around the boundary, then acrossfade the full-length streams.
-      // intro_extended  = T_intro + D_a/2
-      // product_extended = D_a/2 + T_product
-      // acrossfade D_a → output = T_intro + T_product
-      parts.push(
-        `[0:a][${introAudioTailIdx}:a]concat=n=2:v=0:a=1[a0ext]`,
-        `[${productAudioHeadIdx}:a][1:a]concat=n=2:v=0:a=1[a1ext]`,
-        `[a0ext][a1ext]acrossfade=d=${audioSec.toFixed(3)}:c1=tri:c2=tri[outa]`,
-      );
-    } else {
-      parts.push(`[0:a:0][1:a:0]concat=n=2:v=0:a=1[outa]`);
-    }
-    filterComplex = parts.join(";");
+    parts.push(`[bg0][bg1]concat=n=2:v=1:a=0[bgmerged]`);
   }
 
-  const args = [
-    "-i", video1Path,
-    "-i", video2Path,
-    ...extraInputs.flatMap((p) => ["-i", p]),
+  // Overlay merge: ALWAYS concat (never crossfade). The user's morph spec
+  // already animates the webcam circle within each section's trim window,
+  // so the two overlays meet at the boundary in their morph-end states.
+  parts.push(`[ov0][ov1]concat=n=2:v=1:a=0[ovmerged]`);
+
+  // Composite: bg + overlay, then + cursor. `format=yuv420` on the bg+ov
+  // step picks the alpha-aware blend implementation that respects the
+  // overlay's alpha channel. The cursor overlay similarly benefits from
+  // alpha-aware blending of the cursor PNG sprite.
+  parts.push(`[bgmerged][ovmerged]overlay=0:0:format=yuv420[bgov]`);
+  parts.push(`[bgov][4:v]overlay=0:0:format=auto[v]`);
+
+  // Audio: trim each section's audio to its window, then merge.
+  parts.push(`[${introAudioInputIdx}:a]${atrimSuffix(introTrimStart, introTrimEnd)}[a0]`);
+  parts.push(`[${productAudioInputIdx}:a]${atrimSuffix(productTrimStart, productTrimEnd)}[a1]`);
+  if (audioCross) {
+    parts.push(`[a0][${introAudioTailIdx}:a]concat=n=2:v=0:a=1[a0ext]`);
+    parts.push(`[${productAudioHeadIdx}:a][a1]concat=n=2:v=0:a=1[a1ext]`);
+    parts.push(`[a0ext][a1ext]acrossfade=d=${audioSec.toFixed(3)}:c1=tri:c2=tri[outa]`);
+  } else {
+    parts.push(`[a0][a1]concat=n=2:v=0:a=1[outa]`);
+  }
+
+  const filterComplex = parts.join(";");
+
+  args.push(
     "-filter_complex", filterComplex,
-    "-map", "[outv]",
+    "-map", "[v]",
     "-map", "[outa]",
     "-c:v", "libx264",
     "-preset", "veryfast",
@@ -147,40 +225,35 @@ export async function mergeVideoFiles(
     "-progress", "pipe:1",
     "-y",
     mergedPath,
-  ];
+  );
 
-  await new Promise<void>((resolve, reject) => {
-    const proc = spawn(FFMPEG_BIN, args);
-    let buf = "";
-
-    proc.stdout?.on("data", (chunk: Buffer) => {
-      buf += chunk.toString();
-      const lines = buf.split("\n");
-      buf = lines.pop() ?? "";
-      for (const line of lines) {
-        const match = line.match(/^out_time=(\d{2}:\d{2}:\d{2}\.\d+)/);
-        if (match) {
-          onProgress?.(50);
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const proc = spawn(FFMPEG_BIN, args);
+      let buf = "";
+      proc.stdout?.on("data", (chunk: Buffer) => {
+        buf += chunk.toString();
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        for (const line of lines) {
+          if (/^out_time=/.test(line)) options.onProgress?.(50);
         }
-      }
+      });
+      const stderrLines: string[] = [];
+      proc.stderr?.on("data", (chunk: Buffer) => { stderrLines.push(chunk.toString()); });
+      proc.on("close", (code) => {
+        if (code === 0) {
+          options.onProgress?.(100);
+          resolve();
+        } else {
+          reject(new Error(`ffmpeg layered merge exited with code ${code}:\n${stderrLines.join("")}`));
+        }
+      });
+      proc.on("error", reject);
     });
-
-    const stderrLines: string[] = [];
-    proc.stderr?.on("data", (chunk: Buffer) => {
-      stderrLines.push(chunk.toString());
-    });
-
-    proc.on("close", (code) => {
-      if (code === 0) {
-        onProgress?.(100);
-        resolve();
-      } else {
-        reject(new Error(`ffmpeg merge exited with code ${code}:\n${stderrLines.join("")}`));
-      }
-    });
-
-    proc.on("error", reject);
-  });
+  } finally {
+    rm(cursorFramesDir, { recursive: true, force: true }).catch(() => {});
+  }
 
   return { mergedPath };
 }
@@ -189,11 +262,6 @@ export async function mergeVideoFiles(
  * Extract a fixed-length audio chunk from a webcam.webm file, encoded as
  * 48kHz stereo PCM WAV. Used to borrow un-trimmed audio for the symmetric
  * audio crossfade.
- *
- * `startSec` and `durationSec` clamp to the file's available range. If the
- * requested window extends past the file's end, FFmpeg returns whatever
- * exists; the caller is responsible for ensuring the route-layer clamp
- * gives a window that fully fits.
  */
 export async function extractAudioChunk(
   inputPath: string,

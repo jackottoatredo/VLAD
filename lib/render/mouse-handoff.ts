@@ -39,26 +39,6 @@ export function computeMousePosAtTime(
 }
 
 /**
- * Cursor position at the END of a section's playback window. Honours trim:
- * the section's end is min(trimEndSec, sessionEnd). Used to seed the next
- * section's mouse handoff for the no-crossfade (concat) merge path.
- */
-export function computeLastMousePos(
-  keyframes: ReadonlyArray<Keyframe>,
-  trimStartSec: number | undefined,
-  trimEndSec: number | undefined,
-): { x: number; y: number } | null {
-  if (keyframes.length === 0) return null;
-  const sessionEndMs = keyframes[keyframes.length - 1].t;
-  const startMs = trimStartSec != null && trimStartSec > 0 ? trimStartSec * 1000 : 0;
-  const endMs =
-    trimEndSec != null && trimEndSec > 0
-      ? Math.min(trimEndSec * 1000, sessionEndMs)
-      : sessionEndMs;
-  return computeMousePosAtTime(keyframes, Math.max(startMs, endMs));
-}
-
-/**
  * Cursor position at the START of a section's exit window — i.e.
  * `transitionDurationMs` ms before the section's end. Used in the crossfade
  * path so intro's exit glide and product's entry glide both anchor to the

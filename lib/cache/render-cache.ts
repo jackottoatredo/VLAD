@@ -13,19 +13,21 @@ const redis = (g.__cacheRedis ??= new Redis({
 export type QualityTier = "preview" | "full";
 
 /**
- * v3 cache: three sub-stages keyed under one Redis hash per (user, recording,
+ * v4 cache: three sub-stages keyed under one Redis hash per (user, recording,
  * url, tier). Trim is INTENTIONALLY excluded from `specHash` so trim-only
  * edits short-circuit at the trim sub-stage — render and composite caches
  * stay warm and only the cheap trim re-encode runs.
  *
- *   render:${specHash}_*           — Playwright capture (overlay baked in)
- *   comp:${specHash}_*             — audio mux on top of render
+ *   render:${specHash}_*           — Playwright capture (NO overlay/cursor;
+ *                                    cursor is composited at the comp stage)
+ *   comp:${specHash}_*             — cursor overlay + audio mux
  *   trim:${specHash}:${trimKey}_*  — final cut to the requested window
  *
- * Bumped from v2 prefix on the cache version to invalidate stale entries
- * carried over from the prior collapse experiment.
+ * Bumped from v3: the cursor sprite migrated from a render-time DOM element
+ * to an FFmpeg overlay at compose time, so the spec-hash composition
+ * changes and v3 entries are invalid.
  */
-const CACHE_VERSION = "v3";
+const CACHE_VERSION = "v4";
 
 function cacheKey(userId: string, safeId: string, urlHash: string, tier: QualityTier): string {
   return `cache:${CACHE_VERSION}:${userId}:${safeId}:${urlHash}:${tier}`;
@@ -38,7 +40,9 @@ function cacheKey(userId: string, safeId: string, urlHash: string, tier: Quality
 export type CachedRender = {
   /** Earliest pipeline step that needs to run (1=render, 2=composite, 3=trim). */
   startFromStep: 1 | 2 | 3;
-  renderR2Key?: string;
+  /** v4 layered render artifacts. Both must be present to skip stage 1. */
+  backgroundR2Key?: string;
+  overlayR2Key?: string;
   renderDurationMs?: number;
   compositeR2Key?: string;
   trimmedR2Key?: string;
@@ -69,26 +73,34 @@ export async function findCachedRender(
     return { startFromStep: 1 };
   }
 
-  const renderR2Key = data[`render:${specHash}_r2_key`];
+  const backgroundR2Key = data[`render:${specHash}_bg_r2_key`];
+  const overlayR2Key = data[`render:${specHash}_ov_r2_key`];
   const renderDurationMs = data[`render:${specHash}_duration_ms`]
     ? Number(data[`render:${specHash}_duration_ms`])
     : undefined;
 
-  if (!renderR2Key || !renderDurationMs) {
+  if (!backgroundR2Key || !overlayR2Key || !renderDurationMs) {
     return { startFromStep: 1 };
   }
 
   const compositeR2Key = data[`comp:${specHash}_r2_key`];
   if (!compositeR2Key) {
-    return { startFromStep: 2, renderR2Key, renderDurationMs };
+    return { startFromStep: 2, backgroundR2Key, overlayR2Key, renderDurationMs };
   }
 
   const trimmedR2Key = data[`trim:${specHash}:${trimKey}_r2_key`];
   if (!trimmedR2Key) {
-    return { startFromStep: 3, renderR2Key, renderDurationMs, compositeR2Key };
+    return { startFromStep: 3, backgroundR2Key, overlayR2Key, renderDurationMs, compositeR2Key };
   }
 
-  return { startFromStep: 3, renderR2Key, renderDurationMs, compositeR2Key, trimmedR2Key };
+  return {
+    startFromStep: 3,
+    backgroundR2Key,
+    overlayR2Key,
+    renderDurationMs,
+    compositeR2Key,
+    trimmedR2Key,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -96,7 +108,8 @@ export async function findCachedRender(
 // ---------------------------------------------------------------------------
 
 export type RenderCacheResult = {
-  renderR2Key: string;
+  backgroundR2Key: string;
+  overlayR2Key: string;
   renderDurationMs: number;
   compositeR2Key: string;
   trimmedR2Key: string | null;
@@ -116,7 +129,8 @@ export async function updateRenderCache(
 
   const fields: Record<string, string> = {
     mouseHash,
-    [`render:${specHash}_r2_key`]: result.renderR2Key,
+    [`render:${specHash}_bg_r2_key`]: result.backgroundR2Key,
+    [`render:${specHash}_ov_r2_key`]: result.overlayR2Key,
     [`render:${specHash}_duration_ms`]: String(result.renderDurationMs),
     [`comp:${specHash}_r2_key`]: result.compositeR2Key,
   };

@@ -77,40 +77,6 @@ export type MouseGlideShape = {
   stutterFrequency: number;
 };
 
-/**
- * Mouse handoff between sections (entry). Before recorded events fire, glide
- * the cursor from `(fromX, fromY)` to the section's first event position.
- */
-export type MouseHandoffSpec = {
-  fromX: number;
-  fromY: number;
-  durationMs: number;
-  easing: MouseEasing;
-  shape: MouseGlideShape;
-};
-
-/**
- * Mouse exit glide. Section runs full replay; during the LAST `durationMs`,
- * the cursor sprite is overridden to glide from its position at the start of
- * the exit window to (toX, toY). Discrete events (clicks/keys) still fire at
- * their recorded positions during this window.
- *
- * `fromX`/`fromY` are optional explicit overrides for the start of the glide.
- * When omitted, the renderer captures the cursor's recorded position at the
- * exit-start frame. Set explicitly in the crossfade path so intro's exit
- * glide and product's entry glide trace the same path through the xfade
- * overlap (no sub-frame quantization drift).
- */
-export type ExitMouseGlideSpec = {
-  fromX?: number;
-  fromY?: number;
-  toX: number;
-  toY: number;
-  durationMs: number;
-  easing: MouseEasing;
-  shape: MouseGlideShape;
-};
-
 export type MouseEasing = "easeInOut" | "cubicEaseInOut";
 
 export type TrimSpec = {
@@ -119,23 +85,52 @@ export type TrimSpec = {
 };
 
 /**
+ * Boundary glide for the cursor. In the symmetric merge model, intro carries
+ * a `glideOut` (cursor leaves the section toward the boundary midpoint), and
+ * product carries a `glideIn` (cursor enters the section from the boundary
+ * midpoint). For single-section flows both are undefined.
+ *
+ * Note: this lives at the section level (RenderSpec.mouseTrack) rather than
+ * being threaded into the action chain. The cursor sprite is composited via
+ * FFmpeg in the compose stage, not painted into screenshots, so the glide
+ * is purely an output-time computation.
+ */
+export type MouseGlideStep = {
+  /** Endpoint OUTSIDE the trim window. For glideOut, this is where the
+   *  cursor lands AFTER exiting the trim window's last D/2. For glideIn,
+   *  this is where the cursor STARTS before entering the trim window. */
+  point: { x: number; y: number };
+  durationMs: number;
+  easing: MouseEasing;
+  shape: MouseGlideShape;
+};
+
+export type MouseTrackSpec = {
+  /** Glide segment played at the START of the trim window (first D/2 ms).
+   *  Cursor moves from `point` to the recorded position at trim_start. */
+  glideIn?: MouseGlideStep;
+  /** Glide segment played at the END of the trim window (last D/2 ms).
+   *  Cursor moves from the recorded position at (trim_end − D/2) to `point`. */
+  glideOut?: MouseGlideStep;
+};
+
+/**
  * Single source of truth for a section's render config. Routes resolve form
  * state + metadata into a RenderSpec; the worker consumes it without
  * re-resolving.
  *
- * Entry transitions (morph, mouseHandoff) play in the FIRST N ms of capture.
- * Exit transitions (exitMorph, exitMouseGlide) play in the LAST N ms of
- * capture. The symmetric merge model emits BOTH sides — intro carries exit
- * transitions, product carries entry transitions — so they meet at the
- * merge boundary.
+ * Mouse track: cursor positions are computed deterministically from the
+ * recording's keyframes plus optional boundary glides. The cursor sprite is
+ * composited at the FFmpeg compose stage (no DOM cursor inside Playwright).
  */
 export type RenderSpec = {
   webcam: Webcam;
   morph?: MorphSpec;
   exitMorph?: ExitMorphSpec;
   throb?: ThrobSpec;
-  mouseHandoff?: MouseHandoffSpec;
-  exitMouseGlide?: ExitMouseGlideSpec;
+  /** Boundary glides for the cursor sprite. Empty/undefined when the
+   *  section has no merge handoff (single-section flows). */
+  mouseTrack?: MouseTrackSpec;
   trim?: TrimSpec;
 };
 
@@ -435,28 +430,28 @@ export function specHashInput(spec: RenderSpec): string {
       `tx=${spec.throb.maxScale}`,
     );
   }
-  if (spec.mouseHandoff) {
+  if (spec.mouseTrack?.glideIn) {
+    const g = spec.mouseTrack.glideIn;
     parts.push(
-      `mhx=${spec.mouseHandoff.fromX}`,
-      `mhy=${spec.mouseHandoff.fromY}`,
-      `mhd=${spec.mouseHandoff.durationMs}`,
-      `mhe=${spec.mouseHandoff.easing}`,
-      `mha=${spec.mouseHandoff.shape.arcFraction}`,
-      `mhsa=${spec.mouseHandoff.shape.stutterAmplitude}`,
-      `mhsf=${spec.mouseHandoff.shape.stutterFrequency}`,
+      `gix=${g.point.x}`,
+      `giy=${g.point.y}`,
+      `gid=${g.durationMs}`,
+      `gie=${g.easing}`,
+      `gia=${g.shape.arcFraction}`,
+      `gisa=${g.shape.stutterAmplitude}`,
+      `gisf=${g.shape.stutterFrequency}`,
     );
   }
-  if (spec.exitMouseGlide) {
+  if (spec.mouseTrack?.glideOut) {
+    const g = spec.mouseTrack.glideOut;
     parts.push(
-      `xmgx=${spec.exitMouseGlide.toX}`,
-      `xmgy=${spec.exitMouseGlide.toY}`,
-      `xmgfx=${spec.exitMouseGlide.fromX ?? ""}`,
-      `xmgfy=${spec.exitMouseGlide.fromY ?? ""}`,
-      `xmgd=${spec.exitMouseGlide.durationMs}`,
-      `xmge=${spec.exitMouseGlide.easing}`,
-      `xmga=${spec.exitMouseGlide.shape.arcFraction}`,
-      `xmgsa=${spec.exitMouseGlide.shape.stutterAmplitude}`,
-      `xmgsf=${spec.exitMouseGlide.shape.stutterFrequency}`,
+      `gox=${g.point.x}`,
+      `goy=${g.point.y}`,
+      `god=${g.durationMs}`,
+      `goe=${g.easing}`,
+      `goa=${g.shape.arcFraction}`,
+      `gosa=${g.shape.stutterAmplitude}`,
+      `gosf=${g.shape.stutterFrequency}`,
     );
   }
   return parts.join("|");

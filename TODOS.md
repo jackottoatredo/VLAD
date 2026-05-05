@@ -20,7 +20,9 @@
 - [ ] control sending aparatus to track user opens
 - [ ] outro / call to action
 - [ ] calandly link/ book with rep instead of generic book page
-- [ ] 
+- [ ] render layer caching for many jobs sharing same webcam
+- [ ] job logging for debugging later
+- [ ] show settings and edit/rerender
 
 ## Beta Test Comments
 

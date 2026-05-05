@@ -8,8 +8,15 @@
 
 export type JobStep = {
   label: string;
-  /** 0..100 */
+  /** 0..100 — the parent progress. When `subTasks` are present, parent
+   *  progress is the average of all sub-task progresses. */
   progress: number;
+  /** Optional sub-tasks rendered as nested mini-bars under the parent.
+   *  Used by the v4 layered render step to surface its parallel lanes
+   *  (Background / Overlay) so the UI reflects what the worker is
+   *  actually doing. Older renders may omit this — frontend should
+   *  fall back to the single parent bar in that case. */
+  subTasks?: { label: string; progress: number }[];
 };
 
 export type JobProgress =

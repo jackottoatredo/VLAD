@@ -37,9 +37,11 @@ export type ProduceJobPayload = {
   webcamR2Key?: string | null;
 
   // Warm-start: skip stages that already have cached artifacts (R2 keys,
-  // not local fs paths — worker downloads on demand).
+  // not local fs paths — worker downloads on demand). v4 layered render:
+  // background + overlay are independent artifacts under the same specHash.
   startFromStep: 1 | 2 | 3;
-  existingRenderR2Key?: string;
+  existingBackgroundR2Key?: string;
+  existingOverlayR2Key?: string;
   existingRenderDurationMs?: number;
   existingCompositeR2Key?: string;
 

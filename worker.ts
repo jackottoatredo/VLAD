@@ -8,7 +8,11 @@ import type { JobPayload, ProduceJobPayload, MergeJobPayload, MergeRecordingPayl
 import type { JobProgress, JobStep } from "@/lib/queue/progress";
 import { createReplayAction } from "@/lib/render/actions";
 import { produceSessionVideo, type ProduceResult } from "@/lib/render/produce";
-import { mergeVideoFiles, extractAudioChunk } from "@/lib/render/merge";
+import { renderBackgroundToMp4 } from "@/lib/render/render-background";
+import { renderOverlayToWebm } from "@/lib/render/render-overlay";
+import { composeLayeredMerge, extractAudioChunk } from "@/lib/render/merge";
+import { computeCursorPositions } from "@/lib/render/cursor-track";
+import { readFileSync } from "node:fs";
 import { downloadRecording } from "@/lib/render/download";
 import { extractPoster } from "@/lib/render/poster";
 import { extractSquarePoster } from "@/lib/render/posterSquare";
@@ -141,46 +145,18 @@ async function resolveWebcamFrames(
 }
 
 // ---------------------------------------------------------------------------
-// Action assembly: prepend mouse handoff when spec.mouseHandoff is present.
+// Action assembly: a single replay action that drives `page.mouse.move` for
+// hover state and screenshots each frame. The cursor sprite — and any
+// boundary glide — is composited later in the FFmpeg compose stage from a
+// per-frame position track derived from spec.mouseTrack.
 // ---------------------------------------------------------------------------
 
 function buildActions(
-  spec: RenderSpec,
+  _spec: RenderSpec,
   keyframes: ProduceJobPayload["keyframes"],
   durationMs: number,
 ): ReturnType<typeof createReplayAction>[] {
-  // Both entry handoff and exit glide ride INSIDE the replay action — they
-  // override the cursor sprite for the first/last N frames of the trim
-  // window without adding extra frames or shifting the section. trim.startSec
-  // and trim.endSec anchor the glide windows so post-trim or pre-trim
-  // recorded content (used for crossfade overlap) gets its glide override at
-  // the right frames.
-  const replay = createReplayAction(keyframes, durationMs, {
-    trimWindowStartMs: spec.trim?.startSec != null ? spec.trim.startSec * 1000 : undefined,
-    trimWindowEndMs: spec.trim?.endSec != null ? spec.trim.endSec * 1000 : undefined,
-    entryGlide: spec.mouseHandoff
-      ? {
-          fromX: spec.mouseHandoff.fromX,
-          fromY: spec.mouseHandoff.fromY,
-          durationMs: spec.mouseHandoff.durationMs,
-          easing: spec.mouseHandoff.easing,
-          shape: spec.mouseHandoff.shape,
-        }
-      : undefined,
-    exitGlide: spec.exitMouseGlide
-      ? {
-          fromX: spec.exitMouseGlide.fromX,
-          fromY: spec.exitMouseGlide.fromY,
-          toX: spec.exitMouseGlide.toX,
-          toY: spec.exitMouseGlide.toY,
-          durationMs: spec.exitMouseGlide.durationMs,
-          easing: spec.exitMouseGlide.easing,
-          shape: spec.exitMouseGlide.shape,
-        }
-      : undefined,
-  });
-
-  return [replay];
+  return [createReplayAction(keyframes, durationMs)];
 }
 
 // ---------------------------------------------------------------------------
@@ -192,7 +168,21 @@ type ProduceJobResult = ProduceResult & { renderId?: string };
 const PRODUCE_STEP_LABELS = ["Rendering", "Compositing", "Clipping"] as const;
 
 function makeProduceSteps(): JobStep[] {
-  return PRODUCE_STEP_LABELS.map((label) => ({ label, progress: 0 }));
+  return PRODUCE_STEP_LABELS.map((label, idx) =>
+    idx === 0
+      ? {
+          label,
+          progress: 0,
+          // Render step has two parallel lanes (background browser pass +
+          // overlay browser pass). Cursor is computed in-process and is
+          // effectively instant — not worth its own bar.
+          subTasks: [
+            { label: "Background", progress: 0 },
+            { label: "Overlay", progress: 0 },
+          ],
+        }
+      : { label, progress: 0 },
+  );
 }
 
 async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceJobResult> {
@@ -218,11 +208,16 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceJo
   const workDir = path.join(tmpdir(), `vlad-produce-${job.id ?? randomUUID().slice(0, 8)}`);
 
   // Warm-start: download cached render/composite from R2 to local temp.
-  let existingRenderOutputPath: string | undefined;
   let existingCompositeOutputPath: string | undefined;
-  if (d.startFromStep >= 2 && d.existingRenderR2Key) {
-    existingRenderOutputPath = path.join(workDir, "render.mp4");
-    await downloadFromR2(d.existingRenderR2Key, existingRenderOutputPath);
+  let existingBackgroundPath: string | undefined;
+  let existingOverlayPath: string | undefined;
+  if (d.startFromStep >= 2 && d.existingBackgroundR2Key && d.existingOverlayR2Key) {
+    existingBackgroundPath = path.join(workDir, "background.mp4");
+    existingOverlayPath = path.join(workDir, "overlay.webm");
+    await Promise.all([
+      downloadFromR2(d.existingBackgroundR2Key, existingBackgroundPath),
+      downloadFromR2(d.existingOverlayR2Key, existingOverlayPath),
+    ]);
   }
   if (d.startFromStep >= 3 && d.existingCompositeR2Key) {
     existingCompositeOutputPath = path.join(workDir, "composite.mp4");
@@ -262,13 +257,16 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceJo
       actions,
       settleHint: d.settleHint,
       spec: d.spec,
+      keyframes: d.keyframes,
       webcamPath,
       webcamFrames,
       amplitudeSamples,
       preview: d.preview,
       startFromStep: d.startFromStep,
-      existingRenderR2Key: d.existingRenderR2Key,
-      existingRenderOutputPath,
+      existingBackgroundR2Key: d.existingBackgroundR2Key,
+      existingBackgroundPath,
+      existingOverlayR2Key: d.existingOverlayR2Key,
+      existingOverlayPath,
       existingRenderDurationMs: d.existingRenderDurationMs,
       existingCompositeR2Key: d.existingCompositeR2Key,
       existingCompositeOutputPath,
@@ -277,8 +275,24 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceJo
         steps[0].progress = total > 0 ? Math.round((rendered / total) * 100) : 0;
         report(0);
       },
+      onBackgroundProgress(rendered, total) {
+        if (steps[0].subTasks) {
+          steps[0].subTasks[0].progress = total > 0 ? Math.round((rendered / total) * 100) : 0;
+          report(0);
+        }
+      },
+      onOverlayProgress(rendered, total) {
+        if (steps[0].subTasks) {
+          steps[0].subTasks[1].progress = total > 0 ? Math.round((rendered / total) * 100) : 0;
+          report(0);
+        }
+      },
       onRenderComplete() {
         steps[0].progress = 100;
+        if (steps[0].subTasks) {
+          steps[0].subTasks[0].progress = 100;
+          steps[0].subTasks[1].progress = 100;
+        }
         report(1);
       },
       onComposeProgress(composited, total) {
@@ -302,7 +316,8 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceJo
       d.trimKeyStr,
       d.preview ? "preview" : "full",
       {
-        renderR2Key: result.renderR2Key,
+        backgroundR2Key: result.backgroundR2Key,
+        overlayR2Key: result.overlayR2Key,
         renderDurationMs: result.renderDurationMs,
         compositeR2Key: result.compositeR2Key,
         trimmedR2Key: result.trimmedR2Key,
@@ -327,7 +342,7 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceJo
         result.finalPath,
         result.finalR2Key,
         path.dirname(result.finalPath),
-        result.renderR2Key,
+        result.backgroundR2Key,
       );
       await finalizeRenderRow(d.mergeRenderInsert.renderId, {
         video_url: result.finalR2Key,
@@ -368,11 +383,11 @@ type MergeResult = {
   renderId: string;
 };
 
+// v4 dual-section merge skips per-section compose+trim — the merge stage
+// composites everything (layers + cursor + audio) in one FFmpeg pass.
 const MERGE_STEP_LABELS = [
   "Rendering intro",
-  "Compositing intro",
   "Rendering product",
-  "Compositing product",
   "Merging",
 ] as const;
 
@@ -399,6 +414,8 @@ async function renderMergeSection(
   onRenderProgress: (pct: number) => void,
   onRenderDone: () => void,
   onComposeProgress: (pct: number) => void,
+  onBackgroundProgress?: (pct: number) => void,
+  onOverlayProgress?: (pct: number) => void,
 ): Promise<ProduceResult> {
   const [amplitudeSamples, webcamFrames] = await Promise.all([
     resolveAmplitudeSamples(recording.spec, recording.webcamR2Key),
@@ -419,17 +436,170 @@ async function renderMergeSection(
     actions,
     settleHint: recording.settleHint,
     spec: recording.spec,
+    keyframes: recording.keyframes,
     webcamPath,
     webcamFrames,
     amplitudeSamples,
     onRenderProgress(rendered, total) {
       onRenderProgress(total > 0 ? Math.round((rendered / total) * 100) : 0);
     },
+    onBackgroundProgress(rendered, total) {
+      onBackgroundProgress?.(total > 0 ? Math.round((rendered / total) * 100) : 0);
+    },
+    onOverlayProgress(rendered, total) {
+      onOverlayProgress?.(total > 0 ? Math.round((rendered / total) * 100) : 0);
+    },
     onRenderComplete() { onRenderDone(); },
     onComposeProgress(s, total) {
       onComposeProgress(total > 0 ? Math.round((s / total) * 100) : 0);
     },
   });
+}
+
+// ---------------------------------------------------------------------------
+// Dual-section merge: render LAYERS only (no compose, no trim per section).
+// The merge stage composites everything (bg xfade + overlay concat + cursor +
+// audio) in a single FFmpeg pass — that's what unlocks the clean visual
+// crossfade (background blends, overlay never dissolves into the audio icon).
+// ---------------------------------------------------------------------------
+
+type LayerRenderResult = {
+  backgroundPath: string;
+  backgroundR2Key: string;
+  overlayPath: string;
+  overlayR2Key: string;
+  fullDurationMs: number;
+};
+
+async function renderMergeSectionLayers(
+  userId: string,
+  recording: MergeRecordingPayload,
+  onRenderProgress: (pct: number) => void,
+  onBackgroundProgress?: (pct: number) => void,
+  onOverlayProgress?: (pct: number) => void,
+): Promise<LayerRenderResult> {
+  const [amplitudeSamples, webcamFrames] = await Promise.all([
+    resolveAmplitudeSamples(recording.spec, recording.webcamR2Key),
+    resolveWebcamFrames(recording.webcamR2Key),
+  ]);
+  const actions = buildActions(recording.spec, recording.keyframes, recording.durationMs);
+
+  // Combined progress = avg(bg, ov). Two browser contexts run in parallel
+  // inside this process; total wall-clock ≈ 1.0–1.3× a single pass.
+  let bgPct = 0;
+  let ovPct = 0;
+  const report = () => onRenderProgress(Math.round((bgPct + ovPct) / 2));
+
+  const [bg, ov] = await Promise.all([
+    renderBackgroundToMp4({
+      url: recording.url,
+      userId,
+      sessionName: recording.sessionName,
+      width: recording.width,
+      height: recording.height,
+      videoWidth: recording.width,
+      videoHeight: recording.height,
+      fps: 30,
+      durationMs: recording.durationMs,
+      actions,
+      settleHint: recording.settleHint,
+      onProgress(rendered, total) {
+        bgPct = total > 0 ? Math.round((rendered / total) * 100) : 0;
+        onBackgroundProgress?.(bgPct);
+        report();
+      },
+    }),
+    renderOverlayToWebm({
+      userId,
+      sessionName: recording.sessionName,
+      width: recording.width,
+      height: recording.height,
+      videoWidth: recording.width,
+      videoHeight: recording.height,
+      fps: 30,
+      durationMs: recording.durationMs,
+      spec: recording.spec,
+      webcamFrames,
+      amplitudeSamples,
+      onProgress(rendered, total) {
+        ovPct = total > 0 ? Math.round((rendered / total) * 100) : 0;
+        onOverlayProgress?.(ovPct);
+        report();
+      },
+    }),
+  ]);
+
+  return {
+    backgroundPath: bg.outputPath,
+    backgroundR2Key: bg.videoUrl,
+    overlayPath: ov.outputPath,
+    overlayR2Key: ov.videoUrl,
+    fullDurationMs: bg.totalDurationMs,
+  };
+}
+
+const MERGE_CURSOR_SVG_PATH = path.join(process.cwd(), "public", "cursor.svg");
+const MERGE_CURSOR_SIZE_PX = 32;
+let mergeCursorCache: Buffer | null = null;
+function loadMergeCursorSource(): Buffer {
+  if (mergeCursorCache) return mergeCursorCache;
+  mergeCursorCache = readFileSync(MERGE_CURSOR_SVG_PATH);
+  return mergeCursorCache;
+}
+
+/**
+ * Build the unified per-frame cursor track for the merged output. Each
+ * section's positions are computed against its full session, then sliced
+ * to its trim window, then concatenated. Length === merged output frames.
+ */
+function buildMergedCursorPositions(
+  intro: MergeRecordingPayload,
+  introDurationMs: number,
+  product: MergeRecordingPayload,
+  productDurationMs: number,
+  fps: number,
+): { x: number; y: number }[] {
+  const introTotalFrames = Math.max(1, Math.round((introDurationMs / 1000) * fps));
+  const productTotalFrames = Math.max(1, Math.round((productDurationMs / 1000) * fps));
+
+  const introAll = computeCursorPositions({
+    keyframes: intro.keyframes,
+    fps,
+    width: intro.width,
+    height: intro.height,
+    totalFrames: introTotalFrames,
+    trimStartMs: intro.spec.trim?.startSec != null ? intro.spec.trim.startSec * 1000 : undefined,
+    trimEndMs: intro.spec.trim?.endSec != null ? intro.spec.trim.endSec * 1000 : undefined,
+    mouseTrack: intro.spec.mouseTrack,
+  });
+  const productAll = computeCursorPositions({
+    keyframes: product.keyframes,
+    fps,
+    width: product.width,
+    height: product.height,
+    totalFrames: productTotalFrames,
+    trimStartMs: product.spec.trim?.startSec != null ? product.spec.trim.startSec * 1000 : undefined,
+    trimEndMs: product.spec.trim?.endSec != null ? product.spec.trim.endSec * 1000 : undefined,
+    mouseTrack: product.spec.mouseTrack,
+  });
+
+  const introTrimStartFrame = intro.spec.trim?.startSec
+    ? Math.round(intro.spec.trim.startSec * fps)
+    : 0;
+  const introTrimEndFrame = intro.spec.trim?.endSec
+    ? Math.min(introTotalFrames, Math.round(intro.spec.trim.endSec * fps))
+    : introTotalFrames;
+  const productTrimStartFrame = product.spec.trim?.startSec
+    ? Math.round(product.spec.trim.startSec * fps)
+    : 0;
+  const productTrimEndFrame = product.spec.trim?.endSec
+    ? Math.min(productTotalFrames, Math.round(product.spec.trim.endSec * fps))
+    : productTotalFrames;
+
+  return [
+    ...introAll.slice(introTrimStartFrame, introTrimEndFrame),
+    ...productAll.slice(productTrimStartFrame, productTrimEndFrame),
+  ];
 }
 
 async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> {
@@ -458,7 +628,25 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
       ? INTRO_ONLY_STEP_LABELS
       : PRODUCT_ONLY_STEP_LABELS;
 
-  const steps: JobStep[] = stepLabels.map((label) => ({ label, progress: 0 }));
+  const steps: JobStep[] = stepLabels.map((label, idx) => {
+    // For dual-section merge ("Rendering intro" / "Rendering product" / "Merging"),
+    // give the two render steps Background+Overlay sub-task lanes. For
+    // single-section merge ("Rendering" / "Compositing" / "Clipping"), the
+    // "Rendering" step (idx 0) gets the same lanes — same as produce-job
+    // step 0.
+    const isRenderStep = dualSection ? idx < 2 : idx === 0;
+    if (isRenderStep) {
+      return {
+        label,
+        progress: 0,
+        subTasks: [
+          { label: "Background", progress: 0 },
+          { label: "Overlay", progress: 0 },
+        ],
+      };
+    }
+    return { label, progress: 0 };
+  });
 
   function updateStep(stepIndex: number, progress: number) {
     steps[stepIndex].progress = progress;
@@ -479,66 +667,51 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
   await mkdir(mergeOutputDir, { recursive: true });
 
   try {
-    let merchantResult: ProduceResult | null = null;
-    let productResult: ProduceResult | null = null;
-    let merchantWebcamLocalPath: string | null = null;
-    let productWebcamLocalPath: string | null = null;
-
-    if (hasIntro) {
-      const merchantRec = await downloadRecording(
-        d.merchant!.mouseEventsR2Key,
-        d.merchant!.webcamR2Key,
-        merchantDir,
-      );
-      merchantWebcamLocalPath = merchantRec.webcamPath;
-      merchantResult = await renderMergeSection(
-        userId,
-        d.merchant!,
-        merchantRec.webcamPath,
-        (pct) => updateStep(0, pct),
-        () => completeStep(0),
-        (pct) => updateStep(dualSection ? 1 : 1, pct),
-      );
-      if (dualSection) completeStep(1);
-    }
-
-    if (hasProduct) {
-      const productRec = await downloadRecording(
-        d.product!.mouseEventsR2Key,
-        d.product!.webcamR2Key,
-        productDir,
-      );
-      productWebcamLocalPath = productRec.webcamPath;
-      const renderStepIdx = dualSection ? 2 : 0;
-      const composeStepIdx = dualSection ? 3 : 1;
-      productResult = await renderMergeSection(
-        userId,
-        d.product!,
-        productRec.webcamPath,
-        (pct) => updateStep(renderStepIdx, pct),
-        () => completeStep(renderStepIdx),
-        (pct) => updateStep(composeStepIdx, pct),
-      );
-      completeStep(composeStepIdx);
-    }
-
     let finalLocalPath: string;
     let finalR2Key: string;
     let finalDirOnR2: string;
     let posterSourceR2Key: string;
 
     if (dualSection) {
-      // Both sections: concat trimmed outputs, generate share assets.
-      const merchantFinalPath = path.join(mergeOutputDir, "merchant-final.mp4");
-      const productFinalPath = path.join(mergeOutputDir, "product-final.mp4");
-      await Promise.all([
-        downloadFromR2(merchantResult!.finalR2Key, merchantFinalPath),
-        downloadFromR2(productResult!.finalR2Key, productFinalPath),
-      ]);
+      // ---- Dual-section: layered render → layered merge ----
+      // Per section, render the page (background) and overlay (transparent
+      // webcam circle / audio icon) as independent layers — no per-section
+      // compose/trim. The merge stage composites everything in one pass so
+      // the background xfade can blend cleanly without cross-dissolving the
+      // webcam overlay.
 
-      // Audio crossfade is gated on BOTH sections having real audio. A
-      // section is silent when its mode is 'off' or it has no webcam at all
-      // — crossfading silence with audio produces an unwanted dip.
+      const [merchantRec, productRec] = await Promise.all([
+        downloadRecording(d.merchant!.mouseEventsR2Key, d.merchant!.webcamR2Key, merchantDir),
+        downloadRecording(d.product!.mouseEventsR2Key, d.product!.webcamR2Key, productDir),
+      ]);
+      const merchantWebcamLocalPath = merchantRec.webcamPath;
+      const productWebcamLocalPath = productRec.webcamPath;
+
+      const setSubTask = (stepIdx: number, subIdx: number, pct: number) => {
+        const sub = steps[stepIdx].subTasks?.[subIdx];
+        if (sub) sub.progress = pct;
+        updateStep(stepIdx, steps[stepIdx].progress);
+      };
+
+      const introLayers = await renderMergeSectionLayers(
+        userId,
+        d.merchant!,
+        (pct) => updateStep(0, pct),
+        (pct) => setSubTask(0, 0, pct),
+        (pct) => setSubTask(0, 1, pct),
+      );
+      completeStep(0);
+
+      const productLayers = await renderMergeSectionLayers(
+        userId,
+        d.product!,
+        (pct) => updateStep(1, pct),
+        (pct) => setSubTask(1, 0, pct),
+        (pct) => setSubTask(1, 1, pct),
+      );
+      completeStep(1);
+
+      // Audio crossfade gating + chunk extraction (unchanged from v3 logic).
       const introHasAudio =
         d.merchant!.spec.webcam.mode !== "off" && !!d.merchant!.webcamR2Key;
       const productHasAudio =
@@ -553,37 +726,16 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
           `route-effective=${d.merge.transition.audio} ` +
           `audioDurationMs=${d.merge.transition.audioDurationMs} ` +
           `introHasAudio=${introHasAudio} productHasAudio=${productHasAudio} ` +
-          `→ workerEffectiveAudio=${effectiveAudio} ` +
-          `(if route-effective is already 'none' the route's clamp dropped it ` +
-          `before the worker ever saw it — see [merge-route] clamp logs)`,
+          `→ workerEffectiveAudio=${effectiveAudio}`,
       );
 
-      // xfade needs the actual duration of the first input — probe the file.
-      // Fall back to merchant duration from spec if probe fails (rare).
-      const probedSec = await probeVideoDurationSec(merchantFinalPath);
-      const introDurationSec =
-        probedSec ?? (merchantResult!.renderDurationMs / 1000);
-
-      // Symmetric audio crossfade: borrow D/2 of un-trimmed audio from each
-      // side's webcam.webm. Route layer already clamped the duration to fit
-      // the available un-trimmed window on both sides.
       let introAudioTailPath: string | undefined;
       let productAudioHeadPath: string | undefined;
-      if (
-        effectiveAudio === "crossfade" &&
-        merchantWebcamLocalPath &&
-        productWebcamLocalPath
-      ) {
+      if (effectiveAudio === "crossfade" && merchantWebcamLocalPath && productWebcamLocalPath) {
         const halfAudioSec = d.merge.transition.audioDurationMs / 2 / 1000;
         const introTrimEndSec = d.merchant!.spec.trim?.endSec ?? 0;
         const productTrimStartSec = d.product!.spec.trim?.startSec ?? 0;
         const productHeadStartSec = Math.max(0, productTrimStartSec - halfAudioSec);
-        console.log(
-          `[merge ${jobId}] audio borrow: halfAudioSec=${halfAudioSec.toFixed(3)} ` +
-            `introTrimEndSec=${introTrimEndSec} productTrimStartSec=${productTrimStartSec} ` +
-            `productHeadStartSec=${productHeadStartSec.toFixed(3)} ` +
-            `merchantWebcam=${merchantWebcamLocalPath} productWebcam=${productWebcamLocalPath}`,
-        );
         [introAudioTailPath, productAudioHeadPath] = await Promise.all([
           extractAudioChunk(
             merchantWebcamLocalPath,
@@ -606,49 +758,121 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
         ]);
         console.log(
           `[merge ${jobId}] audio borrow extracted: ` +
-            `introAudioTail=${introAudioTailPath} (${introTailBytes} bytes) ` +
-            `productAudioHead=${productAudioHeadPath} (${productHeadBytes} bytes)`,
-        );
-      } else if (d.merge.transition.audio === "crossfade") {
-        console.log(
-          `[merge ${jobId}] audio borrow SKIPPED — ` +
-            `effectiveAudio=${effectiveAudio} ` +
-            `merchantWebcamLocalPath=${merchantWebcamLocalPath ? "set" : "null"} ` +
-            `productWebcamLocalPath=${productWebcamLocalPath ? "set" : "null"}`,
+            `introAudioTail (${introTailBytes} bytes) productAudioHead (${productHeadBytes} bytes)`,
         );
       }
 
-      const { mergedPath } = await mergeVideoFiles(
-        merchantFinalPath,
-        productFinalPath,
-        mergeOutputDir,
-        d.brand,
-        (pct) => updateStep(4, pct),
-        {
+      // Cursor positions for the merged timeline (per OUTPUT frame).
+      console.log(
+        `[merge ${jobId}] cursor track: ` +
+          `intro.mouseTrack=${JSON.stringify(d.merchant!.spec.mouseTrack ?? null)} ` +
+          `product.mouseTrack=${JSON.stringify(d.product!.spec.mouseTrack ?? null)}`,
+      );
+      const cursorPositions = buildMergedCursorPositions(
+        d.merchant!,
+        introLayers.fullDurationMs,
+        d.product!,
+        productLayers.fullDurationMs,
+        30,
+      );
+      console.log(
+        `[merge ${jobId}] cursor positions: ${cursorPositions.length} frames; ` +
+          `first=${JSON.stringify(cursorPositions[0])} ` +
+          `last=${JSON.stringify(cursorPositions[cursorPositions.length - 1])} ` +
+          `(if intro.mouseTrack/product.mouseTrack are null, the route emitted no glide ` +
+          `— set transition.mouse to linear/arched/natural)`,
+      );
+
+      const { mergedPath } = await composeLayeredMerge({
+        outputDir: mergeOutputDir,
+        outputName: d.brand,
+        fps: 30,
+        width: d.merchant!.width,
+        height: d.merchant!.height,
+        intro: {
+          backgroundVideoPath: introLayers.backgroundPath,
+          overlayVideoPath: introLayers.overlayPath,
+          trimStartSec: d.merchant!.spec.trim?.startSec,
+          trimEndSec: d.merchant!.spec.trim?.endSec,
+          webcamPath: merchantWebcamLocalPath,
+          muteAudio: d.merchant!.spec.webcam.mode === "off",
+        },
+        product: {
+          backgroundVideoPath: productLayers.backgroundPath,
+          overlayVideoPath: productLayers.overlayPath,
+          trimStartSec: d.product!.spec.trim?.startSec,
+          trimEndSec: d.product!.spec.trim?.endSec,
+          webcamPath: productWebcamLocalPath,
+          muteAudio: d.product!.spec.webcam.mode === "off",
+        },
+        transition: {
           audio: effectiveAudio,
           video: d.merge.transition.video,
           audioDurationMs: d.merge.transition.audioDurationMs,
           videoDurationMs: d.merge.transition.videoDurationMs,
-          introDurationSec,
           introAudioTailPath,
           productAudioHeadPath,
         },
-      );
-      completeStep(4);
+        cursorSource: loadMergeCursorSource(),
+        cursorSizePx: MERGE_CURSOR_SIZE_PX,
+        cursorPositions,
+        onProgress: (pct) => updateStep(2, pct),
+      });
+      completeStep(2);
 
       finalR2Key = `merges/${userId}/${d.outputSessionName}/${path.basename(mergedPath)}`;
       const fileBuffer = await readFile(mergedPath);
       await uploadToR2(finalR2Key, fileBuffer, "video/mp4");
       finalLocalPath = mergedPath;
       finalDirOnR2 = path.posix.dirname(finalR2Key);
-      posterSourceR2Key = merchantResult!.renderR2Key;
+      posterSourceR2Key = introLayers.backgroundR2Key;
     } else {
-      // Single-section merge: just publish the produce output as the final.
-      const sole = (merchantResult ?? productResult)!;
-      finalR2Key = sole.finalR2Key;
-      finalLocalPath = sole.finalPath;
+      // ---- Single-section: full produce (render → compose → trim) ----
+      const setSubTask = (stepIdx: number, subIdx: number, pct: number) => {
+        const sub = steps[stepIdx].subTasks?.[subIdx];
+        if (sub) sub.progress = pct;
+        updateStep(stepIdx, steps[stepIdx].progress);
+      };
+      let soleResult: ProduceResult;
+      if (hasIntro) {
+        const merchantRec = await downloadRecording(
+          d.merchant!.mouseEventsR2Key,
+          d.merchant!.webcamR2Key,
+          merchantDir,
+        );
+        soleResult = await renderMergeSection(
+          userId,
+          d.merchant!,
+          merchantRec.webcamPath,
+          (pct) => updateStep(0, pct),
+          () => completeStep(0),
+          (pct) => updateStep(1, pct),
+          (pct) => setSubTask(0, 0, pct),
+          (pct) => setSubTask(0, 1, pct),
+        );
+        completeStep(1);
+      } else {
+        const productRec = await downloadRecording(
+          d.product!.mouseEventsR2Key,
+          d.product!.webcamR2Key,
+          productDir,
+        );
+        soleResult = await renderMergeSection(
+          userId,
+          d.product!,
+          productRec.webcamPath,
+          (pct) => updateStep(0, pct),
+          () => completeStep(0),
+          (pct) => updateStep(1, pct),
+          (pct) => setSubTask(0, 0, pct),
+          (pct) => setSubTask(0, 1, pct),
+        );
+        completeStep(1);
+      }
+      finalR2Key = soleResult.finalR2Key;
+      finalLocalPath = soleResult.finalPath;
       finalDirOnR2 = path.posix.dirname(finalR2Key);
-      posterSourceR2Key = sole.renderR2Key;
+      posterSourceR2Key = soleResult.backgroundR2Key;
     }
     void finalDirOnR2;
 

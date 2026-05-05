@@ -33,6 +33,7 @@ import {
   computeMousePosAtExitStart,
   computeMousePosAtTime,
 } from "@/lib/render/mouse-handoff";
+import { cursorRestPosition } from "@/lib/render/cursor-track";
 import { amplitudeKeyForWebcam } from "@/lib/audio/amplitude";
 
 export const runtime = "nodejs";
@@ -108,20 +109,19 @@ type SectionSpecArgs = {
   entryMorphFrom?: Webcam;
   /** Exit morph target (only when overlay='animated' on the intro side). */
   exitMorphTo?: Webcam;
-  /** Entry mouse glide source — set on product side to glide MIDPOINT → B
-   *  in the first D/2 of the trim window. */
-  entryMouseFrom?: { x: number; y: number };
-  /** Exit mouse glide target — set on intro side to glide A → MIDPOINT in
-   *  the last D/2 of the trim window. */
-  exitMouseTo?: { x: number; y: number };
-  /** Explicit exit-glide source. In the symmetric model intro pins this to
-   *  A (cursor at trim_end - D/2) so the recorded curve isn't reused. */
-  exitMouseFrom?: { x: number; y: number };
+  /** Glide-in target — when set, the cursor enters the trim window from
+   *  this point (MIDPOINT in the symmetric merge model). Used on product
+   *  section. */
+  glideInPoint?: { x: number; y: number };
+  /** Glide-out source — when set, the cursor exits the trim window toward
+   *  this point (MIDPOINT in the symmetric merge model). Used on intro
+   *  section. */
+  glideOutPoint?: { x: number; y: number };
   /** Duration of the overlay morph (entry or exit). Sourced from
    *  Transitions.overlayDurationMs. */
   overlayDurationMs?: number;
-  /** Duration of the mouse glide (entry handoff or exit glide). Sourced
-   *  from Transitions.mouseDurationMs. */
+  /** Duration of the mouse glide. Sourced from Transitions.mouseDurationMs.
+   *  Each side does D/2; this is THAT half value. */
   mouseDurationMs?: number;
   /** Resolved glide shape (arc + stutter knobs). Required when any mouse
    *  glide is active; ignored otherwise. */
@@ -136,9 +136,8 @@ function buildSectionSpec(args: SectionSpecArgs): RenderSpec {
     trimEndSec,
     entryMorphFrom,
     exitMorphTo,
-    entryMouseFrom,
-    exitMouseTo,
-    exitMouseFrom,
+    glideInPoint,
+    glideOutPoint,
     overlayDurationMs,
     mouseDurationMs,
     glideShape,
@@ -152,6 +151,27 @@ function buildSectionSpec(args: SectionSpecArgs): RenderSpec {
     stutterAmplitude: 0,
     stutterFrequency: 0,
   };
+  const mouseTrack =
+    glideInPoint || glideOutPoint
+      ? {
+          glideIn: glideInPoint
+            ? {
+                point: glideInPoint,
+                durationMs: mouseDur,
+                easing: "cubicEaseInOut" as const,
+                shape,
+              }
+            : undefined,
+          glideOut: glideOutPoint
+            ? {
+                point: glideOutPoint,
+                durationMs: mouseDur,
+                easing: "cubicEaseInOut" as const,
+                shape,
+              }
+            : undefined,
+        }
+      : undefined;
   return {
     webcam,
     morph:
@@ -179,30 +199,7 @@ function buildSectionSpec(args: SectionSpecArgs): RenderSpec {
             maxScale: DEFAULT_THROB_MAX,
           }
         : undefined,
-    mouseHandoff: entryMouseFrom
-      ? {
-          fromX: entryMouseFrom.x,
-          fromY: entryMouseFrom.y,
-          durationMs: mouseDur,
-          easing: "cubicEaseInOut",
-          shape,
-        }
-      : undefined,
-    exitMouseGlide: exitMouseTo
-      ? {
-          // Explicit fromX/fromY only when caller supplied one (crossfade path).
-          // Otherwise the renderer captures from the recorded cursor at the
-          // exit-start frame.
-          ...(exitMouseFrom
-            ? { fromX: exitMouseFrom.x, fromY: exitMouseFrom.y }
-            : {}),
-          toX: exitMouseTo.x,
-          toY: exitMouseTo.y,
-          durationMs: mouseDur,
-          easing: "cubicEaseInOut",
-          shape,
-        }
-      : undefined,
+    mouseTrack,
     trim:
       trimStartSec || trimEndSec
         ? { startSec: trimStartSec ?? 0, endSec: trimEndSec ?? 0 }
@@ -571,38 +568,77 @@ export async function POST(request: Request) {
       }),
     );
 
-    // Symmetric mouse-glide endpoints. A = intro cursor at trim_end - D/2;
-    // B = product cursor at trim_start; intro glides A → MIDPOINT in last
-    // D/2 of intro; product glides MIDPOINT → B in first D/2 of product.
-    let introExitGlideFrom: { x: number; y: number } | undefined;   // = A
-    let mouseGlideMidpoint: { x: number; y: number } | undefined;   // = midpoint(A, B)
-    if (
-      mouseAnimated &&
-      effMouseDurationMs > 0 &&
-      merchantKeyframes.length > 0 &&
-      productKeyframes.length > 0
-    ) {
+    // Symmetric mouse-glide midpoint. A = intro cursor at trim_end − D/2;
+    // B = product cursor at trim_start; the cursor traces A → MIDPOINT
+    // (intro's glideOut) and MIDPOINT → B (product's glideIn). The route
+    // only needs MIDPOINT — the recorded-cursor anchors at each trim edge
+    // are computed inside cursor-track.ts at compose time.
+    // Symmetric mouse-glide midpoint. A = intro cursor at trim_end − D/2;
+    // B = product cursor at trim_start. Either side may be empty (no
+    // recorded movement) — in that case it falls back to the cursor's
+    // resting position so the glide still has a real anchor at the
+    // boundary instead of skipping entirely.
+    let mouseGlideMidpoint: { x: number; y: number } | undefined;
+    if (mouseAnimated && effMouseDurationMs > 0 && merchant && product && merchantRec && productRec) {
       const halfMouseMs = effMouseDurationMs / 2;
-      const A = computeMousePosAtExitStart(
-        merchantKeyframes,
-        introTrimStartSec,
-        introTrimEndSec,
-        halfMouseMs,
+      const introRest = cursorRestPosition(
+        merchantRec.mouseData.virtualWidth,
+        merchantRec.mouseData.virtualHeight,
       );
+      const productRest = cursorRestPosition(
+        productRec.mouseData.virtualWidth,
+        productRec.mouseData.virtualHeight,
+      );
+
+      const A =
+        merchantKeyframes.length > 0
+          ? computeMousePosAtExitStart(
+              merchantKeyframes,
+              introTrimStartSec,
+              introTrimEndSec,
+              halfMouseMs,
+            ) ?? introRest
+          : introRest;
       const productStartMs = productTrimStartSec != null && productTrimStartSec > 0
         ? productTrimStartSec * 1000
         : 0;
-      const B = computeMousePosAtTime(productKeyframes, productStartMs) ?? {
-        x: productKeyframes[0].x,
-        y: productKeyframes[0].y,
+      const B =
+        productKeyframes.length > 0
+          ? computeMousePosAtTime(productKeyframes, productStartMs) ?? productRest
+          : productRest;
+
+      mouseGlideMidpoint = {
+        x: Math.round((A.x + B.x) / 2),
+        y: Math.round((A.y + B.y) / 2),
       };
-      if (A) {
-        introExitGlideFrom = A;
-        mouseGlideMidpoint = {
-          x: Math.round((A.x + B.x) / 2),
-          y: Math.round((A.y + B.y) / 2),
-        };
-      }
+
+      console.log(
+        "[merge-route] mouse glide computation:",
+        JSON.stringify({
+          mouseAnimated,
+          effMouseDurationMs,
+          merchantKeyframesCount: merchantKeyframes.length,
+          productKeyframesCount: productKeyframes.length,
+          transitionMouse: transition.mouse,
+          halfMouseMs,
+          A,
+          B,
+          midpoint: mouseGlideMidpoint,
+          introUsedRestFallback: merchantKeyframes.length === 0,
+          productUsedRestFallback: productKeyframes.length === 0,
+        }),
+      );
+    } else {
+      console.log(
+        "[merge-route] mouse glide SKIPPED — conditions failed:",
+        JSON.stringify({
+          mouseAnimated,
+          effMouseDurationMs,
+          transitionMouse: transition.mouse,
+          dualSection: !!(merchant && product),
+        }),
+        "(transition.mouse must be linear/arched/natural; effMouseDurationMs > 0; dualSection)",
+      );
     }
 
     // Merchant payload.
@@ -617,11 +653,11 @@ export async function POST(request: Request) {
         ? `${MERCHANT_TARGET_URL}?brand=${encodeURIComponent(merchantBrandUrl)}`
         : MERCHANT_TARGET_URL;
 
-      // Symmetric model: intro always emits its half of any active transition.
-      // - Mouse: glides A → MIDPOINT in last D_mouse/2 of trim window.
-      // - Overlay: morphs to product webcam in last D_overlay of trim window.
-      const introExitMouseActive =
-        mouseAnimated && !!introExitGlideFrom && !!mouseGlideMidpoint;
+      // Symmetric model: intro emits glideOut → MIDPOINT in the last D/2
+      // of its trim window. The "from" anchor (cursor at trim_end − D/2)
+      // is auto-computed inside cursor-track.ts, so the route only passes
+      // the boundary point.
+      const introExitMouseActive = mouseAnimated && !!mouseGlideMidpoint;
 
       const merchantSpec = buildSectionSpec({
         webcam: introWebcam,
@@ -629,8 +665,7 @@ export async function POST(request: Request) {
         trimStartSec: introTrimStartSec,
         trimEndSec: introTrimEndSec,
         exitMorphTo: overlayAnimated ? productWebcam : undefined,
-        exitMouseTo: introExitMouseActive ? mouseGlideMidpoint : undefined,
-        exitMouseFrom: introExitMouseActive ? introExitGlideFrom : undefined,
+        glideOutPoint: introExitMouseActive ? mouseGlideMidpoint : undefined,
         overlayDurationMs: effOverlayDurationMs,
         mouseDurationMs: Math.floor(effMouseDurationMs / 2),
         glideShape: glideShape ?? undefined,
@@ -662,13 +697,12 @@ export async function POST(request: Request) {
           : 1000;
       const productUrl = `${TARGET_URL}?product=${encodeURIComponent(product.product_name ?? "")}&brand=${encodeURIComponent(merchantBrandUrl)}`;
 
-      // Symmetric model: product always emits its half of any active transition.
-      // - Mouse: glides MIDPOINT → recorded-cursor-at-trim-start in first
-      //   D_mouse/2 of trim window.
-      // - Overlay: morphs from intro webcam in first D_overlay of trim window.
+      // Symmetric model: product emits glideIn from MIDPOINT in the first
+      // D/2 of its trim window. The "to" anchor (recorded cursor at
+      // trim_start) is auto-computed inside cursor-track.ts.
       const productEntryMouseActive = mouseAnimated && !!mouseGlideMidpoint;
       const entryMorphFrom = overlayAnimated ? introWebcam : undefined;
-      const entryMouseFrom = productEntryMouseActive ? mouseGlideMidpoint : undefined;
+      const glideInPoint = productEntryMouseActive ? mouseGlideMidpoint : undefined;
 
       const productSpec = buildSectionSpec({
         webcam: productWebcam,
@@ -676,7 +710,7 @@ export async function POST(request: Request) {
         trimStartSec: productTrimStartSec,
         trimEndSec: productTrimEndSec,
         entryMorphFrom,
-        entryMouseFrom,
+        glideInPoint,
         overlayDurationMs: effOverlayDurationMs,
         mouseDurationMs: Math.floor(effMouseDurationMs / 2),
         glideShape: glideShape ?? undefined,
@@ -688,9 +722,9 @@ export async function POST(request: Request) {
         width: productRec.mouseData.virtualWidth,
         height: productRec.mouseData.virtualHeight,
         keyframes: productKeyframes,
-        // When mouse handoff is in play, settle wiggles around intro's last pos
-        // so the cursor doesn't jump at the start of capture.
-        settleHint: entryMouseFrom ?? (productKeyframes.length > 0
+        // Settle around glideIn's start so the rendered first frame already
+        // has the page in a sensible hover state for the cursor's entry path.
+        settleHint: glideInPoint ?? (productKeyframes.length > 0
           ? { x: productKeyframes[0].x, y: productKeyframes[0].y }
           : undefined),
         spec: productSpec,

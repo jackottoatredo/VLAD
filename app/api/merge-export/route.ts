@@ -29,7 +29,10 @@ import {
   webcamEquals,
   snapTransitionDurationMs,
 } from "@/lib/render/spec";
-import { computeLastMousePos, computeMousePosAtExitStart } from "@/lib/render/mouse-handoff";
+import {
+  computeMousePosAtExitStart,
+  computeMousePosAtTime,
+} from "@/lib/render/mouse-handoff";
 import { amplitudeKeyForWebcam } from "@/lib/audio/amplitude";
 
 export const runtime = "nodejs";
@@ -76,13 +79,23 @@ function parseTransitions(v: unknown): Transitions {
     typeof o.mouse === "string" && (validMouseStyles as string[]).includes(o.mouse)
       ? (o.mouse as MouseTransitionStyle)
       : "none";
+
+  // Snap each duration to its grid. No cross-transition constraint anymore —
+  // the symmetric model lets each transition be independently sized.
+  const audioDurationMs = snapTransitionDurationMs(o.audioDurationMs, 200);
+  const videoDurationMs = snapTransitionDurationMs(o.videoDurationMs, 400);
+  const overlayDurationMs = snapTransitionDurationMs(o.overlayDurationMs, 400);
+  const mouseDurationMs = snapTransitionDurationMs(o.mouseDurationMs, 400);
+
   return {
     audio: o.audio === "crossfade" ? "crossfade" : "none",
     video: o.video === "crossfade" ? "crossfade" : "none",
     overlay: o.overlay === "animated" ? "animated" : "none",
     mouse,
-    side: o.side === "end-of-intro" ? "end-of-intro" : "start-of-product",
-    durationMs: snapTransitionDurationMs(o.durationMs),
+    audioDurationMs,
+    videoDurationMs,
+    overlayDurationMs,
+    mouseDurationMs,
   };
 }
 
@@ -91,19 +104,25 @@ type SectionSpecArgs = {
   webcamR2Key: string | null;
   trimStartSec: number | undefined;
   trimEndSec: number | undefined;
-  /** Entry morph source (only when overlay='animated' and side='start-of-product'). */
+  /** Entry morph source (only when overlay='animated' on the product side). */
   entryMorphFrom?: Webcam;
-  /** Exit morph target (only when overlay='animated' and side='end-of-intro'). */
+  /** Exit morph target (only when overlay='animated' on the intro side). */
   exitMorphTo?: Webcam;
-  /** Entry mouse glide source (only when mouse !== 'none' and entry side). */
+  /** Entry mouse glide source — set on product side to glide MIDPOINT → B
+   *  in the first D/2 of the trim window. */
   entryMouseFrom?: { x: number; y: number };
-  /** Exit mouse glide target (only when mouse !== 'none' and exit side). */
+  /** Exit mouse glide target — set on intro side to glide A → MIDPOINT in
+   *  the last D/2 of the trim window. */
   exitMouseTo?: { x: number; y: number };
-  /** Optional explicit exit-glide source (crossfade path passes the same
-   *  point as the sibling's entry handoff so paths align exactly). */
+  /** Explicit exit-glide source. In the symmetric model intro pins this to
+   *  A (cursor at trim_end - D/2) so the recorded curve isn't reused. */
   exitMouseFrom?: { x: number; y: number };
-  /** Shared duration for whichever morph/glide above is set. */
-  transitionDurationMs?: number;
+  /** Duration of the overlay morph (entry or exit). Sourced from
+   *  Transitions.overlayDurationMs. */
+  overlayDurationMs?: number;
+  /** Duration of the mouse glide (entry handoff or exit glide). Sourced
+   *  from Transitions.mouseDurationMs. */
+  mouseDurationMs?: number;
   /** Resolved glide shape (arc + stutter knobs). Required when any mouse
    *  glide is active; ignored otherwise. */
   glideShape?: MouseGlideShape;
@@ -120,10 +139,12 @@ function buildSectionSpec(args: SectionSpecArgs): RenderSpec {
     entryMouseFrom,
     exitMouseTo,
     exitMouseFrom,
-    transitionDurationMs,
+    overlayDurationMs,
+    mouseDurationMs,
     glideShape,
   } = args;
-  const dur = transitionDurationMs ?? 400;
+  const overlayDur = overlayDurationMs ?? 400;
+  const mouseDur = mouseDurationMs ?? 400;
   // Fall back to a no-op shape (straight, no stutter) if a glide is requested
   // but no shape was supplied — defensive; the caller normally provides both.
   const shape: MouseGlideShape = glideShape ?? {
@@ -138,7 +159,7 @@ function buildSectionSpec(args: SectionSpecArgs): RenderSpec {
         ? {
             fromMode: entryMorphFrom.mode,
             fromPosition: entryMorphFrom.position,
-            durationMs: dur,
+            durationMs: overlayDur,
           }
         : undefined,
     exitMorph:
@@ -146,7 +167,7 @@ function buildSectionSpec(args: SectionSpecArgs): RenderSpec {
         ? {
             toMode: exitMorphTo.mode,
             toPosition: exitMorphTo.position,
-            durationMs: dur,
+            durationMs: overlayDur,
           }
         : undefined,
     throb:
@@ -162,7 +183,7 @@ function buildSectionSpec(args: SectionSpecArgs): RenderSpec {
       ? {
           fromX: entryMouseFrom.x,
           fromY: entryMouseFrom.y,
-          durationMs: dur,
+          durationMs: mouseDur,
           easing: "cubicEaseInOut",
           shape,
         }
@@ -177,7 +198,7 @@ function buildSectionSpec(args: SectionSpecArgs): RenderSpec {
             : {}),
           toX: exitMouseTo.x,
           toY: exitMouseTo.y,
-          durationMs: dur,
+          durationMs: mouseDur,
           easing: "cubicEaseInOut",
           shape,
         }
@@ -212,6 +233,14 @@ export async function POST(request: Request) {
   const introForm = parseSectionForm(body.introSettings);
   const productForm = parseSectionForm(body.productSettings);
   const transition = parseTransitions(body.transition);
+  console.log(
+    "[merge-route] raw body.transition:",
+    JSON.stringify(body.transition),
+  );
+  console.log(
+    "[merge-route] parsed transition:",
+    JSON.stringify(transition),
+  );
 
   if (
     introEnabled &&
@@ -387,14 +416,6 @@ export async function POST(request: Request) {
     // Resolve the mouse-style enum into glide-shape numbers (or null for 'none').
     const glideShape = dualSection ? resolveGlideShape(transition.mouse) : null;
     const mouseAnimated = !!glideShape;
-    const sideEndOfIntro = transition.side === "end-of-intro";
-    const sideStartOfProduct = transition.side === "start-of-product";
-    // When any crossfade is on, the xfade window simultaneously shows the
-    // last N frames of intro and first N frames of product. To keep cursor
-    // motion smooth across that overlap, BOTH sections must trace the same
-    // glide path — so we wire entry+exit glides regardless of `side`.
-    const hasCrossfade =
-      dualSection && (transition.audio === "crossfade" || transition.video === "crossfade");
 
     // Pre-compute keyframes for both sections so we can derive the cross-
     // section mouse handoff endpoints before building either spec.
@@ -405,62 +426,213 @@ export async function POST(request: Request) {
       ? eventsToKeyframes(productRec.mouseData.events as Parameters<typeof eventsToKeyframes>[0])
       : [];
 
-    // Mouse anchor points across the boundary.
-    // - introLastMousePos: cursor at intro's natural END (used for concat path).
-    // - introExitStartPos: cursor at intro's exit-window start
-    //   (= sessionEnd - transition.durationMs). Used for crossfade path so
-    //   both glides start from the same point and trace identical curves.
-    let introLastMousePos: { x: number; y: number } | undefined;
-    let introExitStartPos: { x: number; y: number } | undefined;
-    if (merchant && merchantKeyframes.length > 0) {
-      const meta = (merchant.metadata ?? {}) as Record<string, unknown>;
-      const ts = typeof meta.trimStartSec === "number" ? meta.trimStartSec : undefined;
-      const te = typeof meta.trimEndSec === "number" ? meta.trimEndSec : undefined;
-      const last = computeLastMousePos(merchantKeyframes, ts, te);
-      if (last) introLastMousePos = last;
-      const exitStart = computeMousePosAtExitStart(merchantKeyframes, ts, te, transition.durationMs);
-      if (exitStart) introExitStartPos = exitStart;
-    }
-    const productFirstMousePos =
+    // -----------------------------------------------------------------------
+    // Symmetric transition model.
+    //
+    // Total output length = T_intro_trimmed + T_product_trimmed (always).
+    // Each transition is centered on the boundary — D/2 of effect from each
+    // side, sourced according to the kind:
+    //   - audio:   borrowed from un-trimmed webcam.webm (D/2 each side); if
+    //              insufficient, D is clamped to available.
+    //   - video:   padded via FFmpeg `tpad` (clone first/last frame); always
+    //              available, no borrow.
+    //   - mouse:   intro exits A → MIDPOINT in last D/2 of trim window;
+    //              product enters MIDPOINT → B in first D/2 of trim window.
+    //   - overlay: deferred — both sides emit a morph at full D anchored to
+    //              their trim-window edges (approximate, not perfectly
+    //              centered on the boundary).
+    //
+    // Original trim values flow through to spec.trim unchanged — no
+    // extension at the route layer.
+    // -----------------------------------------------------------------------
+
+    // Recording duration drives the trim/un-trimmed-audio math. Take it
+    // from `mouseData.durationMs` (the recorded session length) rather than
+    // the last mouse keyframe — the cursor often stops moving well before
+    // the audio/video does, and using the last keyframe under-reports
+    // available un-trimmed content (and even goes negative when trim
+    // values extend past the last keyframe).
+    const merchantSessionEndMs = merchantRec
+      ? typeof merchantRec.mouseData.durationMs === "number" && merchantRec.mouseData.durationMs > 0
+        ? merchantRec.mouseData.durationMs
+        : merchantKeyframes.length > 0
+          ? merchantKeyframes[merchantKeyframes.length - 1].t
+          : 0
+      : 0;
+    const productSessionEndMs = productRec
+      ? typeof productRec.mouseData.durationMs === "number" && productRec.mouseData.durationMs > 0
+        ? productRec.mouseData.durationMs
+        : productKeyframes.length > 0
+          ? productKeyframes[productKeyframes.length - 1].t
+          : 0
+      : 0;
+
+    const merchantMeta = (merchant?.metadata ?? {}) as Record<string, unknown>;
+    const productMeta = (product?.metadata ?? {}) as Record<string, unknown>;
+
+    // Original trim values from metadata (sec). Undefined → no trim on that edge.
+    const introTrimStartSec =
+      typeof merchantMeta.trimStartSec === "number" ? merchantMeta.trimStartSec : undefined;
+    const introTrimEndSec =
+      typeof merchantMeta.trimEndSec === "number" ? merchantMeta.trimEndSec : undefined;
+    const productTrimStartSec =
+      typeof productMeta.trimStartSec === "number" ? productMeta.trimStartSec : undefined;
+    const productTrimEndSec =
+      typeof productMeta.trimEndSec === "number" ? productMeta.trimEndSec : undefined;
+
+    // Effective trimmed durations (ms) — sessionEnd if no trim end set.
+    const introTrimmedMs = merchant
+      ? (introTrimEndSec != null && introTrimEndSec > 0
+          ? Math.min(introTrimEndSec * 1000, merchantSessionEndMs)
+          : merchantSessionEndMs) -
+        (introTrimStartSec != null && introTrimStartSec > 0 ? introTrimStartSec * 1000 : 0)
+      : 0;
+    const productTrimmedMs = product
+      ? (productTrimEndSec != null && productTrimEndSec > 0
+          ? Math.min(productTrimEndSec * 1000, productSessionEndMs)
+          : productSessionEndMs) -
+        (productTrimStartSec != null && productTrimStartSec > 0 ? productTrimStartSec * 1000 : 0)
+      : 0;
+
+    // Un-trimmed audio available beyond each trim boundary (ms). 0 when no
+    // trim is set on that edge.
+    const introPostTrimAvailableMs = merchant && introTrimEndSec != null && introTrimEndSec > 0
+      ? Math.max(0, merchantSessionEndMs - introTrimEndSec * 1000)
+      : 0;
+    const productPreTrimAvailableMs = product && productTrimStartSec != null && productTrimStartSec > 0
+      ? Math.max(0, productTrimStartSec * 1000)
+      : 0;
+
+    // Per-transition duration clamps. Each kind is independent:
+    //   - All transitions: D ≤ min(intro_trimmed, product_trimmed) so D/2
+    //     fits on each side of the boundary.
+    //   - Audio additionally: D ≤ 2 × min(introPostTrim, productPreTrim) —
+    //     the audio crossfade is sourced by borrowing D/2 of un-trimmed
+    //     audio from each side; if either side has no un-trimmed audio,
+    //     the audio crossfade collapses.
+    const minTrimmedMs = dualSection ? Math.min(introTrimmedMs, productTrimmedMs) : Infinity;
+    const audioBorrowMaxMs = dualSection
+      ? 2 * Math.min(introPostTrimAvailableMs, productPreTrimAvailableMs)
+      : Infinity;
+
+    const clampDuration = (val: number, max: number): number =>
+      Math.max(0, Math.floor(Math.min(val, max)));
+
+    const effMouseDurationMs = clampDuration(transition.mouseDurationMs, minTrimmedMs);
+    const effOverlayDurationMs = clampDuration(transition.overlayDurationMs, minTrimmedMs);
+    const effVideoDurationMs = clampDuration(transition.videoDurationMs, minTrimmedMs);
+    const effAudioDurationMs = clampDuration(
+      transition.audioDurationMs,
+      Math.min(minTrimmedMs, audioBorrowMaxMs),
+    );
+
+    // Drop crossfade for any kind whose clamped duration falls below the
+    // usable minimum — `acrossfade` and `xfade` produce artifacts at tiny
+    // windows.
+    const MIN_CROSSFADE_MS = 100;
+    const effAudio: "none" | "crossfade" =
+      dualSection && transition.audio === "crossfade" && effAudioDurationMs >= MIN_CROSSFADE_MS
+        ? "crossfade"
+        : "none";
+    const effVideo: "none" | "crossfade" =
+      dualSection && transition.video === "crossfade" && effVideoDurationMs >= MIN_CROSSFADE_MS
+        ? "crossfade"
+        : "none";
+
+    console.log(
+      "[merge-route] clamp inputs:",
+      JSON.stringify({
+        dualSection,
+        introTrimStartSec,
+        introTrimEndSec,
+        productTrimStartSec,
+        productTrimEndSec,
+        merchantSessionEndMs,
+        productSessionEndMs,
+        introTrimmedMs,
+        productTrimmedMs,
+        introPostTrimAvailableMs,
+        productPreTrimAvailableMs,
+        minTrimmedMs: minTrimmedMs === Infinity ? "Infinity" : minTrimmedMs,
+        audioBorrowMaxMs: audioBorrowMaxMs === Infinity ? "Infinity" : audioBorrowMaxMs,
+      }),
+    );
+    console.log(
+      "[merge-route] clamp outputs:",
+      JSON.stringify({
+        requestedAudio: transition.audio,
+        requestedAudioDurationMs: transition.audioDurationMs,
+        effAudio,
+        effAudioDurationMs,
+        requestedVideo: transition.video,
+        requestedVideoDurationMs: transition.videoDurationMs,
+        effVideo,
+        effVideoDurationMs,
+      }),
+    );
+
+    // Symmetric mouse-glide endpoints. A = intro cursor at trim_end - D/2;
+    // B = product cursor at trim_start; intro glides A → MIDPOINT in last
+    // D/2 of intro; product glides MIDPOINT → B in first D/2 of product.
+    let introExitGlideFrom: { x: number; y: number } | undefined;   // = A
+    let mouseGlideMidpoint: { x: number; y: number } | undefined;   // = midpoint(A, B)
+    if (
+      mouseAnimated &&
+      effMouseDurationMs > 0 &&
+      merchantKeyframes.length > 0 &&
       productKeyframes.length > 0
-        ? { x: productKeyframes[0].x, y: productKeyframes[0].y }
-        : undefined;
+    ) {
+      const halfMouseMs = effMouseDurationMs / 2;
+      const A = computeMousePosAtExitStart(
+        merchantKeyframes,
+        introTrimStartSec,
+        introTrimEndSec,
+        halfMouseMs,
+      );
+      const productStartMs = productTrimStartSec != null && productTrimStartSec > 0
+        ? productTrimStartSec * 1000
+        : 0;
+      const B = computeMousePosAtTime(productKeyframes, productStartMs) ?? {
+        x: productKeyframes[0].x,
+        y: productKeyframes[0].y,
+      };
+      if (A) {
+        introExitGlideFrom = A;
+        mouseGlideMidpoint = {
+          x: Math.round((A.x + B.x) / 2),
+          y: Math.round((A.y + B.y) / 2),
+        };
+      }
+    }
 
     // Merchant payload.
     let merchantPayload: MergeRecordingPayload | null = null;
     if (merchant && merchantRec && introWebcam) {
-      const merchantMeta = (merchant.metadata ?? {}) as Record<string, unknown>;
-      const merchantDuration = merchantKeyframes.length > 0
-        ? merchantKeyframes[merchantKeyframes.length - 1].t
-        : 1000;
+      const merchantDuration = typeof merchantRec.mouseData.durationMs === "number" && merchantRec.mouseData.durationMs > 0
+        ? merchantRec.mouseData.durationMs
+        : merchantKeyframes.length > 0
+          ? merchantKeyframes[merchantKeyframes.length - 1].t
+          : 1000;
       const merchantUrl = merchantBrandUrl
         ? `${MERCHANT_TARGET_URL}?brand=${encodeURIComponent(merchantBrandUrl)}`
         : MERCHANT_TARGET_URL;
-      const merchantTrimStart = typeof merchantMeta.trimStartSec === "number" ? merchantMeta.trimStartSec : undefined;
-      const merchantTrimEnd = typeof merchantMeta.trimEndSec === "number" ? merchantMeta.trimEndSec : undefined;
 
-      // Intro carries exit transitions when side='end-of-intro' (concat path)
-      // OR whenever crossfade is enabled with the relevant transition. This
-      // keeps the xfade overlap visually coherent — both halves animate.
-      const introExitMorphActive =
-        overlayAnimated && (sideEndOfIntro || hasCrossfade);
+      // Symmetric model: intro always emits its half of any active transition.
+      // - Mouse: glides A → MIDPOINT in last D_mouse/2 of trim window.
+      // - Overlay: morphs to product webcam in last D_overlay of trim window.
       const introExitMouseActive =
-        mouseAnimated && (sideEndOfIntro || hasCrossfade);
+        mouseAnimated && !!introExitGlideFrom && !!mouseGlideMidpoint;
 
       const merchantSpec = buildSectionSpec({
         webcam: introWebcam,
         webcamR2Key: merchant.webcam_url ?? null,
-        trimStartSec: merchantTrimStart,
-        trimEndSec: merchantTrimEnd,
-        exitMorphTo: introExitMorphActive ? productWebcam : undefined,
-        exitMouseTo:
-          introExitMouseActive && productFirstMousePos ? productFirstMousePos : undefined,
-        // Crossfade path: pin the from to the same point product uses for
-        // its entry handoff. Concat path leaves it undefined so the renderer
-        // anchors at intro's recorded cursor at exit-start.
-        exitMouseFrom:
-          introExitMouseActive && hasCrossfade ? introExitStartPos : undefined,
-        transitionDurationMs: transition.durationMs,
+        trimStartSec: introTrimStartSec,
+        trimEndSec: introTrimEndSec,
+        exitMorphTo: overlayAnimated ? productWebcam : undefined,
+        exitMouseTo: introExitMouseActive ? mouseGlideMidpoint : undefined,
+        exitMouseFrom: introExitMouseActive ? introExitGlideFrom : undefined,
+        overlayDurationMs: effOverlayDurationMs,
+        mouseDurationMs: Math.floor(effMouseDurationMs / 2),
         glideShape: glideShape ?? undefined,
       });
 
@@ -483,38 +655,30 @@ export async function POST(request: Request) {
     // Product payload.
     let productPayload: MergeRecordingPayload | null = null;
     if (product && productRec && productWebcam) {
-      const productMeta = (product.metadata ?? {}) as Record<string, unknown>;
-      const productDuration = productKeyframes.length > 0
-        ? productKeyframes[productKeyframes.length - 1].t
-        : 1000;
+      const productDuration = typeof productRec.mouseData.durationMs === "number" && productRec.mouseData.durationMs > 0
+        ? productRec.mouseData.durationMs
+        : productKeyframes.length > 0
+          ? productKeyframes[productKeyframes.length - 1].t
+          : 1000;
       const productUrl = `${TARGET_URL}?product=${encodeURIComponent(product.product_name ?? "")}&brand=${encodeURIComponent(merchantBrandUrl)}`;
-      const productTrimStart = typeof productMeta.trimStartSec === "number" ? productMeta.trimStartSec : undefined;
-      const productTrimEnd = typeof productMeta.trimEndSec === "number" ? productMeta.trimEndSec : undefined;
 
-      // Product carries entry transitions when side='start-of-product'
-      // (concat path) OR whenever crossfade is enabled with the relevant
-      // transition. In the crossfade case, the entry-glide source must be
-      // intro's cursor at exit-window start (NOT intro's natural last pos)
-      // so that both halves' glides trace the same curve through the xfade
-      // overlap. In the concat case the source is intro's natural last pos.
-      const productEntryMorphActive =
-        overlayAnimated && (sideStartOfProduct || hasCrossfade);
-      const productEntryMouseActive =
-        mouseAnimated && (sideStartOfProduct || hasCrossfade);
-
-      const entryMorphFrom = productEntryMorphActive ? introWebcam : undefined;
-      const entryMouseSource = hasCrossfade ? introExitStartPos : introLastMousePos;
-      const entryMouseFrom =
-        productEntryMouseActive && entryMouseSource ? entryMouseSource : undefined;
+      // Symmetric model: product always emits its half of any active transition.
+      // - Mouse: glides MIDPOINT → recorded-cursor-at-trim-start in first
+      //   D_mouse/2 of trim window.
+      // - Overlay: morphs from intro webcam in first D_overlay of trim window.
+      const productEntryMouseActive = mouseAnimated && !!mouseGlideMidpoint;
+      const entryMorphFrom = overlayAnimated ? introWebcam : undefined;
+      const entryMouseFrom = productEntryMouseActive ? mouseGlideMidpoint : undefined;
 
       const productSpec = buildSectionSpec({
         webcam: productWebcam,
         webcamR2Key: product.webcam_url ?? null,
-        trimStartSec: productTrimStart,
-        trimEndSec: productTrimEnd,
+        trimStartSec: productTrimStartSec,
+        trimEndSec: productTrimEndSec,
         entryMorphFrom,
         entryMouseFrom,
-        transitionDurationMs: transition.durationMs,
+        overlayDurationMs: effOverlayDurationMs,
+        mouseDurationMs: Math.floor(effMouseDurationMs / 2),
         glideShape: glideShape ?? undefined,
       });
 
@@ -536,10 +700,23 @@ export async function POST(request: Request) {
       };
     }
 
+    // The transition forwarded to the worker reflects the post-clamp values:
+    // crossfade kinds may have been downgraded to 'none' if the un-trimmed
+    // audio was insufficient; durations are the clamped values.
+    const effectiveTransition: Transitions = {
+      ...transition,
+      audio: effAudio,
+      video: effVideo,
+      audioDurationMs: effAudioDurationMs,
+      videoDurationMs: effVideoDurationMs,
+      overlayDurationMs: effOverlayDurationMs,
+      mouseDurationMs: effMouseDurationMs,
+    };
+
     const merge: MergeRenderSpec = {
       intro: merchantPayload?.spec,
       product: productPayload?.spec,
-      transition,
+      transition: effectiveTransition,
     };
 
     const job = await jobsQueue.add("merge", {

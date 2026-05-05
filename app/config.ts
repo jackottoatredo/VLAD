@@ -1,6 +1,6 @@
 // export const TARGET_URL = "http://localhost:1111/";
-export const TARGET_URL = "https://search.redo.com/record/"
-export const MERCHANT_TARGET_URL = "https://search.redo.com/record"
+export const TARGET_URL = "https://redo.com/search/record"
+export const MERCHANT_TARGET_URL = "https://redo.com/search/record"
 export const VIRTUAL_WIDTH = 1920;
 export const VIRTUAL_HEIGHT = 1080;
 export const VIDEO_WIDTH = 1920;
@@ -36,7 +36,7 @@ export const MOUSE_GLIDE_STUTTER_FREQUENCY: number = 3;
 // Preview render quality. MUST stay > 0.5 — Chromium clamps deviceScaleFactor there.
 export const VIRTUAL_PREVIEW_SCALE_FACTOR = 0.5;
 // FFmpeg post-render downscale divisor for preview output (integer >= 1).
-export const PREVIEW_DOWNSCALE_FACTOR = 2;
+export const PREVIEW_DOWNSCALE_FACTOR = 1;
 
 // Product flow only: on "Continue to Post", eagerly enqueue the brandless render
 // (priority 1) alongside the 3 branded preview renders (priority 2). Requires adequate

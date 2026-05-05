@@ -127,7 +127,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "No mouse data found for product recording." }, { status: 404 });
   }
 
-  let mouseData: { events?: unknown; virtualWidth?: unknown; virtualHeight?: unknown };
+  let mouseData: { events?: unknown; virtualWidth?: unknown; virtualHeight?: unknown; durationMs?: unknown };
   try {
     mouseData = JSON.parse(mouseBuffer.toString("utf-8")) as typeof mouseData;
   } catch {
@@ -143,7 +143,9 @@ export async function POST(request: Request) {
   }
 
   const keyframes = eventsToKeyframes(mouseData.events as Parameters<typeof eventsToKeyframes>[0]);
-  const durationMs = keyframes.length > 0 ? keyframes[keyframes.length - 1].t : 1000;
+  const durationMs = typeof mouseData.durationMs === "number" && mouseData.durationMs > 0
+    ? mouseData.durationMs
+    : keyframes.length > 0 ? keyframes[keyframes.length - 1].t : 1000;
   const settleHint = keyframes.length > 0 ? { x: keyframes[0].x, y: keyframes[0].y } : undefined;
 
   const productMeta = (product.metadata ?? {}) as Record<string, unknown>;

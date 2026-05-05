@@ -28,13 +28,18 @@ export type ProduceOptions = {
   spec: RenderSpec;
   settleHint?: { x: number; y: number };
 
-  /** Webcam file — absolute temp path (downloaded from R2 by caller). Null if no webcam. */
+  /** Webcam file — absolute temp path (downloaded from R2 by caller). Null if no webcam.
+   *  Used for AUDIO MUX only — the visual stream comes from `webcamFrames`. */
   webcamPath?: string | null;
+
+  /** Pre-extracted webcam frames (JPEGs) the overlay shows per render frame.
+   *  Null when no webcam. */
+  webcamFrames?: Buffer[] | null;
 
   /** Pre-baked amplitude samples for throb. Null when no audio. */
   amplitudeSamples?: number[] | null;
 
-  // Warm-start: skip expensive stages by providing cached R2 keys
+  // Warm-start: skip expensive stages by providing cached R2 keys + local paths.
   startFromStep?: 1 | 2 | 3;
   existingRenderR2Key?: string;
   existingRenderOutputPath?: string;
@@ -110,7 +115,7 @@ async function trimVideoFile(
 export async function produceSessionVideo(options: ProduceOptions): Promise<ProduceResult> {
   const step = options.startFromStep ?? 1;
 
-  // ---- Step 1: Playwright render+composite (webcam overlay baked in) ----
+  // ---- Stage 1: Playwright render with overlay baked in ----
   let renderR2Key: string;
   let renderOutputPath: string;
   let renderDurationMs: number;
@@ -133,6 +138,7 @@ export async function produceSessionVideo(options: ProduceOptions): Promise<Prod
       preview: options.preview,
       spec: options.spec,
       webcamPath: options.webcamPath,
+      webcamFrames: options.webcamFrames,
       amplitudeSamples: options.amplitudeSamples,
     });
     renderR2Key = renderResult.videoUrl;
@@ -145,7 +151,7 @@ export async function produceSessionVideo(options: ProduceOptions): Promise<Prod
     renderDurationMs = options.existingRenderDurationMs!;
   }
 
-  // ---- Step 2: Audio mux (formerly the heavyweight composite step) ----
+  // ---- Stage 2: Audio mux ----
   let compositeR2Key: string;
   let compositeOutputPath: string;
 
@@ -168,7 +174,7 @@ export async function produceSessionVideo(options: ProduceOptions): Promise<Prod
     compositeOutputPath = options.existingCompositeOutputPath!;
   }
 
-  // ---- Step 3: Trim ----
+  // ---- Stage 3: Trim (final encode) ----
   const trim = options.spec.trim;
   const trimResult = await trimVideoFile(
     compositeOutputPath,

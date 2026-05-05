@@ -48,7 +48,8 @@ export type MorphSpec = {
 /**
  * Cross-section morph (exit). Section runs full duration; during the LAST
  * `durationMs`, the overlay animates from the section's resolved webcam state
- * to (toMode, toPosition). Used when transition.side = 'end-of-intro'.
+ * to (toMode, toPosition). Symmetric counterpart to MorphSpec on the product
+ * side — both halves animate around the merge boundary.
  */
 export type ExitMorphSpec = {
   toMode: WebcamMode;
@@ -124,8 +125,9 @@ export type TrimSpec = {
  *
  * Entry transitions (morph, mouseHandoff) play in the FIRST N ms of capture.
  * Exit transitions (exitMorph, exitMouseGlide) play in the LAST N ms of
- * capture. Routes never emit both entry and exit on the same section — the
- * `transition.side` choice picks one or the other.
+ * capture. The symmetric merge model emits BOTH sides — intro carries exit
+ * transitions, product carries entry transitions — so they meet at the
+ * merge boundary.
  */
 export type RenderSpec = {
   webcam: Webcam;
@@ -161,9 +163,21 @@ export type Transitions = {
   video: "none" | "crossfade";
   overlay: "none" | "animated";
   mouse: MouseTransitionStyle;
-  side: "end-of-intro" | "start-of-product";
-  /** 100..1000 ms in 100 ms steps. */
-  durationMs: number;
+  /** Per-transition durations (ms). Each transition is SYMMETRIC around the
+   *  merge boundary — D/2 contributed from each side. The four kinds use
+   *  different sources for their D/2 halves:
+   *    - audio:   borrowed from un-trimmed webcam.webm audio (Shotcut's "handle" model)
+   *    - video:   padded with frozen-frame copies via FFmpeg `tpad`
+   *    - mouse:   synthetic cursor override during the last D/2 of intro trim
+   *               window AND first D/2 of product trim window
+   *    - overlay: deferred
+   *
+   *  Total output length = T_intro_trimmed + T_product_trimmed (always).
+   *  No `side` knob — all transitions center on the boundary. */
+  audioDurationMs: number;
+  videoDurationMs: number;
+  overlayDurationMs: number;
+  mouseDurationMs: number;
 };
 
 export type MergeRenderSpec = {
@@ -184,25 +198,28 @@ export const DEFAULT_WEBCAM: Webcam = {
   },
 };
 
-export const DEFAULT_TRANSITION_DURATION_MS = 400;
-
 export const DEFAULT_TRANSITIONS: Transitions = {
   audio: "none",
   video: "none",
   overlay: "none",
   mouse: "none",
-  side: "start-of-product",
-  durationMs: DEFAULT_TRANSITION_DURATION_MS,
+  audioDurationMs: 200,
+  videoDurationMs: 400,
+  overlayDurationMs: 400,
+  mouseDurationMs: 400,
 };
 
-/** Today's p1 default — overlay morph + natural mouse glide at start of product, both crossfades on. */
+/** p1 preset default — short audio crossfade (avoids clicks), longer
+ *  visuals for the natural cinematic feel. */
 export const P1_TRANSITIONS: Transitions = {
   audio: "crossfade",
   video: "crossfade",
   overlay: "animated",
   mouse: "natural",
-  side: "start-of-product",
-  durationMs: DEFAULT_TRANSITION_DURATION_MS,
+  audioDurationMs: 150,
+  videoDurationMs: 500,
+  overlayDurationMs: 600,
+  mouseDurationMs: 600,
 };
 
 export const DEFAULT_THROB_MIN = 1.0;
@@ -212,8 +229,8 @@ export const DEFAULT_MORPH_DURATION_MS = 500;
 export const DEFAULT_MOUSE_HANDOFF_MS = 300;
 
 /** Clamp + snap a transition duration to the allowed 100..2000ms grid. */
-export function snapTransitionDurationMs(ms: unknown): number {
-  const n = typeof ms === "number" && Number.isFinite(ms) ? ms : DEFAULT_TRANSITION_DURATION_MS;
+export function snapTransitionDurationMs(ms: unknown, fallback = 400): number {
+  const n = typeof ms === "number" && Number.isFinite(ms) ? ms : fallback;
   const clamped = Math.max(100, Math.min(2000, n));
   return Math.round(clamped / 100) * 100;
 }
@@ -376,9 +393,11 @@ export function webcamEquals(a: Webcam, b: Webcam): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Stable hash of a RenderSpec for cache keys (excludes `trim` since trim is
-// its own cache stage; `mouseHandoff` is included because handoff position
-// affects rendered frames).
+// Stable hash of a RenderSpec for cache keys.
+//
+// Trim is INTENTIONALLY excluded — trim is its own cache sub-stage so trim
+// edits short-circuit at the cheap re-encode step. Render and composite
+// stay warm across trim variants.
 // ---------------------------------------------------------------------------
 
 export function specHashInput(spec: RenderSpec): string {
@@ -390,6 +409,9 @@ export function specHashInput(spec: RenderSpec): string {
     `wh=${w.position.horizontal}`,
   ];
   if (spec.morph) {
+    // `md=` covers the entry-morph duration which is now sourced from
+    // overlayDurationMs in Transitions; per-spec value here is the resolved
+    // amount and IS the right thing to hash.
     parts.push(
       `mfm=${spec.morph.fromMode}`,
       `mfv=${spec.morph.fromPosition.vertical}`,

@@ -1,14 +1,14 @@
 import { Worker, Job } from "bullmq";
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rm } from "node:fs/promises";
+import { mkdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { REDIS_CONNECTION, QUEUE_NAME } from "@/lib/queue/connection";
 import type { JobPayload, ProduceJobPayload, MergeJobPayload, MergeRecordingPayload } from "@/lib/queue/payloads";
 import type { JobProgress, JobStep } from "@/lib/queue/progress";
-import { createReplayAction, createMouseHandoffAction } from "@/lib/render/actions";
+import { createReplayAction } from "@/lib/render/actions";
 import { produceSessionVideo, type ProduceResult } from "@/lib/render/produce";
-import { mergeVideoFiles } from "@/lib/render/merge";
+import { mergeVideoFiles, extractAudioChunk } from "@/lib/render/merge";
 import { downloadRecording } from "@/lib/render/download";
 import { extractPoster } from "@/lib/render/poster";
 import { extractSquarePoster } from "@/lib/render/posterSquare";
@@ -19,6 +19,7 @@ import { updateRenderCache } from "@/lib/cache/render-cache";
 import { logEvent } from "@/lib/stats/events";
 import { probeVideoDurationSec } from "@/lib/render/probeDuration";
 import { fetchAmplitudeTrack, amplitudeKeyForWebcam, bakeAmplitudeForWebcam } from "@/lib/audio/amplitude";
+import { fetchWebcamFrames, bakeWebcamFramesForUpload } from "@/lib/audio/webcam-frames";
 import type { RenderSpec } from "@/lib/render/spec";
 
 // ---------------------------------------------------------------------------
@@ -114,6 +115,31 @@ async function resolveAmplitudeSamples(
   return track?.samples ?? null;
 }
 
+/**
+ * Fetch (or bake-on-miss) the pre-extracted webcam frame bundle for a given
+ * webcam R2 key. Returns the per-frame JPEG buffers in capture order, or
+ * null when no webcam is associated with the section.
+ *
+ * Best-effort: a failed bake/fetch downgrades to no-frames (overlay shows
+ * empty webcam wrap) rather than failing the render.
+ */
+async function resolveWebcamFrames(
+  webcamR2Key: string | null | undefined,
+): Promise<Buffer[] | null> {
+  if (!webcamR2Key) return null;
+  let bundle = await fetchWebcamFrames(webcamR2Key);
+  if (!bundle) {
+    try {
+      await bakeWebcamFramesForUpload(webcamR2Key);
+      bundle = await fetchWebcamFrames(webcamR2Key);
+    } catch (err) {
+      console.warn(`[worker] webcam frame bake failed for ${webcamR2Key}:`, err);
+      return null;
+    }
+  }
+  return bundle?.frames ?? null;
+}
+
 // ---------------------------------------------------------------------------
 // Action assembly: prepend mouse handoff when spec.mouseHandoff is present.
 // ---------------------------------------------------------------------------
@@ -123,12 +149,24 @@ function buildActions(
   keyframes: ProduceJobPayload["keyframes"],
   durationMs: number,
 ): ReturnType<typeof createReplayAction>[] {
-  // Exit glide rides INSIDE the replay action — overrides the cursor visual
-  // during the last N frames of capture without changing the section length.
-  // Forward the explicit (fromX, fromY) so the crossfade path's intro and
-  // product glides anchor at the same point (no sub-frame drift between
-  // route's pre-computed source and the action's runtime-captured one).
+  // Both entry handoff and exit glide ride INSIDE the replay action — they
+  // override the cursor sprite for the first/last N frames of the trim
+  // window without adding extra frames or shifting the section. trim.startSec
+  // and trim.endSec anchor the glide windows so post-trim or pre-trim
+  // recorded content (used for crossfade overlap) gets its glide override at
+  // the right frames.
   const replay = createReplayAction(keyframes, durationMs, {
+    trimWindowStartMs: spec.trim?.startSec != null ? spec.trim.startSec * 1000 : undefined,
+    trimWindowEndMs: spec.trim?.endSec != null ? spec.trim.endSec * 1000 : undefined,
+    entryGlide: spec.mouseHandoff
+      ? {
+          fromX: spec.mouseHandoff.fromX,
+          fromY: spec.mouseHandoff.fromY,
+          durationMs: spec.mouseHandoff.durationMs,
+          easing: spec.mouseHandoff.easing,
+          shape: spec.mouseHandoff.shape,
+        }
+      : undefined,
     exitGlide: spec.exitMouseGlide
       ? {
           fromX: spec.exitMouseGlide.fromX,
@@ -142,17 +180,7 @@ function buildActions(
       : undefined,
   });
 
-  // Entry mouseHandoff is a separate captured action prepended to replay.
-  if (!spec.mouseHandoff || keyframes.length === 0) return [replay];
-
-  const handoff = createMouseHandoffAction(
-    { x: spec.mouseHandoff.fromX, y: spec.mouseHandoff.fromY },
-    { x: keyframes[0].x, y: keyframes[0].y },
-    spec.mouseHandoff.durationMs,
-    spec.mouseHandoff.easing,
-    spec.mouseHandoff.shape,
-  );
-  return [handoff, replay];
+  return [replay];
 }
 
 // ---------------------------------------------------------------------------
@@ -187,27 +215,34 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceJo
     job.updateProgress({ status: "running", currentStep, steps: [...steps] } satisfies JobProgress);
   }
 
+  const workDir = path.join(tmpdir(), `vlad-produce-${job.id ?? randomUUID().slice(0, 8)}`);
+
+  // Warm-start: download cached render/composite from R2 to local temp.
   let existingRenderOutputPath: string | undefined;
   let existingCompositeOutputPath: string | undefined;
-  const warmStartDir = path.join(tmpdir(), `vlad-warmstart-${job.id ?? randomUUID().slice(0, 8)}`);
-
   if (d.startFromStep >= 2 && d.existingRenderR2Key) {
-    existingRenderOutputPath = path.join(warmStartDir, "render.mp4");
+    existingRenderOutputPath = path.join(workDir, "render.mp4");
     await downloadFromR2(d.existingRenderR2Key, existingRenderOutputPath);
   }
   if (d.startFromStep >= 3 && d.existingCompositeR2Key) {
-    existingCompositeOutputPath = path.join(warmStartDir, "composite.mp4");
+    existingCompositeOutputPath = path.join(workDir, "composite.mp4");
     await downloadFromR2(d.existingCompositeR2Key, existingCompositeOutputPath);
   }
 
   let webcamPath: string | null = null;
   if (d.webcamR2Key) {
-    webcamPath = path.join(warmStartDir, "webcam.webm");
+    webcamPath = path.join(workDir, "webcam.webm");
     await downloadFromR2(d.webcamR2Key, webcamPath);
   }
 
-  const amplitudeSamples = await resolveAmplitudeSamples(d.spec, d.webcamR2Key);
+  // Resolve pre-baked assets (amplitude track + per-frame JPEG bundle) in
+  // parallel — both come from R2 and neither blocks the other.
+  const [amplitudeSamples, webcamFrames] = await Promise.all([
+    resolveAmplitudeSamples(d.spec, d.webcamR2Key),
+    resolveWebcamFrames(d.webcamR2Key),
+  ]);
 
+  // Reflect warm-start in initial step state — already-done stages are 100%.
   if (d.startFromStep >= 2) steps[0].progress = 100;
   if (d.startFromStep >= 3) steps[1].progress = 100;
   report(d.startFromStep - 1);
@@ -228,6 +263,7 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceJo
       settleHint: d.settleHint,
       spec: d.spec,
       webcamPath,
+      webcamFrames,
       amplitudeSamples,
       preview: d.preview,
       startFromStep: d.startFromStep,
@@ -319,7 +355,7 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceJo
 
     return { ...result, renderId };
   } finally {
-    rm(warmStartDir, { recursive: true, force: true }).catch(() => {});
+    rm(workDir, { recursive: true, force: true }).catch(() => {});
   }
 }
 
@@ -364,7 +400,10 @@ async function renderMergeSection(
   onRenderDone: () => void,
   onComposeProgress: (pct: number) => void,
 ): Promise<ProduceResult> {
-  const amplitudeSamples = await resolveAmplitudeSamples(recording.spec, recording.webcamR2Key);
+  const [amplitudeSamples, webcamFrames] = await Promise.all([
+    resolveAmplitudeSamples(recording.spec, recording.webcamR2Key),
+    resolveWebcamFrames(recording.webcamR2Key),
+  ]);
   const actions = buildActions(recording.spec, recording.keyframes, recording.durationMs);
 
   return produceSessionVideo({
@@ -381,6 +420,7 @@ async function renderMergeSection(
     settleHint: recording.settleHint,
     spec: recording.spec,
     webcamPath,
+    webcamFrames,
     amplitudeSamples,
     onRenderProgress(rendered, total) {
       onRenderProgress(total > 0 ? Math.round((rendered / total) * 100) : 0);
@@ -441,6 +481,8 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
   try {
     let merchantResult: ProduceResult | null = null;
     let productResult: ProduceResult | null = null;
+    let merchantWebcamLocalPath: string | null = null;
+    let productWebcamLocalPath: string | null = null;
 
     if (hasIntro) {
       const merchantRec = await downloadRecording(
@@ -448,6 +490,7 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
         d.merchant!.webcamR2Key,
         merchantDir,
       );
+      merchantWebcamLocalPath = merchantRec.webcamPath;
       merchantResult = await renderMergeSection(
         userId,
         d.merchant!,
@@ -465,6 +508,7 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
         d.product!.webcamR2Key,
         productDir,
       );
+      productWebcamLocalPath = productRec.webcamPath;
       const renderStepIdx = dualSection ? 2 : 0;
       const composeStepIdx = dualSection ? 3 : 1;
       productResult = await renderMergeSection(
@@ -504,11 +548,75 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
           ? "crossfade"
           : "none";
 
+      console.log(
+        `[merge ${jobId}] audio decision: ` +
+          `route-effective=${d.merge.transition.audio} ` +
+          `audioDurationMs=${d.merge.transition.audioDurationMs} ` +
+          `introHasAudio=${introHasAudio} productHasAudio=${productHasAudio} ` +
+          `→ workerEffectiveAudio=${effectiveAudio} ` +
+          `(if route-effective is already 'none' the route's clamp dropped it ` +
+          `before the worker ever saw it — see [merge-route] clamp logs)`,
+      );
+
       // xfade needs the actual duration of the first input — probe the file.
       // Fall back to merchant duration from spec if probe fails (rare).
       const probedSec = await probeVideoDurationSec(merchantFinalPath);
       const introDurationSec =
         probedSec ?? (merchantResult!.renderDurationMs / 1000);
+
+      // Symmetric audio crossfade: borrow D/2 of un-trimmed audio from each
+      // side's webcam.webm. Route layer already clamped the duration to fit
+      // the available un-trimmed window on both sides.
+      let introAudioTailPath: string | undefined;
+      let productAudioHeadPath: string | undefined;
+      if (
+        effectiveAudio === "crossfade" &&
+        merchantWebcamLocalPath &&
+        productWebcamLocalPath
+      ) {
+        const halfAudioSec = d.merge.transition.audioDurationMs / 2 / 1000;
+        const introTrimEndSec = d.merchant!.spec.trim?.endSec ?? 0;
+        const productTrimStartSec = d.product!.spec.trim?.startSec ?? 0;
+        const productHeadStartSec = Math.max(0, productTrimStartSec - halfAudioSec);
+        console.log(
+          `[merge ${jobId}] audio borrow: halfAudioSec=${halfAudioSec.toFixed(3)} ` +
+            `introTrimEndSec=${introTrimEndSec} productTrimStartSec=${productTrimStartSec} ` +
+            `productHeadStartSec=${productHeadStartSec.toFixed(3)} ` +
+            `merchantWebcam=${merchantWebcamLocalPath} productWebcam=${productWebcamLocalPath}`,
+        );
+        [introAudioTailPath, productAudioHeadPath] = await Promise.all([
+          extractAudioChunk(
+            merchantWebcamLocalPath,
+            mergeOutputDir,
+            introTrimEndSec,
+            halfAudioSec,
+            "intro-audio-tail",
+          ),
+          extractAudioChunk(
+            productWebcamLocalPath,
+            mergeOutputDir,
+            productHeadStartSec,
+            halfAudioSec,
+            "product-audio-head",
+          ),
+        ]);
+        const [introTailBytes, productHeadBytes] = await Promise.all([
+          stat(introAudioTailPath).then((s) => s.size).catch(() => -1),
+          stat(productAudioHeadPath).then((s) => s.size).catch(() => -1),
+        ]);
+        console.log(
+          `[merge ${jobId}] audio borrow extracted: ` +
+            `introAudioTail=${introAudioTailPath} (${introTailBytes} bytes) ` +
+            `productAudioHead=${productAudioHeadPath} (${productHeadBytes} bytes)`,
+        );
+      } else if (d.merge.transition.audio === "crossfade") {
+        console.log(
+          `[merge ${jobId}] audio borrow SKIPPED — ` +
+            `effectiveAudio=${effectiveAudio} ` +
+            `merchantWebcamLocalPath=${merchantWebcamLocalPath ? "set" : "null"} ` +
+            `productWebcamLocalPath=${productWebcamLocalPath ? "set" : "null"}`,
+        );
+      }
 
       const { mergedPath } = await mergeVideoFiles(
         merchantFinalPath,
@@ -519,8 +627,11 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
         {
           audio: effectiveAudio,
           video: d.merge.transition.video,
-          durationMs: d.merge.transition.durationMs,
+          audioDurationMs: d.merge.transition.audioDurationMs,
+          videoDurationMs: d.merge.transition.videoDurationMs,
           introDurationSec,
+          introAudioTailPath,
+          productAudioHeadPath,
         },
       );
       completeStep(4);

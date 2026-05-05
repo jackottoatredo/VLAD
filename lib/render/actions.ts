@@ -152,11 +152,37 @@ export function createMouseHandoffAction(
 export type ReplayActionOptions = {
   trimStartMs?: number;
   /**
-   * When set, the cursor sprite is overridden during the LAST `durationMs`
-   * of capture — eased glide from `(fromX, fromY)` (or the cursor's recorded
-   * position at the exit-start frame, if not provided) to `(toX, toY)`.
-   * Discrete events (clicks/keys) STILL fire at their recorded positions
-   * during this window — only the cursor visual is overridden.
+   * Section's effective trim window in session ms. When set, entry/exit glide
+   * windows anchor to these boundaries (last N frames before `trimWindowEndMs`
+   * for exit; first N frames at or after `trimWindowStartMs` for entry).
+   *
+   * Defaults: trimWindowStartMs=0, trimWindowEndMs=session end. The defaults
+   * preserve legacy session-wide glide behavior for callers that don't pass
+   * trim info.
+   */
+  trimWindowStartMs?: number;
+  trimWindowEndMs?: number;
+  /**
+   * Entry glide: cursor sprite is overridden during the FIRST `durationMs` of
+   * the trim window. Glide goes from `(fromX, fromY)` to `(toX, toY)` (or to
+   * the recorded cursor position at the end of the entry window when toX/toY
+   * are omitted — keeps continuity with replay's natural behavior).
+   *
+   * Discrete events still fire at recorded positions during this window.
+   */
+  entryGlide?: {
+    fromX: number;
+    fromY: number;
+    toX?: number;
+    toY?: number;
+    durationMs: number;
+    easing: MouseEasing;
+    shape: MouseGlideShape;
+  };
+  /**
+   * Exit glide: cursor sprite is overridden during the LAST `durationMs` of
+   * the trim window. Glide goes from `(fromX, fromY)` (or recorded position
+   * at exit-window start) to `(toX, toY)`.
    */
   exitGlide?: {
     fromX?: number;
@@ -183,6 +209,7 @@ export function createReplayAction(
   options: ReplayActionOptions = {},
 ): RenderAction {
   const trimStartMs = options.trimStartMs ?? 0;
+  const entryGlide = options.entryGlide;
   const exitGlide = options.exitGlide;
   const totalReplayMs = trimStartMs + durationMs;
 
@@ -203,17 +230,40 @@ export function createReplayAction(
 
       const positionKeyframes = keyframes.filter((kf) => kf.event !== "keydown");
       const sessionDurationMs = keyframes[keyframes.length - 1].t;
-      const scale = sessionDurationMs > 0 ? totalReplayMs / sessionDurationMs : 1;
+      // Clamp ≤ 1: when totalReplayMs exceeds the recorded keyframe span (e.g.
+      // mouse went idle before the user clicked stop), play keyframes 1:1 and let
+      // interpolatePosition hold the last position for the trailing frames rather
+      // than time-stretching the recorded motion.
+      const scale = sessionDurationMs > 0 ? Math.min(1, totalReplayMs / sessionDurationMs) : 1;
 
       const totalFrames = Math.ceil(totalReplayMs / frameDurationMs);
       const skipFrames = trimStartMs > 0 ? Math.floor(trimStartMs / frameDurationMs) : 0;
-      const captureFrames = totalFrames - skipFrames;
 
-      // Exit glide: override cursor visual for the last N capture frames.
-      const exitFrameCount = exitGlide
-        ? Math.max(1, Math.min(captureFrames, Math.ceil((exitGlide.durationMs / 1000) * context.fps)))
+      // Trim window in session frame indices. Glides anchor to these so an
+      // extended trim (post-trim or pre-trim recorded content used for
+      // crossfade overlap) gets its glide override at the right frames.
+      const trimWindowStartFrame = options.trimWindowStartMs != null
+        ? Math.floor(options.trimWindowStartMs / frameDurationMs)
+        : skipFrames;
+      const trimWindowEndFrame = options.trimWindowEndMs != null
+        ? Math.min(totalFrames, Math.floor(options.trimWindowEndMs / frameDurationMs))
+        : totalFrames;
+      const trimWindowFrames = Math.max(0, trimWindowEndFrame - trimWindowStartFrame);
+
+      const entryFrameCount = entryGlide
+        ? Math.max(1, Math.min(trimWindowFrames, Math.ceil((entryGlide.durationMs / 1000) * context.fps)))
         : 0;
-      const exitStartFrameInCaptureSpace = exitGlide ? captureFrames - exitFrameCount : -1;
+      const entryStartFrame = entryGlide ? trimWindowStartFrame : -1;
+      const entryEndFrame = entryGlide ? trimWindowStartFrame + entryFrameCount : -1;
+
+      const exitFrameCount = exitGlide
+        ? Math.max(1, Math.min(trimWindowFrames, Math.ceil((exitGlide.durationMs / 1000) * context.fps)))
+        : 0;
+      const exitEndFrame = exitGlide ? trimWindowEndFrame : -1;
+      const exitStartFrame = exitGlide ? trimWindowEndFrame - exitFrameCount : -1;
+
+      let entryFromPos: CursorPosition | null = null;
+      let entryToPos: CursorPosition | null = null;
       let exitFromPos: CursorPosition | null = null;
 
       let lastPosition: CursorPosition = {
@@ -244,23 +294,51 @@ export function createReplayAction(
         }
 
         if (frameIndex >= skipFrames) {
-          const captureIdx = frameIndex - skipFrames;
-
           let renderX = recordedX;
           let renderY = recordedY;
-          if (exitGlide && captureIdx >= exitStartFrameInCaptureSpace) {
+
+          // Entry glide takes precedence at the start of the trim window;
+          // exit glide kicks in toward the end. They never overlap because
+          // the route caps both glide durations at the trim window length.
+          if (entryGlide && frameIndex >= entryStartFrame && frameIndex < entryEndFrame) {
+            if (frameIndex === entryStartFrame) {
+              entryFromPos = { x: entryGlide.fromX, y: entryGlide.fromY };
+              if (entryGlide.toX !== undefined && entryGlide.toY !== undefined) {
+                entryToPos = { x: entryGlide.toX, y: entryGlide.toY };
+              } else {
+                // Default target = recorded cursor position at the end of the
+                // entry window. This way the glide lands wherever replay
+                // would naturally have the cursor immediately after.
+                const tEnd = (entryEndFrame * frameDurationMs) / scale;
+                const posEnd = interpolatePosition(positionKeyframes, tEnd);
+                entryToPos = {
+                  x: clampCoordinate(Math.round(posEnd.x), context.width),
+                  y: clampCoordinate(Math.round(posEnd.y), context.height),
+                };
+              }
+            }
+            const t = Math.min(1, (frameIndex - entryStartFrame + 1) / entryFrameCount);
+            const eased = applyGlideStutter(
+              applyEasing(t, entryGlide.easing),
+              t,
+              entryGlide.shape.stutterAmplitude,
+              entryGlide.shape.stutterFrequency,
+            );
+            const pt = arcedGlidePoint(entryFromPos!, entryToPos!, eased, entryGlide.shape.arcFraction);
+            renderX = clampCoordinate(Math.round(pt.x), context.width);
+            renderY = clampCoordinate(Math.round(pt.y), context.height);
+          } else if (exitGlide && frameIndex >= exitStartFrame && frameIndex < exitEndFrame) {
             // Anchor the glide source. If the spec provided an explicit
             // (fromX, fromY) — typically in the crossfade path so it matches
             // the sibling section's glide — use that. Otherwise snapshot the
             // recorded cursor position at the exit-start frame.
-            if (captureIdx === exitStartFrameInCaptureSpace) {
+            if (frameIndex === exitStartFrame) {
               exitFromPos =
                 exitGlide.fromX !== undefined && exitGlide.fromY !== undefined
                   ? { x: exitGlide.fromX, y: exitGlide.fromY }
                   : { x: recordedX, y: recordedY };
             }
-            const fromPos = exitFromPos!;
-            const t = Math.min(1, (captureIdx - exitStartFrameInCaptureSpace + 1) / exitFrameCount);
+            const t = Math.min(1, (frameIndex - exitStartFrame + 1) / exitFrameCount);
             const eased = applyGlideStutter(
               applyEasing(t, exitGlide.easing),
               t,
@@ -268,7 +346,7 @@ export function createReplayAction(
               exitGlide.shape.stutterFrequency,
             );
             const pt = arcedGlidePoint(
-              fromPos,
+              exitFromPos!,
               { x: exitGlide.toX, y: exitGlide.toY },
               eased,
               exitGlide.shape.arcFraction,

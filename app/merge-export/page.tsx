@@ -243,24 +243,36 @@ export default function MergeExportPage() {
       productEnabled: !!productRecordingId,
       introSettings,
       productSettings,
+      // The master `enabled` toggle gates the wire payload — when off, all
+      // four types submit as 'none' regardless of the stored values. The
+      // stored values themselves are preserved (the modal toggle never
+      // mutates them) so the user's selections come back on re-enable.
       transition: state.transition.enabled
         ? {
             audio: state.transition.audio,
             video: state.transition.video,
             overlay: state.transition.overlay,
             mouse: state.transition.mouse,
-            side: state.transition.side,
-            durationMs: state.transition.durationMs,
+            audioDurationMs: state.transition.audioDurationMs,
+            videoDurationMs: state.transition.videoDurationMs,
+            overlayDurationMs: state.transition.overlayDurationMs,
+            mouseDurationMs: state.transition.mouseDurationMs,
           }
         : {
             audio: 'none',
             video: 'none',
             overlay: 'none',
             mouse: 'none',
-            side: state.transition.side,
-            durationMs: state.transition.durationMs,
+            audioDurationMs: state.transition.audioDurationMs,
+            videoDurationMs: state.transition.videoDurationMs,
+            overlayDurationMs: state.transition.overlayDurationMs,
+            mouseDurationMs: state.transition.mouseDurationMs,
           },
     }
+    console.log(
+      `[merge-page] runTask transition (state.enabled=${state.transition.enabled}):`,
+      JSON.stringify(body.transition),
+    )
     try {
       const { jobId, renderId } = await startMergeJob(body)
       insertOptimistic(renderId, jobId, brand, '/api/merge-export', body)

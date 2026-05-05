@@ -129,7 +129,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "No recording found for this flow." }, { status: 404 });
   }
 
-  let mouseData: { events?: unknown; virtualWidth?: unknown; virtualHeight?: unknown };
+  let mouseData: { events?: unknown; virtualWidth?: unknown; virtualHeight?: unknown; durationMs?: unknown };
   try {
     mouseData = JSON.parse(mouseBuffer.toString("utf-8")) as typeof mouseData;
   } catch {
@@ -145,7 +145,11 @@ export async function POST(request: Request) {
   }
 
   const keyframes = eventsToKeyframes(mouseData.events as Parameters<typeof eventsToKeyframes>[0]);
-  const durationMs = keyframes.length > 0 ? keyframes[keyframes.length - 1].t : 1000;
+  // Prefer the explicit stop-click duration captured by the client. Falls back to
+  // last-keyframe time for legacy mouse.json files saved before durationMs existed.
+  const durationMs = typeof mouseData.durationMs === "number" && mouseData.durationMs > 0
+    ? mouseData.durationMs
+    : keyframes.length > 0 ? keyframes[keyframes.length - 1].t : 1000;
   const settleHint = keyframes.length > 0 ? { x: keyframes[0].x, y: keyframes[0].y } : undefined;
 
   const webcam = parseWebcam(body as Record<string, unknown>);
@@ -183,17 +187,24 @@ export async function POST(request: Request) {
 
   const cached = await findCachedRender(userId, flowId, urlHash, mouseHash, specHash, tKey, tier);
 
+  // Fully cached at the trim sub-stage → return the trimmed mp4 directly.
   if (cached.trimmedR2Key) {
     const presigned = await getPresignedUrl(cached.trimmedR2Key);
     return NextResponse.json({ videoUrl: presigned, videoR2Key: cached.trimmedR2Key });
   }
 
-  if (cached.startFromStep === 3 && cached.compositeR2Key && (!trimStartSec || trimStartSec === 0) && (!trimEndSec || trimEndSec === 0)) {
+  // Composite cached + no trim requested → return the composite directly.
+  // (When trim values are set we still need to run the trim stage even on
+  // a composite cache hit, so we fall through to the worker.)
+  if (
+    cached.startFromStep === 3 &&
+    cached.compositeR2Key &&
+    (!trimStartSec || trimStartSec === 0) &&
+    (!trimEndSec || trimEndSec === 0)
+  ) {
     const presigned = await getPresignedUrl(cached.compositeR2Key);
     return NextResponse.json({ videoUrl: presigned, videoR2Key: cached.compositeR2Key });
   }
-
-  const step = cached.startFromStep;
 
   const job = await jobsQueue.add("produce", {
     type: "produce",
@@ -212,7 +223,7 @@ export async function POST(request: Request) {
     settleHint,
     spec,
     webcamR2Key,
-    startFromStep: step,
+    startFromStep: cached.startFromStep,
     existingRenderR2Key: cached.renderR2Key,
     existingRenderDurationMs: cached.renderDurationMs,
     existingCompositeR2Key: cached.compositeR2Key,

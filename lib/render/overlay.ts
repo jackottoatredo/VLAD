@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import { type Page } from "playwright";
 import type { RenderSpec } from "@/lib/render/spec";
 import {
@@ -9,23 +8,30 @@ import {
 } from "@/app/config";
 
 /**
- * URL the page-side overlay loads for the webcam video. Intercepted by
- * Playwright's page.route and fulfilled with the local webcam buffer.
+ * Base URL the page-side overlay loads webcam frames from. Each frame is
+ * fetched as `${WEBCAM_FRAME_URL_BASE}{N}.jpg` and intercepted by Playwright's
+ * `page.route`, served from the in-memory frame bundle the worker resolved.
+ *
+ * Per-frame JPEGs replace the previous `<video>`+seek model: render is now
+ * deterministic, no media-element clock to drift against the renderer's
+ * frame counter.
  */
-export const WEBCAM_FAKE_URL = "https://__vlad_overlay__/webcam.webm";
+export const WEBCAM_FRAME_URL_BASE = "https://__vlad_overlay__/frame_";
 
 export type InjectOverlayOptions = {
   spec: RenderSpec;
-  /** Local fs path to webcam.webm (downloaded by caller). Null when no webcam. */
-  webcamPath: string | null;
+  /** True when frame data is available — tells the overlay to mount an `<img>`
+   *  and load per-frame JPEGs. False = no webcam, audio-only or off. */
+  hasWebcam: boolean;
   /** Pre-baked amplitude samples [0,1], one per video frame at `fps`. Null when no audio data. */
   amplitudeSamples: number[] | null;
   /** Render fps — used to compute per-frame morph/throb progress. */
   fps: number;
   /** Render zoom factor — overlay sizes are virtual-px / zoom = CSS-px. */
   zoom: number;
-  /** Total number of capture frames in this section — needed so the exit
-   *  morph can compute `exitStartFrame = totalFrames - exitDurationFrames`. */
+  /** Total number of capture frames in this section. Entry morph anchors at
+   *  frame 0; exit morph anchors at `totalFrames`. The render is
+   *  trim-agnostic — trim is applied as a separate post-render stage. */
   totalFrames: number;
 };
 
@@ -59,16 +65,14 @@ const OVERLAY_INSTALL_SCRIPT = `
 
       var videoWrap = document.createElement('div');
       videoWrap.style.cssText = wrapStyle;
-      var video = document.createElement('video');
-      video.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;';
-      video.muted = true;
-      video.playsInline = true;
-      video.preload = 'auto';
-      if (cfg.hasWebcam) {
-        video.src = cfg.webcamUrl;
-        video.load();
-      }
-      videoWrap.appendChild(video);
+      // Per-frame webcam visual: an <img> swapped frame-by-frame from the
+      // pre-extracted JPEG bundle. Replaces the previous <video>+seek model
+      // — synchronous, deterministic, no clock drift.
+      var img = document.createElement('img');
+      img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;';
+      img.alt = '';
+      img.draggable = false;
+      videoWrap.appendChild(img);
 
       var audioWrap = document.createElement('div');
       audioWrap.style.cssText = wrapStyle;
@@ -90,9 +94,11 @@ const OVERLAY_INSTALL_SCRIPT = `
         plateSize: cfg.plateSize,
         PAD: cfg.PAD,
         totalFrames: cfg.totalFrames,
+        hasWebcam: cfg.hasWebcam,
+        frameUrlBase: cfg.frameUrlBase,
         videoWrap: videoWrap,
         audioWrap: audioWrap,
-        video: video,
+        image: img,
       };
     },
 
@@ -106,9 +112,12 @@ const OVERLAY_INSTALL_SCRIPT = `
       var PAD = state.PAD;
       var totalFrames = state.totalFrames;
 
-      // Resolve from/to webcam state and morph progress. Routes never emit
-      // both entry morph and exit morph on the same section, so at most one
-      // branch fires per frame.
+      // Morph anchors to capture-frame indices: entry at frame 0, exit at
+      // (totalFrames − D). Render is trim-agnostic — the post-render trim
+      // sub-stage cuts a window from this output. Glides at the very start
+      // / very end of the session may be trimmed off when trim doesn't
+      // reach those edges; the trim-extension on crossfade flows aligns
+      // trim with session boundaries when un-trimmed content is available.
       var fromMode = spec.webcam.mode;
       var targetMode = spec.webcam.mode;
       var fromPos = spec.webcam.position;
@@ -116,13 +125,15 @@ const OVERLAY_INSTALL_SCRIPT = `
       var morphT = 1;
 
       if (spec.morph) {
-        // Entry morph: animates FROM (morph.fromMode/fromPos) TO (webcam) over the first N frames.
+        // Entry morph: animates FROM (morph.fromMode/fromPos) TO (webcam)
+        // over the first N capture frames.
         fromMode = spec.morph.fromMode;
         fromPos = spec.morph.fromPosition;
         var entryElapsedMs = frameIdx * (1000 / fps);
         morphT = Math.max(0, Math.min(entryElapsedMs / spec.morph.durationMs, 1));
       } else if (spec.exitMorph) {
-        // Exit morph: animates FROM (webcam) TO (exitMorph.toMode/toPos) over the LAST N frames.
+        // Exit morph: animates FROM (webcam) TO (exitMorph.toMode/toPos)
+        // over the last N capture frames.
         var exitFrameCount = Math.max(1, Math.ceil((spec.exitMorph.durationMs / 1000) * fps));
         var exitStart = totalFrames - exitFrameCount;
         if (frameIdx >= exitStart) {
@@ -130,7 +141,6 @@ const OVERLAY_INSTALL_SCRIPT = `
           targetPos = spec.exitMorph.toPosition;
           morphT = Math.max(0, Math.min((frameIdx - exitStart + 1) / exitFrameCount, 1));
         } else {
-          // Pre-exit: still in steady state, no morph yet.
           targetMode = spec.webcam.mode;
           targetPos = spec.webcam.position;
           morphT = 0;
@@ -174,36 +184,15 @@ const OVERLAY_INSTALL_SCRIPT = `
         state.audioWrap.style.transform = '';
       }
 
-      // Sync video.currentTime — return a promise the caller awaits before screenshot.
-      var video = state.video;
-      if (video && video.src) {
-        var targetTime = frameIdx / fps;
-        var dur = isFinite(video.duration) ? video.duration : Infinity;
-        var t = targetTime;
-        var maxT = dur - 0.001;
-        if (maxT < 0) maxT = 0;
-        if (t > maxT) t = maxT;
-
-        if (Math.abs(video.currentTime - t) > 0.5 / fps) {
-          return new Promise(function (resolve) {
-            var resolved = false;
-            var onEnd = function () {
-              if (resolved) return;
-              resolved = true;
-              video.removeEventListener('seeked', onEnd);
-              video.removeEventListener('error', onEnd);
-              resolve();
-            };
-            video.addEventListener('seeked', onEnd);
-            video.addEventListener('error', onEnd);
-            setTimeout(onEnd, 250);
-            try {
-              video.currentTime = t;
-            } catch (e) {
-              onEnd();
-            }
-          });
-        }
+      // Per-frame webcam visual: swap the <img> src to the current frame's
+      // JPEG and await decode so the screenshot captures the loaded image.
+      // The page.evaluate caller awaits this returned Promise.
+      if (state.hasWebcam && state.image) {
+        state.image.src = state.frameUrlBase + frameIdx + '.jpg';
+        return state.image.decode().catch(function () {
+          // Decode errors are non-fatal — render proceeds with the previous
+          // frame's image (or empty) rather than throwing the whole job.
+        });
       }
       return Promise.resolve();
     },
@@ -212,19 +201,35 @@ const OVERLAY_INSTALL_SCRIPT = `
 `;
 
 /**
- * Set up the page-side overlay: register the webcam asset interceptor, install
- * the page-side overlay code, and prime per-frame driver state.
+ * Set up the page-side overlay: register the frame route handler, install the
+ * page-side overlay code, and prime per-frame driver state.
  */
-export async function injectOverlay(page: Page, options: InjectOverlayOptions): Promise<void> {
-  const { spec, webcamPath, amplitudeSamples, fps, zoom } = options;
+export async function injectOverlay(
+  page: Page,
+  options: InjectOverlayOptions,
+  frames: Buffer[] | null,
+): Promise<void> {
+  const { spec, hasWebcam, amplitudeSamples, fps, zoom } = options;
 
-  if (webcamPath) {
-    const buf = await readFile(webcamPath);
-    await page.route(WEBCAM_FAKE_URL, async (route) => {
+  // Frame route handler: serve frame_{N}.jpg from the in-memory bundle. The
+  // frame index is parsed from the URL path. Out-of-range indices (rare —
+  // happens at the very tail when capture frames slightly exceed bundle
+  // count due to rounding) clamp to the last frame so the overlay stays
+  // visually stable rather than showing a broken image.
+  if (hasWebcam && frames && frames.length > 0) {
+    const FRAME_RE = /frame_(\d+)\.jpg$/;
+    const lastFrame = frames.length - 1;
+    await page.route(`${WEBCAM_FRAME_URL_BASE}*.jpg`, async (route) => {
+      const m = route.request().url().match(FRAME_RE);
+      if (!m) {
+        await route.abort();
+        return;
+      }
+      const idx = Math.min(lastFrame, Math.max(0, parseInt(m[1], 10)));
       await route.fulfill({
         status: 200,
-        contentType: "video/webm",
-        body: buf,
+        contentType: "image/jpeg",
+        body: frames[idx],
       });
     });
   }
@@ -239,8 +244,8 @@ export async function injectOverlay(page: Page, options: InjectOverlayOptions): 
   await page.evaluate(OVERLAY_INSTALL_SCRIPT);
 
   const cfg = {
-    webcamUrl: WEBCAM_FAKE_URL,
-    hasWebcam: !!webcamPath,
+    frameUrlBase: WEBCAM_FRAME_URL_BASE,
+    hasWebcam: hasWebcam && !!frames && frames.length > 0,
     D,
     B,
     PAD,
@@ -259,10 +264,13 @@ export async function injectOverlay(page: Page, options: InjectOverlayOptions): 
 }
 
 /**
- * Drive the overlay forward by one frame. Awaits the webcam seek so the next
- * screenshot captures the correct video frame.
+ * Drive the overlay forward by one frame. Function form ensures Playwright
+ * awaits the page-side Promise (returned by `tick()` from `img.decode()`),
+ * guaranteeing the next screenshot captures the loaded frame.
  */
 export async function tickOverlay(page: Page, frameIdx: number): Promise<void> {
-  // String-form evaluate so the worker's bundler can't inject __name helpers.
-  await page.evaluate(`window.__vlad_overlay__.tick(${frameIdx});`);
+  await page.evaluate(
+    (idx) => (window as unknown as { __vlad_overlay__: { tick: (n: number) => Promise<void> } }).__vlad_overlay__.tick(idx),
+    frameIdx,
+  );
 }

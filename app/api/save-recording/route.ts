@@ -9,6 +9,7 @@ import { requireSession } from "@/lib/apiAuth";
 import { logEvent } from "@/lib/stats/events";
 import { slugifyPart, joinNameParts, deriveMerchantNameFromUrl } from "@/lib/naming";
 import { reserveUniqueName } from "@/lib/db/reserveName";
+import { invalidateRenderCacheForRecording } from "@/lib/cache/render-cache";
 
 export const runtime = "nodejs";
 
@@ -245,6 +246,12 @@ export async function POST(request: Request) {
       .from("vlad_renders")
       .update({ stale: true })
       .or(`product_recording_id.eq.${flowId},merchant_recording_id.eq.${flowId}`);
+    // Wipe Redis cache entries that mention this recording. Without this,
+    // a re-render with the same (url, mouse) would hit a cached produce
+    // artifact computed against the OLD spec (old trim, old webcam settings).
+    void invalidateRenderCacheForRecording(session.email, flowId).catch((err) => {
+      console.warn(`[save-recording] cache invalidate failed for ${flowId}:`, err);
+    });
   }
 
   // Emit `recording_created` only on the draft→saved transition (or fresh

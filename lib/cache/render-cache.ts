@@ -13,12 +13,19 @@ const redis = (g.__cacheRedis ??= new Redis({
 export type QualityTier = "preview" | "full";
 
 /**
- * v2 cache: keyed on URL hash + tier. Composite/trim sub-fields are keyed on
- * `specHash` (a hash of the resolved RenderSpec excluding trim) so each
- * settings combination caches independently. Bumped from v1 (which keyed
- * on legacy webcam-only fingerprint) so old entries are invalidated.
+ * v3 cache: three sub-stages keyed under one Redis hash per (user, recording,
+ * url, tier). Trim is INTENTIONALLY excluded from `specHash` so trim-only
+ * edits short-circuit at the trim sub-stage — render and composite caches
+ * stay warm and only the cheap trim re-encode runs.
+ *
+ *   render:${specHash}_*           — Playwright capture (overlay baked in)
+ *   comp:${specHash}_*             — audio mux on top of render
+ *   trim:${specHash}:${trimKey}_*  — final cut to the requested window
+ *
+ * Bumped from v2 prefix on the cache version to invalidate stale entries
+ * carried over from the prior collapse experiment.
  */
-const CACHE_VERSION = "v2";
+const CACHE_VERSION = "v3";
 
 function cacheKey(userId: string, safeId: string, urlHash: string, tier: QualityTier): string {
   return `cache:${CACHE_VERSION}:${userId}:${safeId}:${urlHash}:${tier}`;
@@ -29,6 +36,7 @@ function cacheKey(userId: string, safeId: string, urlHash: string, tier: Quality
 // ---------------------------------------------------------------------------
 
 export type CachedRender = {
+  /** Earliest pipeline step that needs to run (1=render, 2=composite, 3=trim). */
   startFromStep: 1 | 2 | 3;
   renderR2Key?: string;
   renderDurationMs?: number;
@@ -37,12 +45,12 @@ export type CachedRender = {
 };
 
 /**
- * Look up cached render artifacts in Redis. Returns the earliest pipeline
- * step that needs to run, plus any cached R2 keys.
+ * Look up cached artifacts. Returns the deepest stage that is cached so the
+ * worker (or the route's short-circuit) can skip everything earlier.
  *
- * `specHash` is a stable hash of the resolved RenderSpec sans trim — a
- * change in webcam mode/position, throb settings, morph, or mouse handoff
- * invalidates stage 1+2.
+ * `specHash` is the spec hash WITHOUT trim (see specHashInput) so different
+ * trim values share render+composite. `trimKey` differentiates the trim
+ * sub-stage.
  */
 export async function findCachedRender(
   userId: string,
@@ -56,12 +64,11 @@ export async function findCachedRender(
   const key = cacheKey(userId, safeId, urlHash, tier);
   const data = await redis.hgetall(key);
 
+  // No cache entry, or mouse events changed → full render.
   if (!data.mouseHash || data.mouseHash !== mouseHash) {
     return { startFromStep: 1 };
   }
 
-  // Render is keyed solely on (url, mouse) — overlay is in stage 1 now,
-  // so we need spec to match the cached render too.
   const renderR2Key = data[`render:${specHash}_r2_key`];
   const renderDurationMs = data[`render:${specHash}_duration_ms`]
     ? Number(data[`render:${specHash}_duration_ms`])
@@ -127,8 +134,8 @@ export async function updateRenderCache(
 // ---------------------------------------------------------------------------
 
 /**
- * Remove all cached artifacts for a given user + identifier + URL.
- * Call when mouse events change (new recording replaces old one).
+ * Remove cached artifacts for a given user + identifier + URL. Call when
+ * mouse events change (a new recording replaces the old one).
  */
 export async function invalidateRenderCache(
   userId: string,
@@ -139,4 +146,32 @@ export async function invalidateRenderCache(
     cacheKey(userId, safeId, urlHash, "preview"),
     cacheKey(userId, safeId, urlHash, "full"),
   );
+}
+
+/**
+ * Remove ALL cached entries for a recording (user + safeId, every url + tier).
+ * Used as a safety net when a recording's metadata is edited — guarantees
+ * the next render re-reads metadata and produces fresh output, even if
+ * something has gone wrong with cache-key differentiation. The natural
+ * cache-key flow would normally handle edits without this, but the
+ * wholesale wipe makes correctness independent of any subtle key-shape
+ * regressions.
+ */
+export async function invalidateRenderCacheForRecording(
+  userId: string,
+  safeId: string,
+): Promise<void> {
+  const pattern = `cache:${CACHE_VERSION}:${userId}:${safeId}:*`;
+  const stream = redis.scanStream({ match: pattern, count: 100 });
+  const keys: string[] = [];
+  await new Promise<void>((resolve, reject) => {
+    stream.on("data", (batch: string[]) => {
+      for (const k of batch) keys.push(k);
+    });
+    stream.on("end", () => resolve());
+    stream.on("error", reject);
+  });
+  if (keys.length > 0) {
+    await redis.del(...keys);
+  }
 }

@@ -32,8 +32,13 @@ export type RenderOptions = {
   preview?: boolean;
   /** Resolved render config for the DOM overlay (webcam, throb, morph). When omitted, no overlay is injected. */
   spec?: RenderSpec;
-  /** Local fs path to webcam.webm (caller downloaded from R2). Null when no webcam. */
+  /** Local fs path to webcam.webm (caller downloaded from R2). Null when no webcam.
+   *  Used for audio mux only — the visual is driven by the per-frame JPEG bundle. */
   webcamPath?: string | null;
+  /** Pre-extracted webcam frames (one JPEG per render frame). The overlay
+   *  swaps an `<img>` per tick from this bundle, eliminating the
+   *  seek-driven video element. Null when no webcam. */
+  webcamFrames?: Buffer[] | null;
   /** Pre-baked amplitude samples [0,1] at `fps`. Null when no audio data. */
   amplitudeSamples?: number[] | null;
 };
@@ -239,19 +244,25 @@ export async function renderUrlToMp4(options: RenderOptions): Promise<RenderResu
     // morph/throb state and webcam currentTime sync.
     const hasOverlay = !!options.spec;
     if (hasOverlay) {
-      // Compute total capture frames so the exit morph knows when to start.
+      // Total capture frames so the exit morph knows when to start. Render
+      // is trim-agnostic — the trim sub-stage cuts a window from this
+      // output later.
       const totalFrames = (options.actions ?? []).reduce(
         (sum, action) => sum + Math.max(1, Math.round((action.durationMs / 1000) * options.fps)),
         0,
       );
-      await injectOverlay(page, {
-        spec: options.spec!,
-        webcamPath: options.webcamPath ?? null,
-        amplitudeSamples: options.amplitudeSamples ?? null,
-        fps: options.fps,
-        zoom,
-        totalFrames,
-      });
+      await injectOverlay(
+        page,
+        {
+          spec: options.spec!,
+          hasWebcam: !!options.webcamFrames && options.webcamFrames.length > 0,
+          amplitudeSamples: options.amplitudeSamples ?? null,
+          fps: options.fps,
+          zoom,
+          totalFrames,
+        },
+        options.webcamFrames ?? null,
+      );
     }
 
     // Wiggle the mouse near the first cursor position for 4s of virtual time

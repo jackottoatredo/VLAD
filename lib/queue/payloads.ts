@@ -36,17 +36,19 @@ export type ProduceJobPayload = {
   /** R2 key for webcam video — worker downloads this (null if no webcam) */
   webcamR2Key?: string | null;
 
-  // Warm-start / cache (R2 keys, not filesystem paths)
+  // Warm-start: skip stages that already have cached artifacts (R2 keys,
+  // not local fs paths — worker downloads on demand).
   startFromStep: 1 | 2 | 3;
   existingRenderR2Key?: string;
   existingRenderDurationMs?: number;
   existingCompositeR2Key?: string;
 
-  // Cache keys (worker updates Redis cache after completion)
+  // Cache keys (worker updates Redis cache after completion).
   urlHash: string;
   mouseHash: string;
-  /** Hash of the resolved RenderSpec sans trim (drives stage 1+2 cache). */
+  /** Hash of the resolved RenderSpec EXCLUDING trim — drives stage 1+2 cache. */
   specHash: string;
+  /** Stable trim key (`startSec_endSec`). Drives the stage-3 trim sub-cache. */
   trimKeyStr: string;
 
   // Preview quality tier (true → reduced DPR + FFmpeg downscale). Separate cache from full.

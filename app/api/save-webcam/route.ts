@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/apiAuth";
 import { uploadToR2 } from "@/lib/storage/r2";
 import { bakeAmplitudeForWebcam } from "@/lib/audio/amplitude";
+import { bakeWebcamFramesForUpload } from "@/lib/audio/webcam-frames";
 
 export const runtime = "nodejs";
 
@@ -36,10 +37,16 @@ export async function POST(request: Request) {
 
   await uploadToR2(r2Key, buffer, "video/webm");
 
-  // Pre-bake the amplitude track so the renderer's audio-mode throb is free at
-  // render time. Best-effort — failures shouldn't block the upload response.
+  // Pre-bake derived assets so render time becomes deterministic and fast:
+  //   - amplitude track: drives throb visualization in audio mode
+  //   - frame bundle:    one JPEG per render frame, indexed by capture order;
+  //                      replaces seek-driven webcam playback in the overlay
+  // Both are best-effort — failures don't block the upload response.
   void bakeAmplitudeForWebcam(r2Key).catch((err) => {
     console.error(`[save-webcam] amplitude bake failed for ${r2Key}:`, err);
+  });
+  void bakeWebcamFramesForUpload(r2Key).catch((err) => {
+    console.error(`[save-webcam] frame bundle bake failed for ${r2Key}:`, err);
   });
 
   return NextResponse.json({ ok: true, r2Key });

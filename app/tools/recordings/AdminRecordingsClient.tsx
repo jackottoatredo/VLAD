@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import PreviewModal from '@/app/components/PreviewModal'
+import RecordingPreviewModal from '@/app/components/RecordingPreviewModal'
+import RenderPreviewModal from '@/app/components/RenderPreviewModal'
 import DeleteModal from '@/app/components/DeleteModal'
 import type { AdminRecordingRow } from '@/app/api/tools/recordings/route'
 
@@ -176,14 +177,29 @@ export default function AdminRecordingsClient() {
         </div>
       </main>
 
-      {previewTarget && (
-        <PreviewModal
+      {previewTarget && previewTarget.kind === 'render' && (
+        <RenderPreviewModal
           title={`${previewTarget.kind}: ${previewTarget.label} — ${presenterLabel(previewTarget.presenter)}`}
           videoUrl={previewTarget.videoUrl}
           downloadName={previewTarget.label}
           trimStartSec={previewTarget.trimStartSec ?? undefined}
           trimEndSec={previewTarget.trimEndSec ?? undefined}
           slug={previewTarget.slug}
+          onClose={() => setPreviewTarget(null)}
+          onDelete={() => {
+            setDeleteTarget(previewTarget)
+            setPreviewTarget(null)
+          }}
+        />
+      )}
+
+      {previewTarget && previewTarget.kind !== 'render' && (
+        <RecordingPreviewModal
+          title={`${previewTarget.kind}: ${previewTarget.label} — ${presenterLabel(previewTarget.presenter)}`}
+          videoUrl={previewTarget.videoUrl}
+          downloadName={previewTarget.label}
+          trimStartSec={previewTarget.trimStartSec ?? undefined}
+          trimEndSec={previewTarget.trimEndSec ?? undefined}
           onClose={() => setPreviewTarget(null)}
           onDelete={() => {
             setDeleteTarget(previewTarget)

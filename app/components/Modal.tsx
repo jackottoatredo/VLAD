@@ -3,7 +3,8 @@
 import type { ReactNode } from 'react'
 
 type Props = {
-  title: string
+  /** A string is rendered as the standard h2 title. ReactNode lets callers put custom controls (e.g. tabs) in the top-left slot. */
+  title?: ReactNode
   children: ReactNode
   onClose: () => void
   size?: 'default' | 'md' | 'lg'
@@ -23,7 +24,13 @@ export default function Modal({ title, children, onClose, size = 'default', head
       <div className="absolute inset-0 backdrop-blur-[2px]" onClick={onClose} />
       <div className={`relative w-full rounded-xl border border-border bg-surface p-6 shadow-md ${SIZE_CLASS[size]}`}>
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold text-foreground">{title}</h2>
+          {typeof title === 'string' ? (
+            <h2 className="text-lg font-semibold text-foreground">{title}</h2>
+          ) : title ? (
+            title
+          ) : (
+            <div />
+          )}
           <div className="flex items-center gap-3">
             {headerRight}
             <button
@@ -34,7 +41,7 @@ export default function Modal({ title, children, onClose, size = 'default', head
             </button>
           </div>
         </div>
-        <div className="mt-4">{children}</div>
+        <div className={title || headerRight ? 'mt-4' : 'mt-2'}>{children}</div>
       </div>
     </div>
   )

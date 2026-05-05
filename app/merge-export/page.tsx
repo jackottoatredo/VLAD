@@ -3,7 +3,8 @@
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import DeleteModal from '@/app/components/DeleteModal'
-import PreviewModal from '@/app/components/PreviewModal'
+import RecordingPreviewModal from '@/app/components/RecordingPreviewModal'
+import RenderPreviewModal from '@/app/components/RenderPreviewModal'
 import Markdown from '@/app/components/Markdown'
 import { mergeExport as mergeExportInstructions } from '@/app/copy/instructions'
 import {
@@ -74,7 +75,27 @@ export default function MergeExportPage() {
   const [selectedProduct, setSelectedProduct] = useState<string | null>(null)
   const [showGenerateModal, setShowGenerateModal] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string; kind: 'recording' | 'render' } | null>(null)
-  const [previewTarget, setPreviewTarget] = useState<{ title: string; videoUrl?: string | null; renderId?: string; downloadName?: string; onEdit?: () => void; trimStartSec?: number; trimEndSec?: number; slug?: string | null } | null>(null)
+  type PreviewTarget =
+    | {
+        kind: 'recording'
+        title: string
+        videoUrl?: string | null
+        downloadName?: string
+        trimStartSec?: number
+        trimEndSec?: number
+        onEdit?: () => void
+      }
+    | {
+        kind: 'render'
+        title: string
+        videoUrl?: string | null
+        downloadName?: string
+        trimStartSec?: number
+        trimEndSec?: number
+        renderId: string
+        slug?: string | null
+      }
+  const [previewTarget, setPreviewTarget] = useState<PreviewTarget | null>(null)
 
   // Tracks renderIds currently being polled so the resume effect doesn't
   // double up when the polling tick mutates the renders array.
@@ -198,6 +219,7 @@ export default function MergeExportPage() {
     const trimStartSec = typeof meta.trimStartSec === 'number' ? meta.trimStartSec : undefined
     const trimEndSec = typeof meta.trimEndSec === 'number' ? meta.trimEndSec : undefined
     setPreviewTarget({
+      kind: 'recording',
       title,
       videoUrl: recording.preview_url,
       downloadName: name,
@@ -472,7 +494,7 @@ export default function MergeExportPage() {
                   function openPreview() {
                     if (r.status !== 'done') return
                     if (isNew) markSeen(r.id)
-                    setPreviewTarget({ title: `Export: ${label}`, videoUrl: r.video_url, renderId: r.id, downloadName: label, slug: r.slug })
+                    setPreviewTarget({ kind: 'render', title: label, videoUrl: r.video_url, renderId: r.id, downloadName: label, slug: r.slug })
                   }
 
                   return (
@@ -557,8 +579,20 @@ export default function MergeExportPage() {
         </div>
       </div>
 
-      {previewTarget && (
-        <PreviewModal
+      {previewTarget?.kind === 'recording' && (
+        <RecordingPreviewModal
+          title={previewTarget.title}
+          videoUrl={previewTarget.videoUrl}
+          downloadName={previewTarget.downloadName}
+          trimStartSec={previewTarget.trimStartSec}
+          trimEndSec={previewTarget.trimEndSec}
+          onClose={() => setPreviewTarget(null)}
+          onEdit={previewTarget.onEdit}
+        />
+      )}
+
+      {previewTarget?.kind === 'render' && (
+        <RenderPreviewModal
           title={previewTarget.title}
           videoUrl={previewTarget.videoUrl}
           downloadName={previewTarget.downloadName}
@@ -566,11 +600,10 @@ export default function MergeExportPage() {
           trimEndSec={previewTarget.trimEndSec}
           slug={previewTarget.slug}
           onClose={() => setPreviewTarget(null)}
-          onEdit={previewTarget.onEdit}
-          onDelete={previewTarget.renderId ? () => {
-            setDeleteTarget({ id: previewTarget.renderId!, name: previewTarget.title, kind: 'render' })
+          onDelete={() => {
+            setDeleteTarget({ id: previewTarget.renderId, name: previewTarget.title, kind: 'render' })
             setPreviewTarget(null)
-          } : undefined}
+          }}
         />
       )}
 

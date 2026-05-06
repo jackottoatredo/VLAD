@@ -634,11 +634,15 @@ async function encodeAlphaMov(
   outputPath: string,
   fps: number,
 ): Promise<void> {
+  // See render-overlay.ts:encodeAlphaMov — pinning to a single thread avoids
+  // ff_frame_thread_encoder_init failures on resource-constrained containers.
   const args = [
+    "-threads", "1",
     "-framerate", String(fps),
     "-i", path.join(framesDir, "frame_%06d.png"),
     "-c:v", "png",
     "-pix_fmt", "rgba",
+    "-threads", "1",
     "-y",
     outputPath,
   ];

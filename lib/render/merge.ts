@@ -111,7 +111,7 @@ export async function composeLayeredMerge(
   });
 
   // ---- Build inputs + filtergraph ----
-  const args: string[] = [];
+  const args: string[] = ["-threads", "1"];
 
   // Input 0: intro background MP4.
   args.push("-i", options.intro.backgroundVideoPath);
@@ -221,6 +221,7 @@ export async function composeLayeredMerge(
     "-ac", "2",
     "-movflags", "+faststart",
     "-progress", "pipe:1",
+    "-threads", "1",
     "-y",
     mergedPath,
   );

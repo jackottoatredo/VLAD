@@ -149,11 +149,16 @@ async function encodeAlphaMov(
   outputPath: string,
   fps: number,
 ): Promise<void> {
+  // -threads 1 on both sides: ffmpeg's PNG encoder calls
+  // ff_frame_thread_encoder_init, which can fail with EAGAIN under container
+  // pthread/PID pressure. Frame threading buys us nothing for PNG.
   const args = [
+    "-threads", "1",
     "-framerate", String(fps),
     "-i", path.join(framesDir, "frame_%06d.png"),
     "-c:v", "png",
     "-pix_fmt", "rgba",
+    "-threads", "1",
     "-y",
     outputPath,
   ];

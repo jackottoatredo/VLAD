@@ -25,8 +25,6 @@ export type LayeredMergeTransition = {
 export type SectionMergeInputs = {
   /** Background-only render — page screenshots, no overlay/cursor. */
   backgroundVideoPath: string;
-  /** Transparent overlay webm — webcam circle / audio icon, alpha-aware. */
-  overlayVideoPath: string;
   /** Trim window in session-time seconds. Both undefined / 0 → no trim. */
   trimStartSec?: number;
   trimEndSec?: number;
@@ -45,6 +43,12 @@ export type LayeredMergeOptions = {
   intro: SectionMergeInputs;
   product: SectionMergeInputs;
   transition: LayeredMergeTransition;
+  /** v6: a single overlay video covering the FULL merged output duration.
+   *  Rendered by `renderUnifiedMergeOverlay` over the merged timeline so
+   *  the morph (mode + position + scale) is a single continuous animation
+   *  with no per-section seam at the boundary. Already at output
+   *  resolution and duration — no trim/concat at the merge stage. */
+  unifiedOverlayPath: string;
   /** Cursor sprite source — Buffer of public/cursor.svg or a PNG. */
   cursorSource: Buffer;
   cursorSizePx: number;
@@ -55,15 +59,18 @@ export type LayeredMergeOptions = {
 };
 
 /**
- * One-shot layered FFmpeg merge for the dual-section flow. Operates on
- * each section's RAW LAYERS (background MP4 + transparent overlay webm),
- * trims them to their windows inside the filtergraph, then composes:
+ * One-shot layered FFmpeg merge for the dual-section flow.
  *
- *   - Backgrounds: tpad + xfade (the wanted blend) OR plain concat.
- *   - Overlays:    plain concat (no crossfade — eliminates the
- *                  webcam-circle dissolve artifact).
+ *   - Backgrounds: per-section bg MP4 → trim → tpad + xfade (or concat).
+ *   - Overlay:     single unified overlay (covers full merged duration,
+ *                  rendered by renderUnifiedMergeOverlay). No trim or
+ *                  concat — already aligned with the output.
  *   - Cursor:      sprite over the merged result via PNG sequence.
  *   - Audio:       acrossfade with un-trimmed borrowing OR plain concat.
+ *
+ * Layer order at composite: bg → cursor → overlay (overlay sits on top
+ * so it obscures the cursor when they overlap, matching desktop UI
+ * semantics).
  *
  * Output length = T_intro_trimmed + T_product_trimmed always.
  */
@@ -106,18 +113,18 @@ export async function composeLayeredMerge(
   // ---- Build inputs + filtergraph ----
   const args: string[] = [];
 
-  // Inputs 0..3: layered video for both sections.
+  // Input 0: intro background MP4.
   args.push("-i", options.intro.backgroundVideoPath);
-  args.push("-i", options.intro.overlayVideoPath);
+  // Input 1: product background MP4.
   args.push("-i", options.product.backgroundVideoPath);
-  args.push("-i", options.product.overlayVideoPath);
-
-  // Input 4: cursor PNG sequence.
+  // Input 2: unified overlay MOV (alpha) — full merged duration, no trim.
+  args.push("-i", options.unifiedOverlayPath);
+  // Input 3: cursor PNG sequence.
   args.push("-framerate", String(fps), "-i", path.join(cursorFramesDir, cursor.pattern));
 
-  // Inputs 5, 6: section audio sources (webcam.webm or silence).
-  const introAudioInputIdx = 5;
-  const productAudioInputIdx = 6;
+  // Inputs 4, 5: section audio sources (webcam.webm or silence).
+  const introAudioInputIdx = 4;
+  const productAudioInputIdx = 5;
   const useIntroAudio = !options.intro.muteAudio && !!options.intro.webcamPath;
   const useProductAudio = !options.product.muteAudio && !!options.product.webcamPath;
   if (useIntroAudio) {
@@ -131,15 +138,15 @@ export async function composeLayeredMerge(
     args.push("-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000");
   }
 
-  // Inputs 7, 8: borrowed audio chunks (only when audio crossfade is on).
+  // Inputs 6, 7: borrowed audio chunks (only when audio crossfade is on).
   let introAudioTailIdx: number | null = null;
   let productAudioHeadIdx: number | null = null;
   if (audioCross) {
     if (!t.introAudioTailPath || !t.productAudioHeadPath) {
       throw new Error("audio crossfade requires introAudioTailPath and productAudioHeadPath");
     }
-    introAudioTailIdx = 7;
-    productAudioHeadIdx = 8;
+    introAudioTailIdx = 6;
+    productAudioHeadIdx = 7;
     args.push("-i", t.introAudioTailPath);
     args.push("-i", t.productAudioHeadPath);
   }
@@ -160,21 +167,16 @@ export async function composeLayeredMerge(
     return s;
   };
 
-  // Trim each section's layers to its window. Force `yuva420p` on the
-  // overlay branch BEFORE trim so the trim/concat filters keep the alpha
-  // channel intact — otherwise FFmpeg may silently downcast to yuv420p
-  // and the merged overlay covers the background as opaque pixels.
+  // Trim each background to its trim window. The unified overlay does NOT
+  // need trimming — it was rendered for the merged output duration directly.
   parts.push(`[0:v]${trimSuffix(introTrimStart, introTrimEnd)}[bg0]`);
-  parts.push(`[1:v]format=yuva420p,${trimSuffix(introTrimStart, introTrimEnd)}[ov0]`);
-  parts.push(`[2:v]${trimSuffix(productTrimStart, productTrimEnd)}[bg1]`);
-  parts.push(`[3:v]format=yuva420p,${trimSuffix(productTrimStart, productTrimEnd)}[ov1]`);
+  parts.push(`[1:v]${trimSuffix(productTrimStart, productTrimEnd)}[bg1]`);
+  // Force yuva420p on the unified overlay branch so alpha survives any
+  // FFmpeg pixel-format downcast before the final overlay step.
+  parts.push(`[2:v]format=yuva420p[ovin]`);
 
   // Background merge (xfade or concat).
   if (videoCross) {
-    // Symmetric tpad + xfade. Output length after this stage:
-    //   bg0_padded = T_intro + halfV
-    //   bg1_padded = halfV + T_product
-    //   xfade D=videoSec offset=T_intro - halfV → output = T_intro + T_product
     parts.push(`[bg0]tpad=stop_mode=clone:stop_duration=${halfVideoSec.toFixed(3)}[bg0pad]`);
     parts.push(`[bg1]tpad=start_mode=clone:start_duration=${halfVideoSec.toFixed(3)}[bg1pad]`);
     const xfadeOffsetSec = Math.max(0, introTrimmedSec - halfVideoSec);
@@ -185,17 +187,13 @@ export async function composeLayeredMerge(
     parts.push(`[bg0][bg1]concat=n=2:v=1:a=0[bgmerged]`);
   }
 
-  // Overlay merge: ALWAYS concat (never crossfade). The user's morph spec
-  // already animates the webcam circle within each section's trim window,
-  // so the two overlays meet at the boundary in their morph-end states.
-  parts.push(`[ov0][ov1]concat=n=2:v=1:a=0[ovmerged]`);
-
-  // Composite: bg + overlay, then + cursor. `format=yuv420` on the bg+ov
-  // step picks the alpha-aware blend implementation that respects the
-  // overlay's alpha channel. The cursor overlay similarly benefits from
-  // alpha-aware blending of the cursor PNG sprite.
-  parts.push(`[bgmerged][ovmerged]overlay=0:0:format=yuv420[bgov]`);
-  parts.push(`[bgov][4:v]overlay=0:0:format=auto[v]`);
+  // Composite layer order: bg → cursor → overlay. Cursor sits BEHIND the
+  // webcam/audio-icon so the overlay obscures it when they overlap (UI on
+  // top of cursor — matches desktop semantics). `format=yuv420` on the
+  // bg+overlay step keeps alpha-aware blending of the overlay's alpha so
+  // the bg+cursor underneath show through.
+  parts.push(`[bgmerged][3:v]overlay=0:0:format=auto[bgcursor]`);
+  parts.push(`[bgcursor][ovin]overlay=0:0:format=yuv420[v]`);
 
   // Audio: trim each section's audio to its window, then merge.
   parts.push(`[${introAudioInputIdx}:a]${atrimSuffix(introTrimStart, introTrimEnd)}[a0]`);

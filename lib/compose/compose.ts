@@ -122,12 +122,13 @@ export async function compositeSessionVideo(options: ComposeOptions): Promise<Co
     args.push("-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000");
   }
 
-  // Force alpha-aware pixel format on the overlay branch so the alpha that
-  // came out of the PNG-in-MOV input survives any intermediate processing
-  // before the overlay filter blends it onto the bg. Without this, FFmpeg
-  // can quietly downcast alpha-bearing inputs to plain yuv420p.
+  // Layer order: bg → cursor → overlay. The cursor sits BEHIND the
+  // webcam/audio-icon so the overlay obscures the cursor when they
+  // overlap (matches normal desktop behavior — UI in front of cursor).
+  // `format=yuva420p` on the overlay branch keeps the alpha intact across
+  // the overlay filter so the bg + cursor underneath show through.
   const filter = wantsCursorOverlay
-    ? "[1:v]format=yuva420p[ovin];[0:v][ovin]overlay=0:0:format=yuv420[bg2];[bg2][2:v]overlay=0:0:format=auto[v]"
+    ? "[1:v]format=yuva420p[ovin];[0:v][2:v]overlay=0:0:format=auto[bgc];[bgc][ovin]overlay=0:0:format=yuv420[v]"
     : "[1:v]format=yuva420p[ovin];[0:v][ovin]overlay=0:0:format=yuv420[v]";
 
   args.push(

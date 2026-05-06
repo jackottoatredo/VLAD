@@ -39,7 +39,16 @@ export type ProductSettings = {
 }
 
 export type AudioTransition = 'none' | 'crossfade'
-export type OverlayTransition = 'none' | 'animated'
+/**
+ * Overlay (webcam circle / audio icon) transition style at the merge boundary:
+ *   - none:      hard cut, no transition
+ *   - animated:  morph webcam ↔ audio icon. Only meaningful for a↔v
+ *                (mode-changing transitions). Silently a no-op for v→v / a→a.
+ *   - crossfade: simple opacity crossfade between intro and product webcams.
+ *                Only meaningful for v→v (matching video modes). Becomes
+ *                'none' at the worker for any other mode combination.
+ */
+export type OverlayTransition = 'none' | 'animated' | 'crossfade'
 export type VideoTransition = 'none' | 'crossfade'
 /**
  * Mouse glide style during transitions:
@@ -71,24 +80,20 @@ export type TransitionSettings = {
   mouseDurationMs: number
 }
 
-/** Shared 100ms grid (used by overlay + mouse). */
+/** Shared 100ms grid (used by overlay + mouse). [100, 1500ms]. */
 export const TRANSITION_DURATIONS_MS = [
-  100, 200, 300, 400, 500, 600, 700, 800, 900, 1000,
-  1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000,
+  100, 200, 300, 400, 500, 600, 700, 800, 900,
+  1000, 1100, 1200, 1300, 1400, 1500,
 ] as const
 
-/** Audio crossfade range — short by design to avoid clicks. 50ms grid up
- *  to 400ms, then 100ms steps to 2000ms (extended for debugging). */
+/** Audio crossfade range — 50ms grid, [50, 500ms]. */
 export const AUDIO_DURATIONS_MS = [
-  50, 100, 150, 200, 250, 300, 350, 400,
-  500, 600, 700, 800, 900, 1000,
-  1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000,
+  50, 100, 150, 200, 250, 300, 350, 400, 450, 500,
 ] as const
 
-/** Video crossfade range — longer for smoother visual blends. 100ms grid. */
+/** Video crossfade range — 50ms grid, [50, 500ms]. */
 export const VIDEO_DURATIONS_MS = [
-  100, 200, 300, 400, 500, 600, 700, 800, 900, 1000,
-  1100, 1200, 1300, 1400, 1500,
+  50, 100, 150, 200, 250, 300, 350, 400, 450, 500,
 ] as const
 
 export type PresetKey = 'p1' | 'p2' | 'custom'
@@ -140,10 +145,10 @@ const P1_TRANSITION: TransitionSettings = {
   video: 'crossfade',
   overlay: 'animated',
   mouse: 'natural',
-  audioDurationMs: 150,
-  videoDurationMs: 500,
-  overlayDurationMs: 600,
-  mouseDurationMs: 600,
+  audioDurationMs: 300,
+  videoDurationMs: 200,
+  overlayDurationMs: 400,
+  mouseDurationMs: 500,
 }
 
 function applyPreset(key: 'p1' | 'p2', prev: MergeFormState): MergeFormState {
@@ -320,7 +325,7 @@ function positionFromOption(opt: PositionOption, prevPos: WebcamPosition): { pos
 }
 
 const MODE_LABELS: Record<ModeOption, string> = {
-  self: 'Match recording',
+  self: 'As Recorded',
   other: '',  // overridden by caller
   video: 'Video',
   audio: 'Audio only',
@@ -328,7 +333,7 @@ const MODE_LABELS: Record<ModeOption, string> = {
 }
 
 const POSITION_LABELS: Record<PositionOption, string> = {
-  self: 'Match recording',
+  self: 'As Recorded',
   other: '',  // overridden by caller
   tl: 'Top-left',
   tr: 'Top-right',
@@ -479,6 +484,7 @@ export default function GenerateMergeModal({ merchants, products, onClose, onSub
             : staleMessage
               ? staleMessage
               : null
+
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -668,6 +674,7 @@ export default function GenerateMergeModal({ merchants, products, onClose, onSub
                       typeOptions={[
                         { value: 'none', label: 'None' },
                         { value: 'animated', label: 'Animated' },
+                        { value: 'crossfade', label: 'Crossfade' },
                       ]}
                       onTypeChange={(overlay) => updateTransition({ overlay: overlay as OverlayTransition })}
                       durationMs={state.transition.overlayDurationMs}

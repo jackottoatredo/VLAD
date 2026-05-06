@@ -91,7 +91,8 @@ function parseTransitions(v: unknown): Transitions {
   return {
     audio: o.audio === "crossfade" ? "crossfade" : "none",
     video: o.video === "crossfade" ? "crossfade" : "none",
-    overlay: o.overlay === "animated" ? "animated" : "none",
+    overlay:
+      o.overlay === "animated" ? "animated" : o.overlay === "crossfade" ? "crossfade" : "none",
     mouse,
     audioDurationMs,
     videoDurationMs,
@@ -409,7 +410,11 @@ export async function POST(request: Request) {
     );
 
     const dualSection = !!(merchant && product);
-    const overlayAnimated = dualSection && transition.overlay === "animated";
+    // v6: overlay morph is now driven at the merge stage by the unified
+    // overlay pass. Per-section morph specs are no longer emitted in the
+    // dual-section payloads. The transition.overlay flag flows through
+    // unchanged — read by the worker to set morphDurationMs.
+    void dualSection; void transition; // (intentionally unused here)
     // Resolve the mouse-style enum into glide-shape numbers (or null for 'none').
     const glideShape = dualSection ? resolveGlideShape(transition.mouse) : null;
     const mouseAnimated = !!glideShape;
@@ -659,12 +664,16 @@ export async function POST(request: Request) {
       // the boundary point.
       const introExitMouseActive = mouseAnimated && !!mouseGlideMidpoint;
 
+      // v6: NO exitMorphTo on dual-section payloads. The morph happens at
+      // the merge stage in the unified overlay pass (renderUnifiedMergeOverlay)
+      // — driven by intro/product webcam directly from spec.webcam, not by
+      // a per-section morph. Per-section morph fields (spec.morph,
+      // spec.exitMorph) are unused in the dual-section worker path.
       const merchantSpec = buildSectionSpec({
         webcam: introWebcam,
         webcamR2Key: merchant.webcam_url ?? null,
         trimStartSec: introTrimStartSec,
         trimEndSec: introTrimEndSec,
-        exitMorphTo: overlayAnimated ? productWebcam : undefined,
         glideOutPoint: introExitMouseActive ? mouseGlideMidpoint : undefined,
         overlayDurationMs: effOverlayDurationMs,
         mouseDurationMs: Math.floor(effMouseDurationMs / 2),
@@ -700,8 +709,16 @@ export async function POST(request: Request) {
       // Symmetric model: product emits glideIn from MIDPOINT in the first
       // D/2 of its trim window. The "to" anchor (recorded cursor at
       // trim_start) is auto-computed inside cursor-track.ts.
+      //
+      // NO entry-morph on product: in the v4 layered pipeline, overlays
+      // are CONCATENATED at the merge boundary (not crossfaded). Emitting
+      // both intro's exit-morph (ending at product's webcam state, t=1)
+      // AND product's entry-morph (starting at intro's webcam state, t=0)
+      // creates a one-frame snap from t=1 → t=0 at the boundary — visible
+      // as a stutter. Intro's exit-morph carries the whole transition;
+      // product just plays from its natural webcam state, which already
+      // matches the state intro lands on at the boundary.
       const productEntryMouseActive = mouseAnimated && !!mouseGlideMidpoint;
-      const entryMorphFrom = overlayAnimated ? introWebcam : undefined;
       const glideInPoint = productEntryMouseActive ? mouseGlideMidpoint : undefined;
 
       const productSpec = buildSectionSpec({
@@ -709,7 +726,6 @@ export async function POST(request: Request) {
         webcamR2Key: product.webcam_url ?? null,
         trimStartSec: productTrimStartSec,
         trimEndSec: productTrimEndSec,
-        entryMorphFrom,
         glideInPoint,
         overlayDurationMs: effOverlayDurationMs,
         mouseDurationMs: Math.floor(effMouseDurationMs / 2),

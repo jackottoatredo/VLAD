@@ -9,7 +9,7 @@ import type { JobProgress, JobStep } from "@/lib/queue/progress";
 import { createReplayAction } from "@/lib/render/actions";
 import { produceSessionVideo, type ProduceResult } from "@/lib/render/produce";
 import { renderBackgroundToMp4 } from "@/lib/render/render-background";
-import { renderOverlayToWebm } from "@/lib/render/render-overlay";
+import { renderUnifiedMergeOverlay } from "@/lib/render/render-overlay-unified";
 import { composeLayeredMerge, extractAudioChunk } from "@/lib/render/merge";
 import { computeCursorPositions } from "@/lib/render/cursor-track";
 import { readFileSync } from "node:fs";
@@ -463,78 +463,55 @@ async function renderMergeSection(
 // crossfade (background blends, overlay never dissolves into the audio icon).
 // ---------------------------------------------------------------------------
 
-type LayerRenderResult = {
-  backgroundPath: string;
-  backgroundR2Key: string;
-  overlayPath: string;
-  overlayR2Key: string;
-  fullDurationMs: number;
-};
-
-async function renderMergeSectionLayers(
+/**
+ * v6: render the BACKGROUND ONLY for one section. The overlay is rendered
+ * by a separate unified pass that spans both sections (renderUnifiedMergeOverlay
+ * in lib/render/render-overlay-unified.ts), so dual-section merge no longer
+ * needs a per-section overlay browser pass.
+ *
+ * Returns paths, R2 keys, and the resolved amplitude + webcam-frame buffers
+ * (the unified overlay needs both for its single pass).
+ */
+async function renderMergeSectionBackground(
   userId: string,
   recording: MergeRecordingPayload,
-  onRenderProgress: (pct: number) => void,
-  onBackgroundProgress?: (pct: number) => void,
-  onOverlayProgress?: (pct: number) => void,
-): Promise<LayerRenderResult> {
+  onProgress: (pct: number) => void,
+): Promise<{
+  backgroundPath: string;
+  backgroundR2Key: string;
+  fullDurationMs: number;
+  amplitudeSamples: number[] | null;
+  webcamFrames: Buffer[] | null;
+}> {
   const [amplitudeSamples, webcamFrames] = await Promise.all([
     resolveAmplitudeSamples(recording.spec, recording.webcamR2Key),
     resolveWebcamFrames(recording.webcamR2Key),
   ]);
   const actions = buildActions(recording.spec, recording.keyframes, recording.durationMs);
 
-  // Combined progress = avg(bg, ov). Two browser contexts run in parallel
-  // inside this process; total wall-clock ≈ 1.0–1.3× a single pass.
-  let bgPct = 0;
-  let ovPct = 0;
-  const report = () => onRenderProgress(Math.round((bgPct + ovPct) / 2));
-
-  const [bg, ov] = await Promise.all([
-    renderBackgroundToMp4({
-      url: recording.url,
-      userId,
-      sessionName: recording.sessionName,
-      width: recording.width,
-      height: recording.height,
-      videoWidth: recording.width,
-      videoHeight: recording.height,
-      fps: 30,
-      durationMs: recording.durationMs,
-      actions,
-      settleHint: recording.settleHint,
-      onProgress(rendered, total) {
-        bgPct = total > 0 ? Math.round((rendered / total) * 100) : 0;
-        onBackgroundProgress?.(bgPct);
-        report();
-      },
-    }),
-    renderOverlayToWebm({
-      userId,
-      sessionName: recording.sessionName,
-      width: recording.width,
-      height: recording.height,
-      videoWidth: recording.width,
-      videoHeight: recording.height,
-      fps: 30,
-      durationMs: recording.durationMs,
-      spec: recording.spec,
-      webcamFrames,
-      amplitudeSamples,
-      onProgress(rendered, total) {
-        ovPct = total > 0 ? Math.round((rendered / total) * 100) : 0;
-        onOverlayProgress?.(ovPct);
-        report();
-      },
-    }),
-  ]);
+  const bg = await renderBackgroundToMp4({
+    url: recording.url,
+    userId,
+    sessionName: recording.sessionName,
+    width: recording.width,
+    height: recording.height,
+    videoWidth: recording.width,
+    videoHeight: recording.height,
+    fps: 30,
+    durationMs: recording.durationMs,
+    actions,
+    settleHint: recording.settleHint,
+    onProgress(rendered, total) {
+      onProgress(total > 0 ? Math.round((rendered / total) * 100) : 0);
+    },
+  });
 
   return {
     backgroundPath: bg.outputPath,
     backgroundR2Key: bg.videoUrl,
-    overlayPath: ov.outputPath,
-    overlayR2Key: ov.videoUrl,
     fullDurationMs: bg.totalDurationMs,
+    amplitudeSamples,
+    webcamFrames,
   };
 }
 
@@ -673,12 +650,13 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
     let posterSourceR2Key: string;
 
     if (dualSection) {
-      // ---- Dual-section: layered render → layered merge ----
-      // Per section, render the page (background) and overlay (transparent
-      // webcam circle / audio icon) as independent layers — no per-section
-      // compose/trim. The merge stage composites everything in one pass so
-      // the background xfade can blend cleanly without cross-dissolving the
-      // webcam overlay.
+      // ---- Dual-section: v6 layered render with UNIFIED overlay ----
+      // Per section: only render the background (no per-section overlay).
+      // A single unified overlay pass spans the merged output duration and
+      // is rendered in parallel with the two background passes. The merge
+      // stage composites everything (bg + cursor + unified overlay + audio)
+      // in one FFmpeg call. The overlay morph is a single continuous
+      // animation across the boundary — no per-section seam to coordinate.
 
       const [merchantRec, productRec] = await Promise.all([
         downloadRecording(d.merchant!.mouseEventsR2Key, d.merchant!.webcamR2Key, merchantDir),
@@ -687,29 +665,93 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
       const merchantWebcamLocalPath = merchantRec.webcamPath;
       const productWebcamLocalPath = productRec.webcamPath;
 
-      const setSubTask = (stepIdx: number, subIdx: number, pct: number) => {
-        const sub = steps[stepIdx].subTasks?.[subIdx];
-        if (sub) sub.progress = pct;
-        updateStep(stepIdx, steps[stepIdx].progress);
-      };
+      // Both background passes resolve their own webcam frames + amplitude
+      // tracks (needed by the unified overlay). Run them sequentially first
+      // so we have those buffers, THEN kick off the unified overlay pass
+      // alongside whichever bg is still going. Simpler: render both bg's
+      // sequentially, then unified overlay. Total: 3 sequential renders.
+      // The bg passes are typically the slowest; if needed, we can later
+      // run intro_bg + (product_bg → unified_ov) in parallel.
 
-      const introLayers = await renderMergeSectionLayers(
+      const introBg = await renderMergeSectionBackground(
         userId,
         d.merchant!,
         (pct) => updateStep(0, pct),
-        (pct) => setSubTask(0, 0, pct),
-        (pct) => setSubTask(0, 1, pct),
       );
       completeStep(0);
 
-      const productLayers = await renderMergeSectionLayers(
+      const productBg = await renderMergeSectionBackground(
         userId,
         d.product!,
         (pct) => updateStep(1, pct),
-        (pct) => setSubTask(1, 0, pct),
-        (pct) => setSubTask(1, 1, pct),
       );
       completeStep(1);
+
+      // Compute output frame count and boundary index from the trim windows.
+      const introTrimStartSec = d.merchant!.spec.trim?.startSec ?? 0;
+      const introTrimEndSec = d.merchant!.spec.trim?.endSec ?? 0;
+      const productTrimStartSec = d.product!.spec.trim?.startSec ?? 0;
+      const productTrimEndSec = d.product!.spec.trim?.endSec ?? 0;
+      const introTrimmedSec =
+        (introTrimEndSec > 0 ? introTrimEndSec : introBg.fullDurationMs / 1000) - introTrimStartSec;
+      const productTrimmedSec =
+        (productTrimEndSec > 0 ? productTrimEndSec : productBg.fullDurationMs / 1000) - productTrimStartSec;
+      const fps = 30;
+      const boundaryFrameIdx = Math.round(introTrimmedSec * fps);
+      const totalOutputFrames = Math.max(1, Math.round((introTrimmedSec + productTrimmedSec) * fps));
+
+      // Overlay transition dispatch. All three kinds apply to all mode
+      // combinations now:
+      //   - 'none':     hard cut (single-wrap, morphDurationMs=0).
+      //   - 'animated': single-wrap morph. For a↔v the SVG morphs through
+      //                 the pinch (translate + shrink + state change).
+      //                 For v→v / a→a the state lerp is a no-op, so the
+      //                 wrap just translates between corners.
+      //   - 'crossfade': two-wrap, alpha-crossfaded. Each section's icon
+      //                  renders at its own corner with its own state;
+      //                  alphas fade across the morph window.
+      const introMode = d.merchant!.spec.webcam.mode;
+      const productMode = d.product!.spec.webcam.mode;
+      const requestedOverlay = d.merge.transition.overlay;
+      const overlayTransitionKind: "animated" | "crossfade" =
+        requestedOverlay === "crossfade" ? "crossfade" : "animated";
+      const morphDurationMs =
+        requestedOverlay === "none" ? 0 : d.merge.transition.overlayDurationMs;
+
+      console.log(
+        `[merge ${jobId}] overlay decision: requested=${requestedOverlay} ` +
+          `intro=${introMode} product=${productMode} ` +
+          `→ kind=${overlayTransitionKind} morphDurationMs=${morphDurationMs}`,
+      );
+
+      const unifiedOverlay = await renderUnifiedMergeOverlay({
+        userId,
+        sessionName: `${d.outputSessionName}-uov`,
+        width: d.merchant!.width,
+        height: d.merchant!.height,
+        zoom: 1.25,
+        fps,
+        totalOutputFrames,
+        boundaryFrameIdx,
+        introWebcam: d.merchant!.spec.webcam,
+        introThrob: d.merchant!.spec.throb,
+        introFrames: introBg.webcamFrames,
+        introAmplitudeSamples: introBg.amplitudeSamples,
+        introTrimStartSec,
+        productWebcam: d.product!.spec.webcam,
+        productThrob: d.product!.spec.throb,
+        productFrames: productBg.webcamFrames,
+        productAmplitudeSamples: productBg.amplitudeSamples,
+        productTrimStartSec,
+        morphDurationMs,
+        transitionKind: overlayTransitionKind,
+        onProgress: (rendered, total) => {
+          // Surface unified-overlay progress as the FIRST half of step 2.
+          if (total > 0) {
+            updateStep(2, Math.round((rendered / total) * 50));
+          }
+        },
+      });
 
       // Audio crossfade gating + chunk extraction (unchanged from v3 logic).
       const introHasAudio =
@@ -763,48 +805,35 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
       }
 
       // Cursor positions for the merged timeline (per OUTPUT frame).
-      console.log(
-        `[merge ${jobId}] cursor track: ` +
-          `intro.mouseTrack=${JSON.stringify(d.merchant!.spec.mouseTrack ?? null)} ` +
-          `product.mouseTrack=${JSON.stringify(d.product!.spec.mouseTrack ?? null)}`,
-      );
       const cursorPositions = buildMergedCursorPositions(
         d.merchant!,
-        introLayers.fullDurationMs,
+        introBg.fullDurationMs,
         d.product!,
-        productLayers.fullDurationMs,
-        30,
-      );
-      console.log(
-        `[merge ${jobId}] cursor positions: ${cursorPositions.length} frames; ` +
-          `first=${JSON.stringify(cursorPositions[0])} ` +
-          `last=${JSON.stringify(cursorPositions[cursorPositions.length - 1])} ` +
-          `(if intro.mouseTrack/product.mouseTrack are null, the route emitted no glide ` +
-          `— set transition.mouse to linear/arched/natural)`,
+        productBg.fullDurationMs,
+        fps,
       );
 
       const { mergedPath } = await composeLayeredMerge({
         outputDir: mergeOutputDir,
         outputName: d.brand,
-        fps: 30,
+        fps,
         width: d.merchant!.width,
         height: d.merchant!.height,
         intro: {
-          backgroundVideoPath: introLayers.backgroundPath,
-          overlayVideoPath: introLayers.overlayPath,
+          backgroundVideoPath: introBg.backgroundPath,
           trimStartSec: d.merchant!.spec.trim?.startSec,
           trimEndSec: d.merchant!.spec.trim?.endSec,
           webcamPath: merchantWebcamLocalPath,
           muteAudio: d.merchant!.spec.webcam.mode === "off",
         },
         product: {
-          backgroundVideoPath: productLayers.backgroundPath,
-          overlayVideoPath: productLayers.overlayPath,
+          backgroundVideoPath: productBg.backgroundPath,
           trimStartSec: d.product!.spec.trim?.startSec,
           trimEndSec: d.product!.spec.trim?.endSec,
           webcamPath: productWebcamLocalPath,
           muteAudio: d.product!.spec.webcam.mode === "off",
         },
+        unifiedOverlayPath: unifiedOverlay.outputPath,
         transition: {
           audio: effectiveAudio,
           video: d.merge.transition.video,
@@ -816,7 +845,9 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
         cursorSource: loadMergeCursorSource(),
         cursorSizePx: MERGE_CURSOR_SIZE_PX,
         cursorPositions,
-        onProgress: (pct) => updateStep(2, pct),
+        // Unified overlay was the first half of step 2 (0–50%); the FFmpeg
+        // compose pass is the second half (50–100%).
+        onProgress: (pct) => updateStep(2, 50 + Math.round(pct / 2)),
       });
       completeStep(2);
 
@@ -825,7 +856,7 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
       await uploadToR2(finalR2Key, fileBuffer, "video/mp4");
       finalLocalPath = mergedPath;
       finalDirOnR2 = path.posix.dirname(finalR2Key);
-      posterSourceR2Key = introLayers.backgroundR2Key;
+      posterSourceR2Key = introBg.backgroundR2Key;
     } else {
       // ---- Single-section: full produce (render → compose → trim) ----
       const setSubTask = (stepIdx: number, subIdx: number, pct: number) => {

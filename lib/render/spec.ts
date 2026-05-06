@@ -156,7 +156,14 @@ export type MouseTransitionStyle = "none" | "linear" | "arched" | "natural";
 export type Transitions = {
   audio: "none" | "crossfade";
   video: "none" | "crossfade";
-  overlay: "none" | "animated";
+  /** Overlay transition style at the merge boundary:
+   *    - "none":      hard cut, no transition.
+   *    - "animated":  morph webcam ↔ audio icon (a↔v only — silent no-op
+   *                   for v→v / a→a; the worker downgrades to "none").
+   *    - "crossfade": opacity crossfade between intro and product webcams
+   *                   (v→v only; the worker downgrades to "none" otherwise).
+   */
+  overlay: "none" | "animated" | "crossfade";
   mouse: MouseTransitionStyle;
   /** Per-transition durations (ms). Each transition is SYMMETRIC around the
    *  merge boundary — D/2 contributed from each side. The four kinds use

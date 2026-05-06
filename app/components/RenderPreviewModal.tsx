@@ -17,7 +17,7 @@ type Props = {
 }
 
 type Tab = 'preview' | 'share'
-type CopyId = 'share' | 'video' | 'gif' | 'gif-embed' | 'thumb'
+type CopyId = 'share' | 'video' | 'gif' | 'gif-embed' | 'thumb' | 'thumb-embed'
 
 function formatTime(sec: number) {
   if (!Number.isFinite(sec) || sec < 0) return '0:00'
@@ -179,35 +179,41 @@ export default function RenderPreviewModal({
     triggerDownload(`/v/${slug}/download-poster`)
   }
 
-  // Writes an HTML snippet — <a href="share-page"><img src="gif"></a> — to
+  // Writes an HTML snippet — <a href="share-page"><img src="asset"></a> — to
   // the clipboard. When pasted into Gmail / Outlook web / Apple Mail / Slack
-  // / Notion, the composer parses the HTML, fetches the GIF, and inlines it
-  // with the share link already wrapped — no manual right-click step.
+  // / Notion, the composer parses the HTML, fetches the image, and inlines
+  // it with the share link already wrapped — no manual right-click step.
   //
   // We write both text/html AND text/plain. Many composers prefer the
   // text/plain payload when present (or when they can't parse the HTML),
   // and a sole text/html clipboard item leaves naive paste targets with
   // nothing visible. The plain-text fallback is just the share URL so the
   // recipient at least gets a link.
-  async function copyGifEmbed() {
-    if (!slug || !sharePagePath || !gifAssetPath) return
+  async function copyEmbed(assetPath: string | null, id: CopyId) {
+    if (!slug || !sharePagePath || !assetPath) return
     try {
       const origin = window.location.origin
       const linkUrl = `${origin}${sharePagePath}`
-      const imgUrl = `${origin}${gifAssetPath}`
+      const imgUrl = `${origin}${assetPath}`
+      // Wrap the anchor in a <p>, then follow it with an empty <p><br></p>.
+      // The block-level paragraph keeps the cursor from landing inside the
+      // anchor on paste, and the trailing empty paragraph gives Gmail an
+      // explicitly unstyled block to land in — otherwise it inherits the
+      // link styling from the previous element when the user starts typing.
       const html =
-        `<a href="${linkUrl}">` +
+        `<p><a href="${linkUrl}">` +
           `<img src="${imgUrl}" alt="View video" style="display:block;border:0;max-width:100%;height:auto" />` +
-        `</a>`
+        `</a></p>` +
+        `<p><br></p>`
       await navigator.clipboard.write([
         new ClipboardItem({
           'text/html': new Blob([html], { type: 'text/html' }),
           'text/plain': new Blob([linkUrl], { type: 'text/plain' }),
         }),
       ])
-      flashCopy('gif-embed')
+      flashCopy(id)
     } catch (err) {
-      console.error('Failed to copy GIF embed:', err)
+      console.error('Failed to copy embed:', err)
     }
   }
 
@@ -312,11 +318,11 @@ export default function RenderPreviewModal({
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/></svg>
                 }
                 name="GIF"
-                description="Animated Preview - Best option for sharing in gmail. Copy embed pastes the GIF with the share link already attached."
+                description="Animated Preview - Best option for sharing in gmail. Copy Embed pastes the GIF with the share link already attached."
                 actions={[
                   { label: 'Download', onAction: downloadGif },
                   { label: copiedId === 'gif' ? 'Copied ✓' : 'Copy URL', active: copiedId === 'gif', onAction: () => copyAbsolute(gifAssetPath, 'gif') },
-                  { label: copiedId === 'gif-embed' ? 'Copied ✓' : 'Copy embed', active: copiedId === 'gif-embed', onAction: copyGifEmbed },
+                  { label: copiedId === 'gif-embed' ? 'Copied ✓' : 'Copy Embed', active: copiedId === 'gif-embed', onAction: () => copyEmbed(gifAssetPath, 'gif-embed') },
                 ]}
               />
               <ShareCard
@@ -324,10 +330,11 @@ export default function RenderPreviewModal({
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
                 }
                 name="Thumbnail"
-                description="Static Cover Image - GIF alternative"
+                description="Static Cover Image - GIF alternative. Copy Embed pastes the thumbnail with the share link already attached."
                 actions={[
                   { label: 'Download', onAction: downloadThumbnail },
                   { label: copiedId === 'thumb' ? 'Copied ✓' : 'Copy URL', active: copiedId === 'thumb', onAction: () => copyAbsolute(thumbnailAssetPath, 'thumb') },
+                  { label: copiedId === 'thumb-embed' ? 'Copied ✓' : 'Copy Embed', active: copiedId === 'thumb-embed', onAction: () => copyEmbed(thumbnailAssetPath, 'thumb-embed') },
                 ]}
               />
             </div>

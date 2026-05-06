@@ -147,7 +147,8 @@ export default function RenderPreviewModal({
 
   function openSharePage() {
     if (!sharePagePath) return
-    window.open(sharePagePath, '_blank', 'noopener,noreferrer')
+    const base = SHARE_BASE_URL ?? window.location.origin
+    window.open(`${base}${sharePagePath}`, '_blank', 'noopener,noreferrer')
   }
 
   // The Clipboard API doesn't accept image/gif or video/mp4 (deliberate

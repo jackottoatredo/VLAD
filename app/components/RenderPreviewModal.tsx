@@ -17,7 +17,7 @@ type Props = {
 }
 
 type Tab = 'review' | 'share'
-type CopyId = 'share' | 'video' | 'gif' | 'thumb'
+type CopyId = 'share' | 'video' | 'gif' | 'gif-embed' | 'thumb'
 
 function formatTime(sec: number) {
   if (!Number.isFinite(sec) || sec < 0) return '0:00'
@@ -179,6 +179,26 @@ export default function RenderReviewModal({
     triggerDownload(`/v/${slug}/download-poster`)
   }
 
+  // Writes an HTML snippet — <a href="share-page"><img src="gif"></a> — to
+  // the clipboard. When pasted into Gmail / Outlook web / Apple Mail / Slack
+  // / Notion, the composer parses the HTML, fetches the GIF, and inlines it
+  // with the share link already wrapped — no manual right-click step.
+  // Composers that don't honor text/html clipboard items will fall back to
+  // pasting plain text (the empty alt), so we only fire this when the API
+  // is available.
+  async function copyGifEmbed() {
+    if (!slug || !sharePagePath || !gifAssetPath) return
+    try {
+      const origin = window.location.origin
+      const html = `<a href="${origin}${sharePagePath}"><img src="${origin}${gifAssetPath}" alt=""></a>`
+      const blob = new Blob([html], { type: 'text/html' })
+      await navigator.clipboard.write([new ClipboardItem({ 'text/html': blob })])
+      flashCopy('gif-embed')
+    } catch (err) {
+      console.error('Failed to copy GIF embed:', err)
+    }
+  }
+
   const tabs = (
     <div className="inline-flex items-center gap-1 rounded-lg border border-border bg-background p-1">
       {(['review', 'share'] as const).map((t) => (
@@ -280,10 +300,11 @@ export default function RenderReviewModal({
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/></svg>
                 }
                 name="GIF"
-                description="Animated Review - Best option for sharing in gmail. Add media to email body, select, add a hyperlink to the share page."
+                description="Animated Review - Best option for sharing in gmail. Copy embed pastes the GIF with the share link already attached."
                 actions={[
                   { label: 'Download', onAction: downloadGif },
                   { label: copiedId === 'gif' ? 'Copied ✓' : 'Copy URL', active: copiedId === 'gif', onAction: () => copyAbsolute(gifAssetPath, 'gif') },
+                  { label: copiedId === 'gif-embed' ? 'Copied ✓' : 'Copy embed', active: copiedId === 'gif-embed', onAction: copyGifEmbed },
                 ]}
               />
               <ShareCard

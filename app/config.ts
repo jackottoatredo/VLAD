@@ -70,3 +70,10 @@ export type AppEnv = "dev" | "beta" | "prod";
 export const APP_ENV = (process.env.NEXT_PUBLIC_APP_ENV ?? "dev") as AppEnv;
 export const PROD_URL = "https://vlad-production.up.railway.app/";
 export const BETA_URL = "https://vlad-app-staged.up.railway.app/";
+
+// Public base URL for share links. In prod, redo.com path-forwards
+// /video-demos/* to the app, so any link or asset under that prefix resolves
+// through redo.com. Null in dev/beta — callers fall back to the request host
+// (server) or window.location.origin (client).
+export const SHARE_BASE_URL: string | null =
+  APP_ENV === "prod" ? "https://redo.com" : null;

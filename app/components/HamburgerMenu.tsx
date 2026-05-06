@@ -24,7 +24,7 @@ export default function HamburgerMenu() {
   const { tryNavigate } = useNavigationGuard();
 
   // Public share pages are for external recipients; suppress internal nav.
-  if (pathname?.startsWith("/v/")) return null;
+  if (pathname?.startsWith("/video-demos/")) return null;
 
   return (
     <>

@@ -16,7 +16,7 @@ type Props = {
   onDelete?: () => void
 }
 
-type Tab = 'review' | 'share'
+type Tab = 'preview' | 'share'
 type CopyId = 'share' | 'video' | 'gif' | 'gif-embed' | 'thumb'
 
 function formatTime(sec: number) {
@@ -26,7 +26,7 @@ function formatTime(sec: number) {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
-export default function RenderReviewModal({
+export default function RenderPreviewModal({
   title,
   videoUrl,
   downloadName,
@@ -36,7 +36,7 @@ export default function RenderReviewModal({
   onClose,
   onDelete,
 }: Props) {
-  const [tab, setTab] = useState<Tab>('review')
+  const [tab, setTab] = useState<Tab>('preview')
   // Tracks which Copy URL just fired so the corresponding card flashes
   // 'Copied ✓' for 2s. Downloads and Open Link don't flash — the browser /
   // new tab is the confirmation.
@@ -125,7 +125,7 @@ export default function RenderReviewModal({
   // window.location.origin is only read in the browser.
   const sharePagePath = slug ? `/v/${slug}` : null
   const videoAssetPath = slug ? `/v/${slug}/video.mp4` : null
-  const gifAssetPath = slug ? `/v/${slug}/review.gif` : null
+  const gifAssetPath = slug ? `/v/${slug}/preview.gif` : null
   const thumbnailAssetPath = slug ? `/v/${slug}/poster.jpg` : null
 
   function flashCopy(id: CopyId) {
@@ -183,16 +183,28 @@ export default function RenderReviewModal({
   // the clipboard. When pasted into Gmail / Outlook web / Apple Mail / Slack
   // / Notion, the composer parses the HTML, fetches the GIF, and inlines it
   // with the share link already wrapped — no manual right-click step.
-  // Composers that don't honor text/html clipboard items will fall back to
-  // pasting plain text (the empty alt), so we only fire this when the API
-  // is available.
+  //
+  // We write both text/html AND text/plain. Many composers prefer the
+  // text/plain payload when present (or when they can't parse the HTML),
+  // and a sole text/html clipboard item leaves naive paste targets with
+  // nothing visible. The plain-text fallback is just the share URL so the
+  // recipient at least gets a link.
   async function copyGifEmbed() {
     if (!slug || !sharePagePath || !gifAssetPath) return
     try {
       const origin = window.location.origin
-      const html = `<a href="${origin}${sharePagePath}"><img src="${origin}${gifAssetPath}" alt=""></a>`
-      const blob = new Blob([html], { type: 'text/html' })
-      await navigator.clipboard.write([new ClipboardItem({ 'text/html': blob })])
+      const linkUrl = `${origin}${sharePagePath}`
+      const imgUrl = `${origin}${gifAssetPath}`
+      const html =
+        `<a href="${linkUrl}">` +
+          `<img src="${imgUrl}" alt="View video" style="display:block;border:0;max-width:100%;height:auto" />` +
+        `</a>`
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          'text/html': new Blob([html], { type: 'text/html' }),
+          'text/plain': new Blob([linkUrl], { type: 'text/plain' }),
+        }),
+      ])
       flashCopy('gif-embed')
     } catch (err) {
       console.error('Failed to copy GIF embed:', err)
@@ -201,7 +213,7 @@ export default function RenderReviewModal({
 
   const tabs = (
     <div className="inline-flex items-center gap-1 rounded-lg border border-border bg-background p-1">
-      {(['review', 'share'] as const).map((t) => (
+      {(['preview', 'share'] as const).map((t) => (
         <button
           key={t}
           onClick={() => setTab(t)}
@@ -211,7 +223,7 @@ export default function RenderReviewModal({
               : 'text-muted hover:text-foreground'
           }`}
         >
-          {t === 'review' ? 'Review' : 'Share'}
+          {t === 'preview' ? 'Review' : 'Share'}
         </button>
       ))}
     </div>
@@ -219,7 +231,7 @@ export default function RenderReviewModal({
 
   return (
     <Modal onClose={onClose} size="lg" title={tabs}>
-      {tab === 'review' ? (
+      {tab === 'preview' ? (
         <div className="aspect-video w-full overflow-hidden rounded-lg bg-background">
           {streamUrl ? (
             hasTrim ? (
@@ -261,7 +273,7 @@ export default function RenderReviewModal({
             )
           ) : (
             <div className="flex h-full w-full items-center justify-center">
-              <p className="text-sm text-muted">Media review coming soon</p>
+              <p className="text-sm text-muted">Media preview coming soon</p>
             </div>
           )}
         </div>
@@ -278,7 +290,7 @@ export default function RenderReviewModal({
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
                 }
                 name="Share page"
-                description="View video on the web with engagement statistics collected. OpenGraph metadata support rich review in WhatsApp, iMessage, LinkedIn, Slack and more"
+                description="View video on the web with engagement statistics collected. OpenGraph metadata support rich preview in WhatsApp, iMessage, LinkedIn, Slack and more"
                 actions={[
                   { label: 'Open link', onAction: openSharePage },
                   { label: copiedId === 'share' ? 'Copied ✓' : 'Copy URL', active: copiedId === 'share', onAction: () => copyAbsolute(sharePagePath, 'share') },
@@ -300,7 +312,7 @@ export default function RenderReviewModal({
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/></svg>
                 }
                 name="GIF"
-                description="Animated Review - Best option for sharing in gmail. Copy embed pastes the GIF with the share link already attached."
+                description="Animated Preview - Best option for sharing in gmail. Copy embed pastes the GIF with the share link already attached."
                 actions={[
                   { label: 'Download', onAction: downloadGif },
                   { label: copiedId === 'gif' ? 'Copied ✓' : 'Copy URL', active: copiedId === 'gif', onAction: () => copyAbsolute(gifAssetPath, 'gif') },
@@ -327,7 +339,7 @@ export default function RenderReviewModal({
         <p className="min-w-0 flex-1 truncate text-base font-normal text-foreground" title={title}>
           {title}
         </p>
-        {tab === 'review' && onDelete && (
+        {tab === 'preview' && onDelete && (
           <button
             onClick={onDelete}
             className="shrink-0 text-muted transition-colors hover:text-red-500"

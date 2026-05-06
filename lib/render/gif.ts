@@ -30,10 +30,12 @@ async function runGifEncode(
     `split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse`;
 
   const args = [
+    "-threads", "1",
     "-i", videoPath,
     "-t", String(durationSec),
     "-vf", filter,
     "-loop", "0",
+    "-threads", "1",
     "-y",
     outputGifPath,
   ];

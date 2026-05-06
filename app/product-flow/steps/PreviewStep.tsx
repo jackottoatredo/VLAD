@@ -10,6 +10,7 @@ import { useProductFlow } from '@/app/contexts/ProductFlowContext'
 import { productPreview } from '@/app/copy/instructions'
 import NameRecordingModal from '@/app/components/NameRecordingModal'
 import type { JobProgress, JobStep } from '@/lib/queue/progress'
+import { slugifyPart } from '@/lib/naming'
 
 const POLL_MS = 500
 const BRANDLESS_SLOT = 'brandless' as const
@@ -220,7 +221,7 @@ export default function PreviewStep({ navBack, navForward }: Props) {
     }
   }
 
-  async function submitSave(name: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  async function submitSave(tag: string): Promise<{ ok: true; name: string } | { ok: false; error: string }> {
     if (!presenter || !product || !flowId) return { ok: false, error: 'Flow not ready.' }
     setSaveStatus('saving')
     setSaveError('')
@@ -230,7 +231,7 @@ export default function PreviewStep({ navBack, navForward }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           flowId,
-          name,
+          tag,
           status: 'saved',
           type: 'product',
           productName: product,
@@ -243,8 +244,8 @@ export default function PreviewStep({ navBack, navForward }: Props) {
           metadata: { trimStartSec, trimEndSec },
         }),
       })
-      const data = (await res.json()) as { ok?: boolean; error?: string }
-      if (!res.ok || !data.ok) {
+      const data = (await res.json()) as { ok?: boolean; error?: string; name?: string }
+      if (!res.ok || !data.ok || !data.name) {
         setSaveStatus('error')
         const err = data.error ?? 'Failed to save.'
         setSaveError(err)
@@ -252,9 +253,9 @@ export default function PreviewStep({ navBack, navForward }: Props) {
       }
       setSaveStatus('saved')
       setNameModalOpen(false)
-      flow.markPersisted({ name, status: 'saved' })
+      flow.markPersisted({ name: data.name, status: 'saved' })
       flow.setStep(3)
-      return { ok: true }
+      return { ok: true, name: data.name }
     } catch {
       setSaveStatus('error')
       setSaveError('Unexpected error.')
@@ -263,15 +264,20 @@ export default function PreviewStep({ navBack, navForward }: Props) {
   }
 
   const allDone = SLOTS.every((s) => !!slotJobs[s].videoUrl)
-  const defaultSuffix = (() => {
-    if (existingName && product && existingName.startsWith(`${product}-`)) return existingName.slice(product.length + 1)
+  const productPrefix = slugifyPart(product)
+  const defaultTag = (() => {
+    if (existingName && productPrefix && existingName.startsWith(`${productPrefix}-`)) {
+      return existingName.slice(productPrefix.length + 1).replace(/-(\d+)$/, '')
+    }
     return ''
   })()
   const isReopened = origin === 'reopened' && !!existingName
 
   async function handleSaveChanges() {
+    // Server keeps the existing name on re-save; tag is ignored when the row
+    // already has one. Pass empty string to satisfy the signature.
     if (!existingName) return
-    await submitSave(existingName)
+    await submitSave('')
   }
 
   function handleDiscardChanges() {
@@ -346,11 +352,11 @@ export default function PreviewStep({ navBack, navForward }: Props) {
           )
         })}
       </div>
-      {nameModalOpen && product && (
+      {nameModalOpen && product && productPrefix && (
         <NameRecordingModal
           title="Save Recording"
-          prefix={product}
-          defaultSuffix={defaultSuffix}
+          prefix={productPrefix}
+          defaultTag={defaultTag}
           submitLabel="Save"
           onSubmit={submitSave}
           onCancel={() => setNameModalOpen(false)}

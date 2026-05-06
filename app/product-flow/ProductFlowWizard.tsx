@@ -12,8 +12,16 @@ import PostprocessStep from '@/app/product-flow/steps/PostprocessStep'
 import PreviewStep from '@/app/product-flow/steps/PreviewStep'
 import SavedStep from '@/app/product-flow/steps/SavedStep'
 import { PREVIEW_BRANDS } from '@/app/config'
+import { slugifyPart } from '@/lib/naming'
 
 const STEPS = ['Record', 'Postprocess', 'Preview', 'Saved']
+
+// Recover the original optional-tag from a saved name like
+// `{prefix}-{tag}-{count}` so reopened flows can pre-fill the modal.
+function extractTagFromName(name: string | null | undefined, prefix: string): string {
+  if (!name || !prefix || !name.startsWith(`${prefix}-`)) return ''
+  return name.slice(prefix.length + 1).replace(/-(\d+)$/, '')
+}
 
 export default function ProductFlowWizard() {
   const { presenter } = useUser()
@@ -52,16 +60,14 @@ export default function ProductFlowWizard() {
       // overlay is on screen so the user is more likely to hit Continue first.
       const hasPendingTake = recording.uploadStatus === 'ready'
       if (!flow.hasUnsavedChanges() && !hasPendingTake) return null
-      const prefix = flow.product || 'product'
-      const defaultSuffix = (() => {
-        if (flow.name && prefix && flow.name.startsWith(`${prefix}-`)) return flow.name.slice(prefix.length + 1)
-        return ''
-      })()
+      const prefix = slugifyPart(flow.product)
+      if (!prefix) return null
+      const defaultTag = extractTagFromName(flow.name, prefix)
       return {
         flowLabel: 'product flow',
         prefix,
-        defaultSuffix,
-        onSaveDraft: async (name: string) => {
+        defaultTag,
+        onSaveDraft: async (tag: string) => {
           if (!flow.flowId) return { ok: false, error: 'Nothing to save.' }
           try {
             const res = await fetch('/api/save-recording', {
@@ -69,7 +75,7 @@ export default function ProductFlowWizard() {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 flowId: flow.flowId,
-                name,
+                tag,
                 status: 'draft',
                 type: 'product',
                 productName: flow.product,
@@ -78,10 +84,10 @@ export default function ProductFlowWizard() {
                 metadata: { trimStartSec: flow.trimStartSec, trimEndSec: flow.trimEndSec },
               }),
             })
-            const data = (await res.json()) as { ok?: boolean; error?: string }
-            if (!res.ok || !data.ok) return { ok: false, error: data.error ?? 'Save failed.' }
-            flow.markPersisted({ name, status: 'draft' })
-            return { ok: true }
+            const data = (await res.json()) as { ok?: boolean; error?: string; name?: string }
+            if (!res.ok || !data.ok || !data.name) return { ok: false, error: data.error ?? 'Save failed.' }
+            flow.markPersisted({ name: data.name, status: 'draft' })
+            return { ok: true, name: data.name }
           } catch {
             return { ok: false, error: 'Unexpected error.' }
           }

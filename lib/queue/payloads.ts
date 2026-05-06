@@ -1,9 +1,9 @@
 import type { Keyframe } from "@/lib/render/keyframes";
-import type { WebcamSettings } from "@/types/webcam";
+import type { RenderSpec, MergeRenderSpec } from "@/lib/render/spec";
 
 /**
- * Job payload for a single-video produce (render → composite → trim).
- * Enqueued by POST /api/produce.
+ * Job payload for a single-video produce (render+composite → mux → trim).
+ * Enqueued by POST /api/produce and POST /api/product-only-export.
  */
 export type ProduceJobPayload = {
   type: "produce";
@@ -29,25 +29,28 @@ export type ProduceJobPayload = {
   keyframes: Keyframe[];
   settleHint?: { x: number; y: number };
 
-  // Webcam
-  webcamSettings: WebcamSettings;
+  /** Resolved render config — single source of truth for webcam, throb, morph,
+   *  mouse handoff, trim. Built server-side by the route. */
+  spec: RenderSpec;
+
   /** R2 key for webcam video — worker downloads this (null if no webcam) */
   webcamR2Key?: string | null;
 
-  // Trim
-  trimStartSec?: number;
-  trimEndSec?: number;
-
-  // Warm-start / cache (R2 keys, not filesystem paths)
+  // Warm-start: skip stages that already have cached artifacts (R2 keys,
+  // not local fs paths — worker downloads on demand). v4 layered render:
+  // background + overlay are independent artifacts under the same specHash.
   startFromStep: 1 | 2 | 3;
-  existingRenderR2Key?: string;
+  existingBackgroundR2Key?: string;
+  existingOverlayR2Key?: string;
   existingRenderDurationMs?: number;
   existingCompositeR2Key?: string;
 
-  // Cache keys (worker updates Redis cache after completion)
+  // Cache keys (worker updates Redis cache after completion).
   urlHash: string;
   mouseHash: string;
-  wcFingerprint: string;
+  /** Hash of the resolved RenderSpec EXCLUDING trim — drives stage 1+2 cache. */
+  specHash: string;
+  /** Stable trim key (`startSec_endSec`). Drives the stage-3 trim sub-cache. */
   trimKeyStr: string;
 
   // Preview quality tier (true → reduced DPR + FFmpeg downscale). Separate cache from full.
@@ -62,50 +65,13 @@ export type ProduceJobPayload = {
 
   /**
    * When set, the worker UPDATEs the pre-stubbed vlad_renders row identified
-   * by `renderId` after the produce completes. Used by the merge-export's
-   * product-only flow, where one product recording fans out into N renders —
-   * one per merchant brand. Distinct from `flowId` (which backfills
-   * vlad_recordings).
-   *
-   * The row is created at job-enqueue time by /api/product-only-export with
-   * status='rendering' so the UI can resume polling on reload.
+   * by `renderId` after the produce completes. Used by the product-only
+   * export flow, where one product recording fans out into N renders — one
+   * per merchant brand.
    */
   mergeRenderInsert?: {
-    /** Pre-stubbed vlad_renders.id — worker UPDATEs this row on completion. */
     renderId: string;
-    productRecordingId: string;
-    /** Display label stored on vlad_renders.brand (typically merchant brandName). */
-    brand: string | null;
-    /** Recording.name of the product, used to build the share slug. */
-    productRecordingName: string;
-    /** Slugified presenter component (e.g. "jack-otto"), used as a slug prefix. */
-    presenterSlug: string;
-    /** Cleaned host (e.g. "mammut.com"); used by the share page's "Explore demo" link. */
-    brandUrl: string | null;
-    /** Product name (e.g. "Trion 28"); appended as ?product=… on the demo link. */
-    productName: string | null;
-    /** Human-readable brand name (e.g. "And Collar"); used in the share-page title. */
-    brandName: string | null;
   } | null;
-};
-
-/**
- * Job-level settings for a merge-export. Distinct from per-recording data
- * so that "how the two halves relate" lives in one place.
- *
- * Currently hidden from the UI — defaults applied server-side.
- */
-export type MergeJobSettings = {
-  /**
-   * When true, the intro (merchant) render uses the product recording's
-   * webcam settings (mode + corner) instead of its own. Keeps the two
-   * halves visually consistent after concat. Default: true.
-   */
-  introInheritsProductWebcam: boolean;
-};
-
-export const DEFAULT_MERGE_JOB_SETTINGS: MergeJobSettings = {
-  introInheritsProductWebcam: true,
 };
 
 /** Per-recording data for merge jobs, prepared by the API route. */
@@ -118,10 +84,9 @@ export type MergeRecordingPayload = {
   height: number;
   keyframes: Keyframe[];
   settleHint?: { x: number; y: number };
-  webcamSettings: WebcamSettings;
+  /** Resolved render config for this section. */
+  spec: RenderSpec;
   durationMs: number;
-  trimStartSec?: number;
-  trimEndSec?: number;
   /** R2 key for mouse events JSON — worker downloads this */
   mouseEventsR2Key: string;
   /** R2 key for webcam video — worker downloads this (null if no webcam) */
@@ -129,8 +94,13 @@ export type MergeRecordingPayload = {
 };
 
 /**
- * Job payload for a merge-export (render × 2 → composite × 2 → merge).
+ * Job payload for a merge-export (render × N → mux × N → merge).
  * Enqueued by POST /api/merge-export.
+ *
+ * `merchant` and `product` are optional so intro-only and product-only flows
+ * can dispatch through the same job type. (Today only product-only fans out
+ * via /api/product-only-export → ProduceJobPayload, but the merge processor
+ * supports the symmetric case.)
  */
 export type MergeJobPayload = {
   type: "merge";
@@ -138,30 +108,19 @@ export type MergeJobPayload = {
   userId: string;
   /** Pre-stubbed vlad_renders.id — worker UPDATEs this row on completion. */
   renderId: string;
-  brand: string | null;
+  /** Render display label (also used as the merged-mp4 filename stem). */
+  brand: string;
   outputSessionName: string;
 
-  // DB record IDs (for the final vlad_renders insert)
-  merchantRecordingId: string;
-  productRecordingId: string;
-  merchantId: string | null;
-  productName: string | null;
+  // DB record IDs (for diagnostics / cache lookups). Null when section disabled.
+  merchantRecordingId: string | null;
+  productRecordingId: string | null;
 
-  // Display names + presenter, used to build the share slug at insert time.
-  merchantRecordingName: string;
-  productRecordingName: string;
-  presenterSlug: string;
+  merchant: MergeRecordingPayload | null;
+  product: MergeRecordingPayload | null;
 
-  /** Cleaned host (e.g. "mammut.com"); used by the share page's "Explore demo" link. */
-  brandUrl: string | null;
-  /** Human-readable brand name (e.g. "And Collar"); used in the share-page title. */
-  brandName: string | null;
-
-  merchant: MergeRecordingPayload;
-  product: MergeRecordingPayload;
-
-  /** Job-level settings (inheritance, future knobs). Populated server-side with defaults. */
-  settings: MergeJobSettings;
+  /** Cross-section settings (transitions only in v1). */
+  merge: MergeRenderSpec;
 };
 
 export type JobPayload = ProduceJobPayload | MergeJobPayload;

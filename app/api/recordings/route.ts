@@ -12,22 +12,9 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const type = searchParams.get("type");
-  const name = searchParams.get("name");
 
   if (type && type !== "product" && type !== "merchant") {
     return NextResponse.json({ error: "Invalid type." }, { status: 400 });
-  }
-
-  // Live duplicate check used by the name modal.
-  if (name != null) {
-    const { data, error } = await supabase
-      .from("vlad_recordings")
-      .select("id")
-      .eq("user_id", session.email)
-      .eq("name", name)
-      .maybeSingle();
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ exists: !!data });
   }
 
   let query = supabase
@@ -66,11 +53,9 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Missing id." }, { status: 400 });
   }
 
-  const { error } = await supabase
-    .from("vlad_recordings")
-    .delete()
-    .eq("id", body.id)
-    .eq("user_id", session.email);
+  let deleteQuery = supabase.from("vlad_recordings").delete().eq("id", body.id);
+  if (session.role !== "admin") deleteQuery = deleteQuery.eq("user_id", session.email);
+  const { error } = await deleteQuery;
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

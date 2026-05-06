@@ -14,12 +14,20 @@ export default function Footer() {
   // Public share pages are for external recipients; suppress internal links.
   if (pathname?.startsWith('/v/')) return null
 
+  // Scrollable pages render the footer in-flow below the content instead of
+  // fixed so it doesn't overlay long content.
+  const inFlowPaths = ['/docs', '/tools/engagement', '/tools/usage']
+  const isInFlow = inFlowPaths.some((p) => pathname === p || pathname?.startsWith(`${p}/`))
+
   const linkClass = 'text-muted hover:text-foreground transition-colors'
   const separatorClass = 'text-border'
+  const positionClass = isInFlow
+    ? 'mt-auto self-end mr-4 mb-2'
+    : 'fixed bottom-2 right-4 z-40'
 
   return (
     <>
-      <footer className="fixed bottom-2 right-4 z-40 flex items-center gap-2 text-[0.65625rem]">
+      <footer className={`${positionClass} flex items-center gap-2 text-[0.65625rem]`}>
         <button
           type="button"
           onClick={() => setFeatureOpen(true)}

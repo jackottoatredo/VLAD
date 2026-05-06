@@ -7,15 +7,22 @@
 - [o] Email Templates
 - [x] opengraph links
 - [x] share page
-- [ ] Engagment Stats
+- [x] Engagment Stats
 - [ ] Transcription and AI Trend evaluations
 - [ ] Improved Audio Icon
 - [ ] Mixed webcam rendering + transitions
 - [x] 404 page update
-- [ ] Admin privileges
-- [ ] Cross-link to beta version
+- [x] Admin privileges
+- [x] Cross-link to beta version
 - [ ] auto scrape with chomp api call
-- [ ] naming overhaul
+- [x] naming overhaul
+- [ ] integrate with ai-sales (task list)
+- [ ] control sending aparatus to track user opens
+- [ ] outro / call to action
+- [ ] calandly link/ book with rep instead of generic book page
+- [ ] render layer caching for many jobs sharing same webcam
+- [ ] job logging for debugging later
+- [ ] show settings and edit/rerender
 
 ## Beta Test Comments
 

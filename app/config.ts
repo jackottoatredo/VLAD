@@ -1,6 +1,6 @@
 // export const TARGET_URL = "http://localhost:1111/";
-export const TARGET_URL = "https://search.redo.com/record/"
-export const MERCHANT_TARGET_URL = "https://search.redo.com/record"
+export const TARGET_URL = "https://redo.com/search/record"
+export const MERCHANT_TARGET_URL = "https://redo.com/search/record"
 export const VIRTUAL_WIDTH = 1920;
 export const VIRTUAL_HEIGHT = 1080;
 export const VIDEO_WIDTH = 1920;
@@ -10,18 +10,43 @@ export const DEFAULT_FPS = 30;
 
 // Webcam overlay appearance — single source of truth for both the live preview (CSS, scaled
 // by the iframe's scale factor) and the FFmpeg compositor (virtual pixel coordinates).
-export const WEBCAM_OVERLAY_DIAMETER  = 350;  // circle diameter in virtual pixels
-export const WEBCAM_OVERLAY_MARGIN    = 30;   // gap from the nearest edge to the circle center
+export const WEBCAM_OVERLAY_DIAMETER  = 300;  // circle diameter in virtual pixels
+// Audio-state icon visual diameter (post-morph). Drives the wrap scale at t=1 and
+// the corner-anchored translation target. The audio-icon SVG's natural ratio is
+// r=R/2 (= 175), but this constant lets you pick any visual size — the wrap
+// applies an extra scale of `2 * AUDIO_OVERLAY_DIAMETER / WEBCAM_OVERLAY_DIAMETER`
+// at t=1 on top of the SVG's internal animation.
+export const AUDIO_OVERLAY_DIAMETER   = 80;  // audio-state circle diameter in virtual pixels
+// Max scale of the audio-mode throb halo at peak amplitude (v = 1). The
+// throb radius lerps from 1.0 × base (silent) up to this multiplier (loud).
+// 1.0 = no throb; 1.4 = halo expands to 140% of the base radius at peak.
+export const AUDIO_THROB_MAX_SCALE    = 1.4;
+export const WEBCAM_OVERLAY_MARGIN    = 50;   // gap from the nearest edge to the circle center
 export const WEBCAM_BORDER_THICKNESS  = 6;    // orange border ring width
 export const WEBCAM_SHADOW_RADIUS     = 12;   // drop-shadow blur radius (controls spread)
 export const WEBCAM_BORDER_COLOR      = "rgb(233, 77, 30)"; // CSS color string
 export const WEBCAM_BORDER_COLOR_HEX  = "E94D1E";          // FFmpeg hex (no 0x prefix)
 export const WEBCAM_RECORDER_TIMESLICE_MS = 100; // MediaRecorder chunk interval
 
+// Mouse-glide path shape during transitions (entry handoff + exit glide).
+// The cursor follows a quadratic Bezier from A to B with a control point
+// pinned UP (toward y=0) by `arcFraction × distance`. Higher = bigger arc.
+// 0 = straight line, ~0.1–0.15 = subtle natural curve, 0.4 = pronounced bow.
+// Always bows up to mimic the natural pivot of an arm/wrist over a desk.
+export const MOUSE_GLIDE_ARC_FRACTION = 0.2;
+
+// Speed stutter — a small sine perturbation on the eased `t` so velocity isn't
+// perfectly uniform along the arc. Endpoints stay exact (envelope = sin(π·t)
+// pins the perturbation to 0 at t=0 and t=1). Amplitude is the max ± offset
+// to the eased t value; frequency is the number of speed wobbles across the
+// glide. Set amplitude to 0 to disable stutter entirely.
+export const MOUSE_GLIDE_STUTTER_AMPLITUDE: number = 0.02;
+export const MOUSE_GLIDE_STUTTER_FREQUENCY: number = 3;
+
 // Preview render quality. MUST stay > 0.5 — Chromium clamps deviceScaleFactor there.
 export const VIRTUAL_PREVIEW_SCALE_FACTOR = 0.5;
 // FFmpeg post-render downscale divisor for preview output (integer >= 1).
-export const PREVIEW_DOWNSCALE_FACTOR = 2;
+export const PREVIEW_DOWNSCALE_FACTOR = 1;
 
 // Product flow only: on "Continue to Post", eagerly enqueue the brandless render
 // (priority 1) alongside the 3 branded preview renders (priority 2). Requires adequate

@@ -6,6 +6,10 @@ import {
   getPresignedUrl,
 } from "@/lib/storage/r2";
 import { requireSession } from "@/lib/apiAuth";
+import { logEvent } from "@/lib/stats/events";
+import { slugifyPart, joinNameParts, deriveMerchantNameFromUrl } from "@/lib/naming";
+import { reserveUniqueName } from "@/lib/db/reserveName";
+import { invalidateRenderCacheForRecording } from "@/lib/cache/render-cache";
 
 export const runtime = "nodejs";
 
@@ -13,7 +17,8 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 type RequestBody = {
   flowId?: unknown;
-  name?: unknown;
+  /** Optional user-supplied tag (free text). Server slugifies + appends to prefix. */
+  tag?: unknown;
   status?: unknown;
   type?: unknown;
   productName?: unknown;
@@ -26,13 +31,15 @@ type RequestBody = {
 
 /**
  * Upsert a vlad_recordings row for a flow. Handles:
- *   - New saved recording
- *   - New draft
- *   - Finalize draft (draft → saved)
- *   - Re-save of existing saved recording (edit-save) → marks downstream renders stale
+ *   - New saved recording   (server reserves a fresh name from prefix+tag)
+ *   - New draft             (same; tag may be empty)
+ *   - Finalize draft        (draft → saved, keeps the existing name)
+ *   - Re-save existing      (saved → saved, keeps the existing name; downstream renders flagged stale)
  *
- * Raw mouse + webcam stay at sessions/{userId}/{flowId}/ and are referenced by
- * that path. Preview (when provided) is copied to recordings/{flowId}/preview.mp4.
+ * Names follow `{prefix}-{tag}-{count}` per AGENTS.md naming spec — prefix is
+ * the merchant-name (intro) or product-name (product), tag is optional, count
+ * is a collision-only `-N` suffix. Client posts `tag`; server resolves
+ * everything else.
  */
 export async function POST(request: Request) {
   const session = await requireSession();
@@ -52,11 +59,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Missing or invalid flowId." }, { status: 400 });
   }
 
-  const name = typeof body.name === "string" ? body.name.trim() : "";
-  if (!name) {
-    return NextResponse.json({ error: "Missing name." }, { status: 400 });
-  }
-
   const status = body.status === "draft" || body.status === "saved" ? body.status : null;
   if (!status) {
     return NextResponse.json({ error: "Invalid status." }, { status: 400 });
@@ -66,9 +68,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid type." }, { status: 400 });
   }
 
+  const tag = typeof body.tag === "string" ? body.tag : "";
+
   const { data: existing } = await supabase
     .from("vlad_recordings")
-    .select("id, user_id, status, name, preview_url, mouse_events_url, webcam_url")
+    .select("id, user_id, status, name, merchant_name, preview_url, mouse_events_url, webcam_url")
     .eq("id", flowId)
     .maybeSingle();
 
@@ -76,16 +80,79 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Forbidden." }, { status: 403 });
   }
 
-  const { data: collision } = await supabase
-    .from("vlad_recordings")
-    .select("id")
-    .eq("user_id", session.email)
-    .eq("name", name)
-    .neq("id", flowId)
-    .maybeSingle();
+  // --- Resolve canonical prefix + canonical merchant_name (merchant only) ---
+  const productNameRaw =
+    body.type === "product" && typeof body.productName === "string" ? body.productName : null;
+  const merchantIdRaw =
+    body.type === "merchant" && typeof body.merchantId === "string" ? body.merchantId : null;
 
-  if (collision) {
-    return NextResponse.json({ error: "Name already exists.", code: "NAME_COLLISION" }, { status: 409 });
+  let prefix = "";
+  let resolvedMerchantName: string | null = null;
+
+  if (body.type === "product") {
+    if (!productNameRaw || !productNameRaw.trim()) {
+      return NextResponse.json({ error: "Missing productName." }, { status: 400 });
+    }
+    prefix = slugifyPart(productNameRaw);
+  } else {
+    // Merchant: prefer previews.data.brandName, then previews.website_url, then
+    // metadata.merchantUrl. Persist the resolved slug to vlad_recordings.merchant_name.
+    let brandName: string | null = null;
+    let websiteUrl: string | null = null;
+    if (merchantIdRaw) {
+      const { data: previewRow } = await supabase
+        .from("previews")
+        .select("website_url, data")
+        .eq("id", merchantIdRaw)
+        .maybeSingle();
+      const pRow = previewRow as
+        | { website_url?: string; data?: { brandName?: string } | null }
+        | null;
+      if (typeof pRow?.data?.brandName === "string" && pRow.data.brandName) {
+        brandName = pRow.data.brandName;
+      }
+      if (typeof pRow?.website_url === "string") {
+        websiteUrl = pRow.website_url;
+      }
+    }
+    if (brandName) {
+      prefix = slugifyPart(brandName);
+    } else if (websiteUrl) {
+      prefix = deriveMerchantNameFromUrl(websiteUrl);
+    }
+    if (!prefix) {
+      const metaUrl =
+        body.metadata && typeof body.metadata === "object"
+          ? (body.metadata as Record<string, unknown>).merchantUrl
+          : null;
+      if (typeof metaUrl === "string") prefix = deriveMerchantNameFromUrl(metaUrl);
+    }
+    if (!prefix) {
+      return NextResponse.json(
+        { error: "Cannot derive merchant-name from previews row or metadata." },
+        { status: 400 },
+      );
+    }
+    resolvedMerchantName = prefix;
+  }
+
+  const base = joinNameParts([prefix, tag]);
+  if (!base) {
+    return NextResponse.json({ error: "Cannot derive base name." }, { status: 400 });
+  }
+
+  // Existing row keeps its name — recordings are not renameable. New rows get
+  // a fresh collision-safe reservation.
+  let resolvedName: string;
+  if (existing?.name) {
+    resolvedName = existing.name;
+  } else {
+    resolvedName = await reserveUniqueName({
+      table: "vlad_recordings",
+      column: "name",
+      userId: session.email,
+      base,
+    });
   }
 
   // Preserve existing URLs if the row already exists (important for old
@@ -131,13 +198,16 @@ export async function POST(request: Request) {
       ? body.webcamSettings
       : null;
 
+  // For merchant recordings we always overwrite merchant_name with the freshly
+  // resolved value — keeps it canonical even if a row was created pre-migration.
   const row = {
     id: flowId,
     user_id: session.email,
     type: body.type,
-    name,
-    product_name: body.type === "product" && typeof body.productName === "string" ? body.productName : null,
-    merchant_id: body.type === "merchant" && typeof body.merchantId === "string" ? body.merchantId : null,
+    name: resolvedName,
+    product_name: productNameRaw,
+    merchant_id: merchantIdRaw,
+    merchant_name: body.type === "merchant" ? resolvedMerchantName : null,
     mouse_events_url: mouseR2Key,
     webcam_url: webcamR2Key,
     preview_url: previewKey,
@@ -151,9 +221,24 @@ export async function POST(request: Request) {
 
   if (error) {
     if (error.code === "23505") {
-      return NextResponse.json({ error: "Name already exists.", code: "NAME_COLLISION" }, { status: 409 });
+      // Race: another insert grabbed our reservation between the read and the
+      // write. Re-reserve once and try again.
+      const retryName = await reserveUniqueName({
+        table: "vlad_recordings",
+        column: "name",
+        userId: session.email,
+        base,
+      });
+      const retry = await supabase
+        .from("vlad_recordings")
+        .upsert({ ...row, name: retryName }, { onConflict: "id" });
+      if (retry.error) {
+        return NextResponse.json({ error: retry.error.message }, { status: 500 });
+      }
+      resolvedName = retryName;
+    } else {
+      return NextResponse.json({ error: error.message }, { status: 500 });
     }
-    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
   if (existing && existing.status === "saved" && status === "saved") {
@@ -161,6 +246,24 @@ export async function POST(request: Request) {
       .from("vlad_renders")
       .update({ stale: true })
       .or(`product_recording_id.eq.${flowId},merchant_recording_id.eq.${flowId}`);
+    // Wipe Redis cache entries that mention this recording. Without this,
+    // a re-render with the same (url, mouse) would hit a cached produce
+    // artifact computed against the OLD spec (old trim, old webcam settings).
+    void invalidateRenderCacheForRecording(session.email, flowId).catch((err) => {
+      console.warn(`[save-recording] cache invalidate failed for ${flowId}:`, err);
+    });
+  }
+
+  // Emit `recording_created` only on the draft→saved transition (or fresh
+  // saved insert). Re-saves of an already-saved recording don't re-count.
+  const wasNewlySaved = (!existing || existing.status !== "saved") && status === "saved";
+  if (wasNewlySaved) {
+    void logEvent({
+      type: "recording_created",
+      userId: session.email,
+      targetId: flowId,
+      payload: { kind: body.type === "merchant" ? "intro" : "product" },
+    });
   }
 
   let previewUrl: string | null = null;
@@ -172,5 +275,5 @@ export async function POST(request: Request) {
     }
   }
 
-  return NextResponse.json({ ok: true, recordingId: flowId, name, status, previewUrl });
+  return NextResponse.json({ ok: true, recordingId: flowId, name: resolvedName, status, previewUrl });
 }

@@ -1,5 +1,6 @@
 import { type Page } from "playwright";
 import { interpolatePosition, discreteEventsInWindow, type Keyframe } from "@/lib/render/keyframes";
+import { clampCoordinate } from "@/lib/render/glide-math";
 
 export type CursorPosition = {
   x: number;
@@ -26,23 +27,28 @@ export type RenderAction = {
   run: (context: RenderActionRunContext) => Promise<CursorPosition>;
 };
 
-function clampCoordinate(value: number, max: number): number {
-  return Math.min(Math.max(value, 0), Math.max(max - 1, 0));
-}
+export type ReplayActionOptions = {
+  trimStartMs?: number;
+};
 
 /**
- * Creates a replay action from keyframes.
+ * Replays recorded keyframes — drives `page.mouse.move` for hover state and
+ * fires discrete click/keydown events at recorded positions. The cursor
+ * sprite is NOT drawn here; it's composited by FFmpeg in the compose stage
+ * from a deterministic per-frame position track (see lib/render/cursor-track.ts
+ * and lib/compose/compose.ts).
  *
- * When `trimStartMs` is provided, Playwright replays ALL events from the
- * beginning (so the page reaches the correct state through clicks/keys) but
- * only captures screenshots for frames after `trimStartMs`.  The output
- * video duration is `durationMs` (which should already be trimEnd-trimStart).
+ * When `trimStartMs > 0`, all events from t=0 to t=trimStartMs are still
+ * replayed (so the page reaches the correct state via clicks/keys), but no
+ * screenshots are captured during that prefix — the rendered video starts
+ * at the trim boundary.
  */
 export function createReplayAction(
   keyframes: ReadonlyArray<Keyframe>,
   durationMs: number,
-  trimStartMs = 0,
+  options: ReplayActionOptions = {},
 ): RenderAction {
+  const trimStartMs = options.trimStartMs ?? 0;
   const totalReplayMs = trimStartMs + durationMs;
 
   return {
@@ -62,7 +68,10 @@ export function createReplayAction(
 
       const positionKeyframes = keyframes.filter((kf) => kf.event !== "keydown");
       const sessionDurationMs = keyframes[keyframes.length - 1].t;
-      const scale = sessionDurationMs > 0 ? totalReplayMs / sessionDurationMs : 1;
+      // Clamp ≤ 1: when totalReplayMs exceeds the recorded keyframe span (e.g.
+      // mouse went idle before the user clicked stop), play keyframes 1:1 and
+      // hold the last position rather than time-stretching the recorded motion.
+      const scale = sessionDurationMs > 0 ? Math.min(1, totalReplayMs / sessionDurationMs) : 1;
 
       const totalFrames = Math.ceil(totalReplayMs / frameDurationMs);
       const skipFrames = trimStartMs > 0 ? Math.floor(trimStartMs / frameDurationMs) : 0;
@@ -77,8 +86,8 @@ export function createReplayAction(
         const tPrev = frameIndex === 0 ? -1 : ((frameIndex - 1) * frameDurationMs) / scale;
 
         const pos = interpolatePosition(positionKeyframes, tFrame);
-        const x = clampCoordinate(pos.x, context.width);
-        const y = clampCoordinate(pos.y, context.height);
+        const recordedX = clampCoordinate(pos.x, context.width);
+        const recordedY = clampCoordinate(pos.y, context.height);
 
         for (const kf of discreteEventsInWindow(keyframes, tPrev, tFrame)) {
           const ex = clampCoordinate(Math.round(kf.x), context.width);
@@ -95,16 +104,14 @@ export function createReplayAction(
         }
 
         if (frameIndex >= skipFrames) {
-          // In the capture window — take a screenshot
-          await context.moveAndCapture(x, y);
+          await context.moveAndCapture(recordedX, recordedY);
+          lastPosition = { x: recordedX, y: recordedY };
         } else {
-          // In the skip prefix — advance virtual clock and replay interactions
-          // but don't capture a screenshot
+          // Skip prefix: replay interactions for state, no screenshot.
           await context.advanceOnly();
-          await context.page.mouse.move(x, y, { steps: 1 });
+          await context.page.mouse.move(recordedX, recordedY, { steps: 1 });
+          lastPosition = { x: recordedX, y: recordedY };
         }
-
-        lastPosition = { x, y };
       }
 
       return lastPosition;

@@ -3,7 +3,8 @@
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import DeleteModal from '@/app/components/DeleteModal'
-import PreviewModal from '@/app/components/PreviewModal'
+import RecordingPreviewModal from '@/app/components/RecordingPreviewModal'
+import RenderPreviewModal from '@/app/components/RenderPreviewModal'
 import Markdown from '@/app/components/Markdown'
 import { mergeExport as mergeExportInstructions } from '@/app/copy/instructions'
 import {
@@ -74,26 +75,50 @@ export default function MergeExportPage() {
   const [selectedProduct, setSelectedProduct] = useState<string | null>(null)
   const [showGenerateModal, setShowGenerateModal] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string; kind: 'recording' | 'render' } | null>(null)
-  const [previewTarget, setPreviewTarget] = useState<{ title: string; videoUrl?: string | null; renderId?: string; downloadName?: string; onEdit?: () => void; trimStartSec?: number; trimEndSec?: number; slug?: string | null } | null>(null)
+  type PreviewTarget =
+    | {
+        kind: 'recording'
+        title: string
+        videoUrl?: string | null
+        downloadName?: string
+        trimStartSec?: number
+        trimEndSec?: number
+        onEdit?: () => void
+      }
+    | {
+        kind: 'render'
+        title: string
+        videoUrl?: string | null
+        downloadName?: string
+        trimStartSec?: number
+        trimEndSec?: number
+        renderId: string
+        slug?: string | null
+      }
+  const [previewTarget, setPreviewTarget] = useState<PreviewTarget | null>(null)
 
   // Tracks renderIds currently being polled so the resume effect doesn't
   // double up when the polling tick mutates the renders array.
   const pollingRef = useRef<Set<string>>(new Set())
 
-  async function handleDelete() {
-    if (!deleteTarget) return
-    const endpoint = deleteTarget.kind === 'recording' ? '/api/recordings' : '/api/renders'
+  async function performDelete(id: string, kind: 'recording' | 'render') {
+    const endpoint = kind === 'recording' ? '/api/recordings' : '/api/renders'
     await fetch(endpoint, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: deleteTarget.id }),
+      body: JSON.stringify({ id }),
     })
-    if (deleteTarget.kind === 'recording') {
-      setMerchants((prev) => prev.filter((r) => r.id !== deleteTarget.id))
-      setProducts((prev) => prev.filter((r) => r.id !== deleteTarget.id))
+    if (kind === 'recording') {
+      setMerchants((prev) => prev.filter((r) => r.id !== id))
+      setProducts((prev) => prev.filter((r) => r.id !== id))
     } else {
-      setRenders((prev) => prev.filter((r) => r.id !== deleteTarget.id))
+      setRenders((prev) => prev.filter((r) => r.id !== id))
     }
+  }
+
+  async function handleDelete() {
+    if (!deleteTarget) return
+    await performDelete(deleteTarget.id, deleteTarget.kind)
     setDeleteTarget(null)
   }
 
@@ -194,6 +219,7 @@ export default function MergeExportPage() {
     const trimStartSec = typeof meta.trimStartSec === 'number' ? meta.trimStartSec : undefined
     const trimEndSec = typeof meta.trimEndSec === 'number' ? meta.trimEndSec : undefined
     setPreviewTarget({
+      kind: 'recording',
       title,
       videoUrl: recording.preview_url,
       downloadName: name,
@@ -226,11 +252,52 @@ export default function MergeExportPage() {
     setRenders((prev) => [optimistic, ...prev])
   }
 
-  async function runTask(merchantRecordingId: string, productRecordingId: string) {
-    const brand = `${merchantLabel(merchantRecordingId)}-${productLabel(productRecordingId)}`
+  async function runTask(state: MergeFormState, merchantRecordingId: string | null, productRecordingId: string | null) {
+    const merchantLabelText = merchantRecordingId ? merchantLabel(merchantRecordingId) : null
+    const productLabelText = productRecordingId ? productLabel(productRecordingId) : null
+    const brand = [merchantLabelText, productLabelText].filter(Boolean).join('-') || 'Render'
+    const introSettings = sectionSettingsForApi(state.intro)
+    const productSettings = sectionSettingsForApi(state.product)
+    const body = {
+      merchantRecordingId: merchantRecordingId ?? undefined,
+      productRecordingId: productRecordingId ?? undefined,
+      introEnabled: !!merchantRecordingId,
+      productEnabled: !!productRecordingId,
+      introSettings,
+      productSettings,
+      // The master `enabled` toggle gates the wire payload — when off, all
+      // four types submit as 'none' regardless of the stored values. The
+      // stored values themselves are preserved (the modal toggle never
+      // mutates them) so the user's selections come back on re-enable.
+      transition: state.transition.enabled
+        ? {
+            audio: state.transition.audio,
+            video: state.transition.video,
+            overlay: state.transition.overlay,
+            mouse: state.transition.mouse,
+            audioDurationMs: state.transition.audioDurationMs,
+            videoDurationMs: state.transition.videoDurationMs,
+            overlayDurationMs: state.transition.overlayDurationMs,
+            mouseDurationMs: state.transition.mouseDurationMs,
+          }
+        : {
+            audio: 'none',
+            video: 'none',
+            overlay: 'none',
+            mouse: 'none',
+            audioDurationMs: state.transition.audioDurationMs,
+            videoDurationMs: state.transition.videoDurationMs,
+            overlayDurationMs: state.transition.overlayDurationMs,
+            mouseDurationMs: state.transition.mouseDurationMs,
+          },
+    }
+    console.log(
+      `[merge-page] runTask transition (state.enabled=${state.transition.enabled}):`,
+      JSON.stringify(body.transition),
+    )
     try {
-      const { jobId, renderId } = await startMergeJob(merchantRecordingId, productRecordingId, brand)
-      insertOptimistic(renderId, jobId, brand, '/api/merge-export', { merchantRecordingId, productRecordingId, brand })
+      const { jobId, renderId } = await startMergeJob(body)
+      insertOptimistic(renderId, jobId, brand, '/api/merge-export', body)
     } catch {
       // The user has no row to retry — surface an inline error via a transient
       // failed entry would require a fake id. Rely on the modal-level UX.
@@ -238,23 +305,37 @@ export default function MergeExportPage() {
   }
 
   async function runProductOnlyTask(
+    state: MergeFormState,
     productRecordingId: string,
     merchantBrand: { websiteUrl: string; brandName: string },
   ) {
     const merchantLabelText = merchantBrand.brandName || merchantBrand.websiteUrl
     const productLabelText = productLabel(productRecordingId)
     const brand = `${merchantLabelText}-${productLabelText}`
+    const productSettings = sectionSettingsForApi(state.product)
+    const body = { productRecordingId, merchantBrand, productSettings }
     try {
-      const result = await startProductOnlyJob(productRecordingId, merchantBrand)
+      const result = await startProductOnlyJob(body)
       if ('cached' in result && result.cached) {
         // Cache hit — server inserted a 'done' row directly. Refresh.
         fetchRenders()
         return
       }
       const { jobId, renderId } = result
-      insertOptimistic(renderId, jobId, brand, '/api/product-only-export', { productRecordingId, merchantBrand })
+      insertOptimistic(renderId, jobId, brand, '/api/product-only-export', body)
     } catch {
       /* see runTask comment */
+    }
+  }
+
+  // Strip recording-id fields and shape the section settings so they can be
+  // safely round-tripped through the retry path.
+  function sectionSettingsForApi(section: MergeFormState['intro'] | MergeFormState['product']) {
+    return {
+      modeSource: section.modeSource,
+      customMode: section.customMode,
+      positionSource: section.positionSource,
+      customPosition: section.customPosition,
     }
   }
 
@@ -288,24 +369,36 @@ export default function MergeExportPage() {
   }
 
   function handleGenerate(state: MergeFormState) {
-    if (state.preset === 'p1' && state.intro.enabled && state.product.enabled) {
+    // p1 (intro+product) and the custom flow with both sections enabled share
+    // the same merge-export dispatch path. p2 (product-only) and custom with
+    // intro disabled fan out via product-only-export. Custom with only intro
+    // enabled hits merge-export with productEnabled=false (intro-only flow).
+    const wantsBoth = state.intro.enabled && state.product.enabled
+    const introOnly = state.intro.enabled && !state.product.enabled
+    const productOnlyFlow =
+      !state.intro.enabled && state.product.enabled
+
+    if (wantsBoth) {
       const prodId = state.product.productRecordingId
       for (const merchantId of state.intro.merchantRecordingIds) {
-        runTask(merchantId, prodId)
+        runTask(state, merchantId, prodId)
       }
-    } else if (state.preset === 'p2' && state.product.enabled) {
+    } else if (introOnly) {
+      // Intro-only: one merge-export per selected merchant intro, no product.
+      for (const merchantId of state.intro.merchantRecordingIds) {
+        runTask(state, merchantId, null)
+      }
+    } else if (productOnlyFlow) {
       const prodId = state.product.productRecordingId
       // Only dispatch DB-matched merchants whose scrape is complete. Pending /
       // incomplete scrapes and free-text URL chips need a finished scrape
-      // first, so they're held back and surfaced via the chip's tooltip
-      // action. The modal's button count mirrors this filter.
+      // first, so they're held back and surfaced via the chip's tooltip action.
       for (const chip of state.product.brandMerchants) {
         if (chip.kind === 'merchant' && chip.status === 'complete') {
-          runProductOnlyTask(prodId, { websiteUrl: chip.websiteUrl, brandName: chip.brandName })
+          runProductOnlyTask(state, prodId, { websiteUrl: chip.websiteUrl, brandName: chip.brandName })
         }
       }
     }
-    // Custom preset is banner-blocked at the modal level; nothing to do here.
     setShowGenerateModal(false)
   }
 
@@ -362,9 +455,13 @@ export default function MergeExportPage() {
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                       </button>
                       <button
-                        onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: r.id, name: r.name ?? r.merchant_id ?? r.id.slice(0, 8), kind: 'recording' }) }}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (e.shiftKey) performDelete(r.id, 'recording')
+                          else setDeleteTarget({ id: r.id, name: r.name ?? r.merchant_id ?? r.id.slice(0, 8), kind: 'recording' })
+                        }}
                         className="text-muted hover:text-red-500"
-                        title="Delete"
+                        title="Delete (shift+click to skip confirmation)"
                       >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
                       </button>
@@ -416,9 +513,13 @@ export default function MergeExportPage() {
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                       </button>
                       <button
-                        onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: r.id, name: r.name ?? r.product_name ?? r.id.slice(0, 8), kind: 'recording' }) }}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (e.shiftKey) performDelete(r.id, 'recording')
+                          else setDeleteTarget({ id: r.id, name: r.name ?? r.product_name ?? r.id.slice(0, 8), kind: 'recording' })
+                        }}
                         className="text-muted hover:text-red-500"
-                        title="Delete"
+                        title="Delete (shift+click to skip confirmation)"
                       >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
                       </button>
@@ -460,7 +561,7 @@ export default function MergeExportPage() {
                   function openPreview() {
                     if (r.status !== 'done') return
                     if (isNew) markSeen(r.id)
-                    setPreviewTarget({ title: `Export: ${label}`, videoUrl: r.video_url, renderId: r.id, downloadName: label, slug: r.slug })
+                    setPreviewTarget({ kind: 'render', title: label, videoUrl: r.video_url, renderId: r.id, downloadName: label, slug: r.slug })
                   }
 
                   return (
@@ -479,9 +580,21 @@ export default function MergeExportPage() {
                           <span className="text-xs text-red-500">Failed</span>
                           <button
                             onClick={(e) => { e.stopPropagation(); retry(r) }}
-                            className="text-xs text-muted hover:text-foreground"
+                            className="text-muted hover:text-foreground"
+                            title="Retry"
                           >
-                            Retry
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              if (e.shiftKey) performDelete(r.id, 'render')
+                              else setDeleteTarget({ id: r.id, name: label, kind: 'render' })
+                            }}
+                            className="text-muted hover:text-red-500"
+                            title="Delete (shift+click to skip confirmation)"
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
                           </button>
                         </span>
                       ) : isInProgress && currentStep ? (
@@ -499,8 +612,13 @@ export default function MergeExportPage() {
                               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                             </button>
                             <button
-                              onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: r.id, name: label, kind: 'render' }) }}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                if (e.shiftKey) performDelete(r.id, 'render')
+                                else setDeleteTarget({ id: r.id, name: label, kind: 'render' })
+                              }}
                               className="text-muted hover:text-red-500"
+                              title="Delete (shift+click to skip confirmation)"
                             >
                               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
                             </button>
@@ -528,8 +646,20 @@ export default function MergeExportPage() {
         </div>
       </div>
 
-      {previewTarget && (
-        <PreviewModal
+      {previewTarget?.kind === 'recording' && (
+        <RecordingPreviewModal
+          title={previewTarget.title}
+          videoUrl={previewTarget.videoUrl}
+          downloadName={previewTarget.downloadName}
+          trimStartSec={previewTarget.trimStartSec}
+          trimEndSec={previewTarget.trimEndSec}
+          onClose={() => setPreviewTarget(null)}
+          onEdit={previewTarget.onEdit}
+        />
+      )}
+
+      {previewTarget?.kind === 'render' && (
+        <RenderPreviewModal
           title={previewTarget.title}
           videoUrl={previewTarget.videoUrl}
           downloadName={previewTarget.downloadName}
@@ -537,11 +667,10 @@ export default function MergeExportPage() {
           trimEndSec={previewTarget.trimEndSec}
           slug={previewTarget.slug}
           onClose={() => setPreviewTarget(null)}
-          onEdit={previewTarget.onEdit}
-          onDelete={previewTarget.renderId ? () => {
-            setDeleteTarget({ id: previewTarget.renderId!, name: previewTarget.title, kind: 'render' })
+          onDelete={() => {
+            setDeleteTarget({ id: previewTarget.renderId, name: previewTarget.title, kind: 'render' })
             setPreviewTarget(null)
-          } : undefined}
+          }}
         />
       )}
 

@@ -1,0 +1,78 @@
+<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" style="--t: 0; --v: 0;">
+  <!--
+    Parameters (set via CSS custom properties on the <svg> element):
+      --t: morph progress, 0..1.
+           0   = webcam state (large blue circle covering mic)
+           0.5 = transition state (everything collapsed to a point, ~r=7)
+           1   = audio state (small mic-on-black, webcam tucked behind throb)
+           Drive --t with a spring/bounce curve from the caller — collapse
+           linearly to 0.5, then spring past 1 and settle. The SVG itself
+           just renders the static state at any t.
+      --v: volume, 0..1. Mapped linearly to throb scale 1.0..1.2.
+           Animate per-frame from a pre-baked amplitude track.
+
+    Internal progress helpers (derived from --t inline below):
+      --collapse: ramps 0→1 over t∈[0, 0.5], stays 1 thereafter
+      --expand:   stays 0 until t=0.5, ramps 0→1 over [0.5, 1]
+
+      Linear combinations of (collapse, expand) recover the three keyframes
+      exactly:
+          r(t)     = 200 − 193·collapse + 93·expand
+            t=0:   200,   t=0.5: 7,   t=1: 100
+          r_throb  = (206 − 193·collapse + 93·expand) · (1 + 0.2·v)
+            t=0:   206,   t=0.5: 13,  t=1: 106  (at v=0)
+
+    Z-order (back → front):
+      1. webcam-back  — visible only after midpoint (back-op = expand)
+      2. throb        — always visible, scales with v
+      3. mic-group    — visible at t=1, scales centrally on (256, 256)
+      4. webcam-front — visible only before midpoint (front-op = 1 − collapse)
+
+    NOTE: the blue circles are PLACEHOLDERS for the webcam video. At
+    integration time they're replaced with a <foreignObject> containing
+    <video> clipped to the same circle geometry. The radius, position,
+    and animation parameters here are the source of truth.
+  -->
+  <g style="
+    --collapse:  clamp(0, calc(var(--t) * 2), 1);
+    --expand:    clamp(0, calc(var(--t) * 2 - 1), 1);
+    --r:         calc(200px - 193px * var(--collapse) + 93px * var(--expand));
+    --r-throb:   calc((206px - 193px * var(--collapse) + 93px * var(--expand)) * (1 + 0.2 * var(--v)));
+    --mic-scale: calc((200 - 193 * var(--collapse) + 93 * var(--expand)) / 200);
+    --back-op:   var(--expand);
+    --front-op:  calc(1 - var(--collapse));
+  ">
+
+    <!-- Layer 1 (back): webcam-back. Hidden until expand kicks in at t=0.5. -->
+    <circle class="webcam-back" cx="256" cy="256"
+            style="r: var(--r); opacity: var(--back-op);"
+            fill="#4584D5" stroke="#FF4405" stroke-width="12"/>
+
+    <!-- Layer 2: throb halo. Always present; r and v both scale it.
+         Thin solid-orange ring around the translucent fill marks the
+         outer edge clearly even when --v=0 keeps the halo close to the
+         primary circle. -->
+    <circle class="throb" cx="256" cy="256"
+            style="r: var(--r-throb);"
+            fill="#FF4405" fill-opacity="0.5"
+            stroke="#FF4405" stroke-width="4"/>
+
+    <!-- Layer 3: mic group (black backing + white mic icon). Scales as one
+         unit centered on (256, 256). Default SVG transform-box is view-box,
+         so transform-origin in user-units lands exactly at the icon center. -->
+    <g class="mic-group" style="
+      opacity: var(--back-op);
+      transform-origin: 256px 256px;
+      transform: scale(var(--mic-scale));
+    ">
+      <circle cx="256" cy="256" r="200" fill="black" stroke="#FF4405" stroke-width="12"/>
+      <path fill="white" d="M227.454 212.591C222.452 205.138 217.773 197.033 217.773 187.296C217.773 166.515 234.446 149.706 254.938 149.815C275.43 149.706 292.103 166.515 292.103 187.296C292.103 197.033 287.424 205.138 282.422 212.591C277.796 219.554 273.924 224.722 270.159 230.542C265.049 238.865 261.392 246.372 261.392 256.001C261.392 265.629 264.996 273.843 270.159 281.459C273.547 287.28 277.796 292.448 282.422 299.41C287.424 306.863 292.103 314.968 292.103 324.706C292.103 345.485 275.43 362.295 254.938 362.185C234.446 362.295 217.773 345.485 217.773 324.706C217.773 314.968 222.452 306.863 227.454 299.41C232.08 292.448 236.329 287.28 239.717 281.459C244.881 273.843 248.484 265.629 248.484 256.001C248.484 246.372 244.827 238.865 239.717 230.542C235.952 224.722 232.08 219.554 227.454 212.591Z"/>
+    </g>
+
+    <!-- Layer 4 (front): webcam-front. Covers throb + mic during the webcam
+         state; fades out as collapse → 1 around the midpoint. -->
+    <circle class="webcam-front" cx="256" cy="256"
+            style="r: var(--r); opacity: var(--front-op);"
+            fill="#4584D5" stroke="#FF4405" stroke-width="12"/>
+  </g>
+</svg>

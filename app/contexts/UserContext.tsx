@@ -41,6 +41,22 @@ export function UserContextProvider({ children }: { children: ReactNode }) {
     }
   }, [presenter, refreshUsers]);
 
+  // DAU heartbeat — fire /api/activity once per session, rate-limited to once
+  // per 6 hours via localStorage so refreshes and multi-tab don't spam the
+  // event log. Server-side this just inserts a `user_active` row.
+  useEffect(() => {
+    if (!presenter) return;
+    const HEARTBEAT_MS = 6 * 60 * 60 * 1000;
+    try {
+      const last = Number(localStorage.getItem("vlad_activity_pinged_at") ?? 0);
+      if (Date.now() - last < HEARTBEAT_MS) return;
+      localStorage.setItem("vlad_activity_pinged_at", String(Date.now()));
+    } catch {
+      /* localStorage may be unavailable; still ping */
+    }
+    void fetch("/api/activity", { method: "POST" });
+  }, [presenter]);
+
   const value = useMemo<UserContextValue>(
     () => ({
       presenter,

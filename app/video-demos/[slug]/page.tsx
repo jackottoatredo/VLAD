@@ -5,7 +5,10 @@ import { notFound } from "next/navigation";
 import { supabase } from "@/lib/db/supabase";
 import { INTERACTIVE_DEMO_BASE_URL } from "@/app/config";
 import { findProductLabel } from "@/lib/products";
+import { logEngagementEvent } from "@/lib/stats/engagement";
+import { detectBot } from "@/lib/stats/botDetection";
 import ShareActions from "./ShareActions";
+import ShareVideoPlayer from "./ShareVideoPlayer";
 
 export const runtime = "nodejs";
 
@@ -146,6 +149,21 @@ export default async function SharePage({
   const row = await fetchShareRow(slug);
   if (!row || !row.video_url) notFound();
 
+  // Server-side `visit` emit is bot-only. Humans land via the
+  // client-side `visit_linked` beacon (ShareVideoPlayer), which
+  // carries a visitor_id and triggers the visitor profile upsert
+  // including iplocate enrichment. The server can't see localStorage,
+  // so we don't have a visitor_id here anyway — emitting a server-side
+  // human visit would just produce an unattributable row.
+  const requestHeaders = await headers();
+  if (detectBot(requestHeaders.get("user-agent")).isBot) {
+    void logEngagementEvent({
+      type: "bot_visit",
+      slug,
+      headers: requestHeaders,
+    });
+  }
+
   const { brandName, productLabel } = deriveTitleParts(row);
   const fallbackTitle = buildShareTitle(row);
   const videoSrc = `/v/${slug}/video.mp4`;
@@ -176,11 +194,10 @@ export default async function SharePage({
           <h1 className="share-hide-on-landscape mb-5 text-center text-2xl font-semibold text-foreground">{fallbackTitle}</h1>
         )}
         <div className="share-frame-on-landscape overflow-hidden rounded-2xl border border-border bg-surface shadow-md">
-          <video
+          <ShareVideoPlayer
+            slug={slug}
             src={videoSrc}
             poster={posterSrc}
-            controls
-            playsInline
             className="share-video-on-landscape aspect-video w-full bg-background"
           />
         </div>

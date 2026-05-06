@@ -3,7 +3,7 @@ import { cache } from "react";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { supabase } from "@/lib/db/supabase";
-import { INTERACTIVE_DEMO_BASE_URL } from "@/app/config";
+import { INTERACTIVE_DEMO_BASE_URL, SHARE_BASE_URL } from "@/app/config";
 import { findProductLabel } from "@/lib/products";
 import { logEngagementEvent } from "@/lib/stats/engagement";
 import { detectBot } from "@/lib/stats/botDetection";
@@ -83,6 +83,7 @@ function buildShareTitle(row: ShareRow): string {
 }
 
 async function resolveBaseUrl(): Promise<string> {
+  if (SHARE_BASE_URL) return SHARE_BASE_URL;
   const h = await headers();
   const host = h.get("host") ?? "localhost:3000";
   const proto = h.get("x-forwarded-proto") ?? (host.includes("localhost") ? "http" : "https");
@@ -100,21 +101,21 @@ export async function generateMetadata({
 
   const baseUrl = await resolveBaseUrl();
   const title = buildShareTitle(row);
-  const url = `${baseUrl}/v/${slug}`;
+  const url = `${baseUrl}/video-demos/${slug}`;
   // og:image is the no-webcam render's first frame at native 16:9, zoomed
   // in to hide the rounded white border. Older rows without poster_square_key
   // fall back to the with-webcam poster (also 16:9, native dims).
   const ogImageEntry: { url: string; type: string; width: number; height: number } | null =
     row.poster_square_key
       ? {
-          url: `${baseUrl}/v/${slug}/poster_square.jpg`,
+          url: `${baseUrl}/video-demos/${slug}/poster_square.jpg`,
           type: "image/jpeg",
           width: 1920,
           height: 1080,
         }
       : row.poster_key
         ? {
-            url: `${baseUrl}/v/${slug}/poster.jpg`,
+            url: `${baseUrl}/video-demos/${slug}/poster.jpg`,
             type: "image/jpeg",
             width: 1920,
             height: 1080,
@@ -166,9 +167,9 @@ export default async function SharePage({
 
   const { brandName, productLabel } = deriveTitleParts(row);
   const fallbackTitle = buildShareTitle(row);
-  const videoSrc = `/v/${slug}/video.mp4`;
-  const posterSrc = row.poster_key ? `/v/${slug}/poster.jpg` : undefined;
-  const downloadHref = `/v/${slug}/download`;
+  const videoSrc = `/video-demos/${slug}/video.mp4`;
+  const posterSrc = row.poster_key ? `/video-demos/${slug}/poster.jpg` : undefined;
+  const downloadHref = `/video-demos/${slug}/download`;
 
   const interactiveDemoUrl = row.brand_url
     ? `${INTERACTIVE_DEMO_BASE_URL}${row.brand_url}` +

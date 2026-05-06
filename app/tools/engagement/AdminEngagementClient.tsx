@@ -599,7 +599,7 @@ function TopSharesTable({ rows }: { rows: TopShareEntry[] }) {
       align: 'left',
       render: (r) => (
         <a
-          href={`/v/${r.slug}`}
+          href={`/video-demos/${r.slug}`}
           target="_blank"
           rel="noreferrer"
           className="block max-w-[14rem] truncate text-foreground hover:underline"

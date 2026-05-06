@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { SHARE_BASE_URL } from '@/app/config'
 import Modal from './Modal'
 
 type Props = {
@@ -123,10 +124,10 @@ export default function RenderPreviewModal({
 
   // Public URLs for the four shareables. Computed lazily inside handlers so
   // window.location.origin is only read in the browser.
-  const sharePagePath = slug ? `/v/${slug}` : null
-  const videoAssetPath = slug ? `/v/${slug}/video.mp4` : null
-  const gifAssetPath = slug ? `/v/${slug}/preview.gif` : null
-  const thumbnailAssetPath = slug ? `/v/${slug}/poster.jpg` : null
+  const sharePagePath = slug ? `/video-demos/${slug}` : null
+  const videoAssetPath = slug ? `/video-demos/${slug}/video.mp4` : null
+  const gifAssetPath = slug ? `/video-demos/${slug}/preview.gif` : null
+  const thumbnailAssetPath = slug ? `/video-demos/${slug}/poster.jpg` : null
 
   function flashCopy(id: CopyId) {
     setCopiedId(id)
@@ -136,7 +137,8 @@ export default function RenderPreviewModal({
   async function copyAbsolute(path: string | null, id: CopyId) {
     if (!path) return
     try {
-      await navigator.clipboard.writeText(`${window.location.origin}${path}`)
+      const base = SHARE_BASE_URL ?? window.location.origin
+      await navigator.clipboard.writeText(`${base}${path}`)
       flashCopy(id)
     } catch (err) {
       console.error('Failed to copy URL:', err)
@@ -150,9 +152,9 @@ export default function RenderPreviewModal({
 
   // The Clipboard API doesn't accept image/gif or video/mp4 (deliberate
   // spec restriction in Chromium and Safari), so we only ever offer
-  // downloads for binary assets. Same-origin <a download> hits our /v/
-  // route, which forces Content-Disposition: attachment via a presigned R2
-  // URL.
+  // downloads for binary assets. Same-origin <a download> hits our
+  // /video-demos/ route, which forces Content-Disposition: attachment via a
+  // presigned R2 URL.
   function triggerDownload(href: string) {
     const a = document.createElement('a')
     a.href = href
@@ -162,21 +164,21 @@ export default function RenderPreviewModal({
   }
 
   function downloadVideo() {
-    // Prefer the public /v/{slug}/download route (sets attachment headers)
-    // when a slug exists; otherwise fall back to the auth'd stream URL the
-    // modal already has.
-    if (slug) triggerDownload(`/v/${slug}/download`)
+    // Prefer the public /video-demos/{slug}/download route (sets attachment
+    // headers) when a slug exists; otherwise fall back to the auth'd stream
+    // URL the modal already has.
+    if (slug) triggerDownload(`/video-demos/${slug}/download`)
     else if (downloadUrl) triggerDownload(downloadUrl)
   }
 
   function downloadGif() {
     if (!slug) return
-    triggerDownload(`/v/${slug}/download-gif`)
+    triggerDownload(`/video-demos/${slug}/download-gif`)
   }
 
   function downloadThumbnail() {
     if (!slug) return
-    triggerDownload(`/v/${slug}/download-poster`)
+    triggerDownload(`/video-demos/${slug}/download-poster`)
   }
 
   // Writes an HTML snippet — <a href="share-page"><img src="asset"></a> — to
@@ -192,7 +194,7 @@ export default function RenderPreviewModal({
   async function copyEmbed(assetPath: string | null, id: CopyId) {
     if (!slug || !sharePagePath || !assetPath) return
     try {
-      const origin = window.location.origin
+      const origin = SHARE_BASE_URL ?? window.location.origin
       const linkUrl = `${origin}${sharePagePath}`
       const imgUrl = `${origin}${assetPath}`
       // Wrap the anchor in a <p>, then follow it with an empty <p><br></p>.

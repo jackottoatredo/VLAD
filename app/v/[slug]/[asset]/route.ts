@@ -45,6 +45,14 @@ function resolveAsset(asset: string, row: ShareRow, slug: string): Resolved | nu
         contentDisposition: `attachment; filename="${slug}.gif"`,
       };
     }
+    case "download-poster": {
+      if (!row.poster_key) return null;
+      return {
+        key: row.poster_key,
+        contentType: "image/jpeg",
+        contentDisposition: `attachment; filename="${slug}.jpg"`,
+      };
+    }
     default:
       return null;
   }
@@ -73,7 +81,7 @@ export async function GET(
 
   // Log only the click-equivalent assets. video.mp4/poster.jpg/preview.gif
   // fire on every browser load and would drown the signal.
-  if (asset === "download" || asset === "download-gif") {
+  if (asset === "download" || asset === "download-gif" || asset === "download-poster") {
     void logEngagementEvent({
       type: "asset_download",
       slug,

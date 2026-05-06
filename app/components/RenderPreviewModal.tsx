@@ -16,7 +16,8 @@ type Props = {
   onDelete?: () => void
 }
 
-type Tab = 'preview' | 'share'
+type Tab = 'review' | 'share'
+type CopyId = 'share' | 'video' | 'gif' | 'gif-embed' | 'thumb'
 
 function formatTime(sec: number) {
   if (!Number.isFinite(sec) || sec < 0) return '0:00'
@@ -25,7 +26,7 @@ function formatTime(sec: number) {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
-export default function RenderPreviewModal({
+export default function RenderReviewModal({
   title,
   videoUrl,
   downloadName,
@@ -35,8 +36,11 @@ export default function RenderPreviewModal({
   onClose,
   onDelete,
 }: Props) {
-  const [tab, setTab] = useState<Tab>('preview')
-  const [linkCopied, setLinkCopied] = useState(false)
+  const [tab, setTab] = useState<Tab>('review')
+  // Tracks which Copy URL just fired so the corresponding card flashes
+  // 'Copied ✓' for 2s. Downloads and Open Link don't flash — the browser /
+  // new tab is the confirmation.
+  const [copiedId, setCopiedId] = useState<CopyId | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
@@ -117,45 +121,87 @@ export default function RenderPreviewModal({
     setCurrentTime(v.currentTime)
   }
 
-  async function copyShareLink() {
-    if (!slug) return
+  // Public URLs for the four shareables. Computed lazily inside handlers so
+  // window.location.origin is only read in the browser.
+  const sharePagePath = slug ? `/v/${slug}` : null
+  const videoAssetPath = slug ? `/v/${slug}/video.mp4` : null
+  const gifAssetPath = slug ? `/v/${slug}/review.gif` : null
+  const thumbnailAssetPath = slug ? `/v/${slug}/poster.jpg` : null
+
+  function flashCopy(id: CopyId) {
+    setCopiedId(id)
+    setTimeout(() => setCopiedId((c) => (c === id ? null : c)), 2000)
+  }
+
+  async function copyAbsolute(path: string | null, id: CopyId) {
+    if (!path) return
     try {
-      const url = `${window.location.origin}/v/${slug}`
-      await navigator.clipboard.writeText(url)
-      setLinkCopied(true)
-      setTimeout(() => setLinkCopied(false), 2000)
+      await navigator.clipboard.writeText(`${window.location.origin}${path}`)
+      flashCopy(id)
     } catch (err) {
-      console.error('Failed to copy share link:', err)
+      console.error('Failed to copy URL:', err)
     }
   }
 
-  // The Clipboard API doesn't accept image/gif (deliberate spec restriction
-  // in Chromium and Safari), so a true "copy GIF to clipboard" path is not
-  // available. Just download the file and let the user drag it into their
-  // email composer. No flash UI — the browser's own download chrome is the
-  // confirmation.
-  function downloadGif() {
-    if (!slug) return
+  function openSharePage() {
+    if (!sharePagePath) return
+    window.open(sharePagePath, '_blank', 'noopener,noreferrer')
+  }
+
+  // The Clipboard API doesn't accept image/gif or video/mp4 (deliberate
+  // spec restriction in Chromium and Safari), so we only ever offer
+  // downloads for binary assets. Same-origin <a download> hits our /v/
+  // route, which forces Content-Disposition: attachment via a presigned R2
+  // URL.
+  function triggerDownload(href: string) {
     const a = document.createElement('a')
-    a.href = `/v/${slug}/download-gif`
+    a.href = href
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
   }
 
   function downloadVideo() {
-    if (!downloadUrl) return
-    const a = document.createElement('a')
-    a.href = downloadUrl
-    if (downloadName) a.download = `${downloadName}.mp4`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
+    // Prefer the public /v/{slug}/download route (sets attachment headers)
+    // when a slug exists; otherwise fall back to the auth'd stream URL the
+    // modal already has.
+    if (slug) triggerDownload(`/v/${slug}/download`)
+    else if (downloadUrl) triggerDownload(downloadUrl)
+  }
+
+  function downloadGif() {
+    if (!slug) return
+    triggerDownload(`/v/${slug}/download-gif`)
+  }
+
+  function downloadThumbnail() {
+    if (!slug) return
+    triggerDownload(`/v/${slug}/download-poster`)
+  }
+
+  // Writes an HTML snippet — <a href="share-page"><img src="gif"></a> — to
+  // the clipboard. When pasted into Gmail / Outlook web / Apple Mail / Slack
+  // / Notion, the composer parses the HTML, fetches the GIF, and inlines it
+  // with the share link already wrapped — no manual right-click step.
+  // Composers that don't honor text/html clipboard items will fall back to
+  // pasting plain text (the empty alt), so we only fire this when the API
+  // is available.
+  async function copyGifEmbed() {
+    if (!slug || !sharePagePath || !gifAssetPath) return
+    try {
+      const origin = window.location.origin
+      const html = `<a href="${origin}${sharePagePath}"><img src="${origin}${gifAssetPath}" alt=""></a>`
+      const blob = new Blob([html], { type: 'text/html' })
+      await navigator.clipboard.write([new ClipboardItem({ 'text/html': blob })])
+      flashCopy('gif-embed')
+    } catch (err) {
+      console.error('Failed to copy GIF embed:', err)
+    }
   }
 
   const tabs = (
     <div className="inline-flex items-center gap-1 rounded-lg border border-border bg-background p-1">
-      {(['preview', 'share'] as const).map((t) => (
+      {(['review', 'share'] as const).map((t) => (
         <button
           key={t}
           onClick={() => setTab(t)}
@@ -165,7 +211,7 @@ export default function RenderPreviewModal({
               : 'text-muted hover:text-foreground'
           }`}
         >
-          {t === 'preview' ? 'Preview' : 'Share'}
+          {t === 'review' ? 'Review' : 'Share'}
         </button>
       ))}
     </div>
@@ -173,7 +219,7 @@ export default function RenderPreviewModal({
 
   return (
     <Modal onClose={onClose} size="lg" title={tabs}>
-      {tab === 'preview' ? (
+      {tab === 'review' ? (
         <div className="aspect-video w-full overflow-hidden rounded-lg bg-background">
           {streamUrl ? (
             hasTrim ? (
@@ -215,7 +261,7 @@ export default function RenderPreviewModal({
             )
           ) : (
             <div className="flex h-full w-full items-center justify-center">
-              <p className="text-sm text-muted">Media preview coming soon</p>
+              <p className="text-sm text-muted">Media review coming soon</p>
             </div>
           )}
         </div>
@@ -226,37 +272,51 @@ export default function RenderPreviewModal({
               Sharing isn&apos;t available for this render yet.
             </p>
           ) : (
-            <div className="flex h-full flex-col gap-2">
+            <div className="grid h-full grid-cols-2 grid-rows-2 gap-2">
               <ShareCard
                 icon={
-                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
                 }
-                name="Share link"
-                description="Copy a link with a rich preview — works great on WhatsApp, iMessage, LinkedIn, Telegram, Facebook, and any platform that reads OpenGraph."
-                actionLabel={linkCopied ? 'Copied ✓' : 'Copy link'}
-                actionActive={linkCopied}
-                onAction={copyShareLink}
+                name="Share page"
+                description="View video on the web with engagement statistics collected. OpenGraph metadata support rich review in WhatsApp, iMessage, LinkedIn, Slack and more"
+                actions={[
+                  { label: 'Open link', onAction: openSharePage },
+                  { label: copiedId === 'share' ? 'Copied ✓' : 'Copy URL', active: copiedId === 'share', onAction: () => copyAbsolute(sharePagePath, 'share') },
+                ]}
               />
               <ShareCard
                 icon={
-                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
                 }
-                name="Email GIF embed"
-                description="Download the GIF, drag it into your email, right-click to add a hyperlink, then paste in the share link — anyone who clicks the GIF goes straight to the video."
-                actionLabel="Download"
-                actionActive={false}
-                onAction={downloadGif}
+                name="Video"
+                description="MP4 for direct sharing or upload. No engagement tracking."
+                actions={[
+                  { label: 'Download', onAction: downloadVideo, disabled: !slug && !downloadUrl },
+                  { label: copiedId === 'video' ? 'Copied ✓' : 'Copy URL', active: copiedId === 'video', onAction: () => copyAbsolute(videoAssetPath, 'video') },
+                ]}
               />
               <ShareCard
                 icon={
-                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/></svg>
                 }
-                name="Download video"
-                description="Save the full MP4 to your computer — useful for re-uploading to platforms that need a native video file (Instagram, TikTok, YouTube)."
-                actionLabel="Download"
-                actionActive={false}
-                onAction={downloadVideo}
-                disabled={!downloadUrl}
+                name="GIF"
+                description="Animated Review - Best option for sharing in gmail. Copy embed pastes the GIF with the share link already attached."
+                actions={[
+                  { label: 'Download', onAction: downloadGif },
+                  { label: copiedId === 'gif' ? 'Copied ✓' : 'Copy URL', active: copiedId === 'gif', onAction: () => copyAbsolute(gifAssetPath, 'gif') },
+                  { label: copiedId === 'gif-embed' ? 'Copied ✓' : 'Copy embed', active: copiedId === 'gif-embed', onAction: copyGifEmbed },
+                ]}
+              />
+              <ShareCard
+                icon={
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                }
+                name="Thumbnail"
+                description="Static Cover Image - GIF alternative"
+                actions={[
+                  { label: 'Download', onAction: downloadThumbnail },
+                  { label: copiedId === 'thumb' ? 'Copied ✓' : 'Copy URL', active: copiedId === 'thumb', onAction: () => copyAbsolute(thumbnailAssetPath, 'thumb') },
+                ]}
               />
             </div>
           )}
@@ -267,7 +327,7 @@ export default function RenderPreviewModal({
         <p className="min-w-0 flex-1 truncate text-base font-normal text-foreground" title={title}>
           {title}
         </p>
-        {tab === 'preview' && onDelete && (
+        {tab === 'review' && onDelete && (
           <button
             onClick={onDelete}
             className="shrink-0 text-muted transition-colors hover:text-red-500"
@@ -281,41 +341,47 @@ export default function RenderPreviewModal({
   )
 }
 
+type CardAction = {
+  label: string
+  active?: boolean
+  disabled?: boolean
+  onAction: () => void
+}
+
 function ShareCard({
   icon,
   name,
   description,
-  actionLabel,
-  actionActive,
-  onAction,
-  disabled,
+  actions,
 }: {
   icon: React.ReactNode
   name: string
   description: string
-  actionLabel: string
-  actionActive: boolean
-  onAction: () => void
-  disabled?: boolean
+  actions: CardAction[]
 }) {
   return (
-    <div className="flex min-h-0 flex-1 items-center gap-4 rounded-lg border border-border bg-background px-4 py-3">
-      <div className="shrink-0 text-foreground">{icon}</div>
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold text-foreground">{name}</p>
-        <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted">{description}</p>
+    <div className="flex h-full min-h-0 min-w-0 flex-col items-center rounded-lg border border-border bg-background px-[10%] pb-[10%] pt-[5%] text-center">
+      <div className="flex flex-col items-center gap-1">
+        <div className="text-foreground">{icon}</div>
+        <p className="max-w-full truncate text-sm font-semibold text-foreground">{name}</p>
+        <p className="line-clamp-3 text-xs leading-relaxed text-muted">{description}</p>
       </div>
-      <button
-        onClick={onAction}
-        disabled={disabled}
-        className={`shrink-0 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-          actionActive
-            ? 'border-green-500/50 text-green-600 dark:text-green-400'
-            : 'border-border text-muted hover:border-muted hover:text-foreground'
-        }`}
-      >
-        {actionLabel}
-      </button>
+      <div className="mt-auto flex flex-wrap items-center justify-center gap-2 pt-3">
+        {actions.map((a) => (
+          <button
+            key={a.label}
+            onClick={a.onAction}
+            disabled={a.disabled}
+            className={`rounded-md border px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+              a.active
+                ? 'border-green-500/50 text-green-600 dark:text-green-400'
+                : 'border-border text-muted hover:border-muted hover:text-foreground'
+            }`}
+          >
+            {a.label}
+          </button>
+        ))}
+      </div>
     </div>
   )
 }

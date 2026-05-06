@@ -39,16 +39,62 @@ export type ProductSettings = {
 }
 
 export type AudioTransition = 'none' | 'crossfade'
-export type OverlayTransition = 'none' | 'animated'
+/**
+ * Overlay (webcam circle / audio icon) transition style at the merge boundary:
+ *   - none:      hard cut, no transition
+ *   - animated:  morph webcam ↔ audio icon. Only meaningful for a↔v
+ *                (mode-changing transitions). Silently a no-op for v→v / a→a.
+ *   - crossfade: simple opacity crossfade between intro and product webcams.
+ *                Only meaningful for v→v (matching video modes). Becomes
+ *                'none' at the worker for any other mode combination.
+ */
+export type OverlayTransition = 'none' | 'animated' | 'crossfade'
 export type VideoTransition = 'none' | 'crossfade'
+/**
+ * Mouse glide style during transitions:
+ *   - none:    cursor jumps at the boundary (no glide).
+ *   - linear:  straight A→B path with cubic ease-in-out velocity.
+ *   - arched:  quadratic Bezier arc bowing up, with cubic ease-in-out velocity.
+ *   - natural: arched path with sine-perturbed speed stutter (most human-feeling).
+ */
+export type MouseTransition = 'none' | 'linear' | 'arched' | 'natural'
 
 export type TransitionSettings = {
-  /** When false, the three sub-fields are forced to `'none'` and the dropdowns are hidden. */
+  /** Master gate. When false, the section collapses and ALL four transitions
+   *  submit as `'none'` regardless of the stored type values. The stored
+   *  type values are preserved across toggles so the user's selections
+   *  survive an off→on cycle. Mirror of the section toggles on Intro and
+   *  Product. */
   enabled: boolean
   audio: AudioTransition
-  overlay: OverlayTransition
   video: VideoTransition
+  overlay: OverlayTransition
+  mouse: MouseTransition
+  /** Per-transition durations (ms). Each transition is symmetric around the
+   *  merge boundary — D/2 contributed from each side. No `side` knob.
+   *  Each duration is independent of the others; the duration is ignored
+   *  when its corresponding type is `'none'`. */
+  audioDurationMs: number
+  videoDurationMs: number
+  overlayDurationMs: number
+  mouseDurationMs: number
 }
+
+/** Shared 100ms grid (used by overlay + mouse). [100, 1500ms]. */
+export const TRANSITION_DURATIONS_MS = [
+  100, 200, 300, 400, 500, 600, 700, 800, 900,
+  1000, 1100, 1200, 1300, 1400, 1500,
+] as const
+
+/** Audio crossfade range — 50ms grid, [50, 500ms]. */
+export const AUDIO_DURATIONS_MS = [
+  50, 100, 150, 200, 250, 300, 350, 400, 450, 500,
+] as const
+
+/** Video crossfade range — 50ms grid, [50, 500ms]. */
+export const VIDEO_DURATIONS_MS = [
+  50, 100, 150, 200, 250, 300, 350, 400, 450, 500,
+] as const
 
 export type PresetKey = 'p1' | 'p2' | 'custom'
 
@@ -83,8 +129,26 @@ const BLANK_PRODUCT: ProductSettings = {
 const BLANK_TRANSITION: TransitionSettings = {
   enabled: false,
   audio: 'none',
-  overlay: 'none',
   video: 'none',
+  overlay: 'none',
+  mouse: 'none',
+  audioDurationMs: 200,
+  videoDurationMs: 400,
+  overlayDurationMs: 400,
+  mouseDurationMs: 400,
+}
+
+/** p1 default — short audio, longer visuals for cinematic feel. */
+const P1_TRANSITION: TransitionSettings = {
+  enabled: true,
+  audio: 'crossfade',
+  video: 'crossfade',
+  overlay: 'animated',
+  mouse: 'natural',
+  audioDurationMs: 300,
+  videoDurationMs: 200,
+  overlayDurationMs: 400,
+  mouseDurationMs: 500,
 }
 
 function applyPreset(key: 'p1' | 'p2', prev: MergeFormState): MergeFormState {
@@ -99,7 +163,7 @@ function applyPreset(key: 'p1' | 'p2', prev: MergeFormState): MergeFormState {
           customMode: 'video',
           positionSource: 'other',
         },
-        transition: prev.transition,
+        transition: { ...P1_TRANSITION },
         product: {
           ...prev.product,
           enabled: true,
@@ -112,7 +176,7 @@ function applyPreset(key: 'p1' | 'p2', prev: MergeFormState): MergeFormState {
       return {
         preset: 'p2',
         intro: { ...prev.intro, enabled: false },
-        transition: prev.transition,
+        transition: { ...BLANK_TRANSITION },
         product: { ...prev.product, enabled: true, modeSource: 'self', positionSource: 'self' },
       }
   }
@@ -143,7 +207,8 @@ function p1Snapshot(): CustomSnapshot {
       positionSource: 'other',
       customPosition: DEFAULT_POSITION,
     },
-    transition: BLANK_TRANSITION,
+    // Custom default mirrors p1 — the user can dial back from there.
+    transition: { ...P1_TRANSITION },
     product: {
       enabled: true,
       modeSource: 'custom',
@@ -161,10 +226,23 @@ function loadCustomSnapshot(): CustomSnapshot {
     if (!raw) return p1Snapshot()
     const parsed = JSON.parse(raw) as Partial<CustomSnapshot>
     if (!parsed.intro || !parsed.transition || !parsed.product) return p1Snapshot()
-    // Migrate older snapshots that pre-date `transition.enabled`.
+    // Forward-compat: older snapshots had a single `durationMs` instead of
+    // the four per-transition fields. Splat the legacy value into each
+    // direction; layer over BLANK_TRANSITION so any other missing fields
+    // (notably `enabled` for snapshots saved during the brief no-toggle
+    // window) still get sensible defaults.
+    const legacy = parsed.transition as Partial<TransitionSettings> & { durationMs?: number }
+    const migrated: TransitionSettings = { ...BLANK_TRANSITION, ...legacy }
+    if (typeof legacy.durationMs === 'number') {
+      const d = legacy.durationMs
+      migrated.audioDurationMs = legacy.audioDurationMs ?? Math.min(d, 200)
+      migrated.videoDurationMs = legacy.videoDurationMs ?? d
+      migrated.overlayDurationMs = legacy.overlayDurationMs ?? d
+      migrated.mouseDurationMs = legacy.mouseDurationMs ?? d
+    }
     return {
       ...parsed,
-      transition: { ...BLANK_TRANSITION, ...parsed.transition },
+      transition: migrated,
     } as CustomSnapshot
   } catch {
     return p1Snapshot()
@@ -247,7 +325,7 @@ function positionFromOption(opt: PositionOption, prevPos: WebcamPosition): { pos
 }
 
 const MODE_LABELS: Record<ModeOption, string> = {
-  self: 'Match recording',
+  self: 'As Recorded',
   other: '',  // overridden by caller
   video: 'Video',
   audio: 'Audio only',
@@ -255,7 +333,7 @@ const MODE_LABELS: Record<ModeOption, string> = {
 }
 
 const POSITION_LABELS: Record<PositionOption, string> = {
-  self: 'Match recording',
+  self: 'As Recorded',
   other: '',  // overridden by caller
   tl: 'Top-left',
   tr: 'Top-right',
@@ -300,7 +378,7 @@ export default function GenerateMergeModal({ merchants, products, onClose, onSub
   const [state, setState] = useState<MergeFormState>({
     preset: 'p1',
     intro: { ...BLANK_INTRO, modeSource: 'custom', customMode: 'video', positionSource: 'other' },
-    transition: BLANK_TRANSITION,
+    transition: { ...P1_TRANSITION },
     product: { ...BLANK_PRODUCT, modeSource: 'custom', customMode: 'audio', positionSource: 'self' },
   })
   const [customSnapshot, setCustomSnapshot] = useState<CustomSnapshot>(loadCustomSnapshot)
@@ -393,28 +471,20 @@ export default function GenerateMergeModal({ merchants, products, onClose, onSub
     staleMessage = 'Product webcam mode is set to match intro, but intro is disabled.'
   else if (productStalePosition)
     staleMessage = 'Product webcam position is set to match intro, but intro is disabled.'
-  // Custom rendering pipeline lands later — block submit and show a banner.
-  const customNotSupported = state.preset === 'custom'
-  // The product-only pipeline (p2 OR custom-with-intro-off-product-on) is
-  // supported. Intro-only is still unimplemented.
-  const introOnlyUnsupported = state.intro.enabled && !state.product.enabled
-  const blockingMessage = customNotSupported
-    ? 'Custom rendering is coming soon — use Intro + Product or Product Only for now.'
-    : !sectionsValid
-      ? 'Enable at least one section.'
-      : !introValid
-        ? 'Pick at least one merchant intro.'
-        : !productValid
-          ? 'Pick a product recording.'
-          : productOnlyNeedsMerchants
-            ? 'Pick at least one merchant with a completed scrape.'
-            : circularMessage
-              ? circularMessage
-              : staleMessage
-                ? staleMessage
-                : introOnlyUnsupported
-                  ? 'Intro-only rendering is not yet supported by the pipeline.'
-                  : null
+  const blockingMessage = !sectionsValid
+    ? 'Enable at least one section.'
+    : !introValid
+      ? 'Pick at least one merchant intro.'
+      : !productValid
+        ? 'Pick a product recording.'
+        : productOnlyNeedsMerchants
+          ? 'Pick at least one merchant with a completed scrape.'
+          : circularMessage
+            ? circularMessage
+            : staleMessage
+              ? staleMessage
+              : null
+
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -423,6 +493,7 @@ export default function GenerateMergeModal({ merchants, products, onClose, onSub
     if (state.preset === 'custom') {
       saveCustomSnapshot(extractSnapshot(state))
     }
+    console.log('[merge-modal] submit transition:', JSON.stringify(state.transition))
     onSubmit(state)
   }
 
@@ -516,9 +587,6 @@ export default function GenerateMergeModal({ merchants, products, onClose, onSub
 
         {isCustom && (
           <>
-            <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-              Custom rendering is coming soon. Use <span className="font-medium">Intro + Product</span> or <span className="font-medium">Product Only</span> to render now.
-            </div>
             <Section
               title="Intro"
               enabled={state.intro.enabled}
@@ -570,42 +638,62 @@ export default function GenerateMergeModal({ merchants, products, onClose, onSub
 
             {state.intro.enabled && state.product.enabled && (
               <Section
-                title="Transition"
+                title="Transitions"
                 enabled={state.transition.enabled}
-                onEnabledChange={(enabled) => {
-                  if (enabled) updateTransition({ enabled: true })
-                  else updateTransition({ enabled: false, audio: 'none', video: 'none', overlay: 'none' })
-                }}
-                hint="Stubbed — wiring lands later"
+                onEnabledChange={(enabled) => updateTransition({ enabled })}
               >
                 {state.transition.enabled && (
-                  <div className="grid grid-cols-3 gap-3 pl-1">
-                    <SelectField
+                  <div className="space-y-2 pl-1">
+                    <TransitionRow
                       label="Audio"
-                      value={state.transition.audio}
-                      onChange={(audio) => updateTransition({ audio: audio as AudioTransition })}
-                      options={[
+                      type={state.transition.audio}
+                      typeOptions={[
                         { value: 'none', label: 'None' },
-                        { value: 'crossfade', label: 'Crossfade (soon)', disabled: true },
+                        { value: 'crossfade', label: 'Crossfade' },
                       ]}
+                      onTypeChange={(audio) => updateTransition({ audio: audio as AudioTransition })}
+                      durationMs={state.transition.audioDurationMs}
+                      durationOptions={AUDIO_DURATIONS_MS}
+                      onDurationChange={(ms) => updateTransition({ audioDurationMs: ms })}
                     />
-                    <SelectField
+                    <TransitionRow
                       label="Video"
-                      value={state.transition.video}
-                      onChange={(video) => updateTransition({ video: video as VideoTransition })}
-                      options={[
+                      type={state.transition.video}
+                      typeOptions={[
                         { value: 'none', label: 'None' },
-                        { value: 'crossfade', label: 'Crossfade (soon)', disabled: true },
+                        { value: 'crossfade', label: 'Crossfade' },
                       ]}
+                      onTypeChange={(video) => updateTransition({ video: video as VideoTransition })}
+                      durationMs={state.transition.videoDurationMs}
+                      durationOptions={VIDEO_DURATIONS_MS}
+                      onDurationChange={(ms) => updateTransition({ videoDurationMs: ms })}
                     />
-                    <SelectField
+                    <TransitionRow
                       label="Overlay"
-                      value={state.transition.overlay}
-                      onChange={(overlay) => updateTransition({ overlay: overlay as OverlayTransition })}
-                      options={[
+                      type={state.transition.overlay}
+                      typeOptions={[
                         { value: 'none', label: 'None' },
-                        { value: 'animated', label: 'Animated (soon)', disabled: true },
+                        { value: 'animated', label: 'Animated' },
+                        { value: 'crossfade', label: 'Crossfade' },
                       ]}
+                      onTypeChange={(overlay) => updateTransition({ overlay: overlay as OverlayTransition })}
+                      durationMs={state.transition.overlayDurationMs}
+                      durationOptions={TRANSITION_DURATIONS_MS}
+                      onDurationChange={(ms) => updateTransition({ overlayDurationMs: ms })}
+                    />
+                    <TransitionRow
+                      label="Mouse"
+                      type={state.transition.mouse}
+                      typeOptions={[
+                        { value: 'none', label: 'None' },
+                        { value: 'linear', label: 'Linear' },
+                        { value: 'arched', label: 'Arched' },
+                        { value: 'natural', label: 'Natural' },
+                      ]}
+                      onTypeChange={(mouse) => updateTransition({ mouse: mouse as MouseTransition })}
+                      durationMs={state.transition.mouseDurationMs}
+                      durationOptions={TRANSITION_DURATIONS_MS}
+                      onDurationChange={(ms) => updateTransition({ mouseDurationMs: ms })}
                     />
                   </div>
                 )}
@@ -724,21 +812,39 @@ function Section({
   )
 }
 
-function SelectField({
+/**
+ * One row per transition kind: [label][type dropdown][duration dropdown].
+ * The duration dropdown disables when type is 'none' so the visual link
+ * between "this transition is off" and "duration is irrelevant" is clear.
+ */
+function TransitionRow({
   label,
-  value,
-  onChange,
-  options,
+  type,
+  typeOptions,
+  onTypeChange,
+  durationMs,
+  durationOptions,
+  onDurationChange,
 }: {
   label: string
-  value: string
-  onChange: (v: string) => void
-  options: { value: string; label: string; disabled?: boolean }[]
+  type: string
+  typeOptions: { value: string; label: string }[]
+  onTypeChange: (v: string) => void
+  durationMs: number
+  durationOptions: ReadonlyArray<number>
+  onDurationChange: (ms: number) => void
 }) {
+  const disabled = type === 'none'
   return (
-    <div>
-      <label className={FIELD_LABEL}>{label}</label>
-      <Select options={options} value={value} onChange={onChange} />
+    <div className="grid grid-cols-[80px_1fr_1fr] items-center gap-3">
+      <span className="text-xs font-medium text-muted">{label}</span>
+      <Select options={typeOptions} value={type} onChange={onTypeChange} />
+      <Select
+        disabled={disabled}
+        options={durationOptions.map((ms) => ({ value: String(ms), label: `${ms} ms` }))}
+        value={String(durationMs)}
+        onChange={(v) => onDurationChange(parseInt(v, 10) || durationMs)}
+      />
     </div>
   )
 }

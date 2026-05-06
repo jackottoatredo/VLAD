@@ -1,5 +1,5 @@
 // Shared types + helpers for the admin Include/Exclude chip filters used
-// on /admin/usage and /admin/engagement.
+// on /tools/usage and /tools/engagement.
 
 import { PALETTE } from './chartTheme'
 

@@ -2,9 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import PreviewModal from '@/app/components/PreviewModal'
+import RecordingPreviewModal from '@/app/components/RecordingPreviewModal'
+import RenderPreviewModal from '@/app/components/RenderPreviewModal'
 import DeleteModal from '@/app/components/DeleteModal'
-import type { AdminRecordingRow } from '@/app/api/admin/recordings/route'
+import type { AdminRecordingRow } from '@/app/api/tools/recordings/route'
 
 const KIND_PILL_CLASS: Record<AdminRecordingRow['kind'], string> = {
   intro: 'border-blue-500/50 text-blue-600 dark:text-blue-400',
@@ -49,8 +50,8 @@ export default function AdminRecordingsClient() {
       setError(null)
       try {
         const url = query.trim()
-          ? `/api/admin/recordings?q=${encodeURIComponent(query.trim())}`
-          : '/api/admin/recordings'
+          ? `/api/tools/recordings?q=${encodeURIComponent(query.trim())}`
+          : '/api/tools/recordings'
         const res = await fetch(url)
         const data = (await res.json()) as { rows?: AdminRecordingRow[]; error?: string }
         if (id !== reqIdRef.current) return
@@ -95,8 +96,8 @@ export default function AdminRecordingsClient() {
               Browse every user&apos;s intros, product recordings, and renders.
             </h3>
           </div>
-          <Link href="/admin" className="text-sm text-muted hover:text-foreground">
-            ← Admin tools
+          <Link href="/tools" className="text-sm text-muted hover:text-foreground">
+            ← Tools
           </Link>
         </div>
 
@@ -176,14 +177,29 @@ export default function AdminRecordingsClient() {
         </div>
       </main>
 
-      {previewTarget && (
-        <PreviewModal
+      {previewTarget && previewTarget.kind === 'render' && (
+        <RenderPreviewModal
           title={`${previewTarget.kind}: ${previewTarget.label} — ${presenterLabel(previewTarget.presenter)}`}
           videoUrl={previewTarget.videoUrl}
           downloadName={previewTarget.label}
           trimStartSec={previewTarget.trimStartSec ?? undefined}
           trimEndSec={previewTarget.trimEndSec ?? undefined}
           slug={previewTarget.slug}
+          onClose={() => setPreviewTarget(null)}
+          onDelete={() => {
+            setDeleteTarget(previewTarget)
+            setPreviewTarget(null)
+          }}
+        />
+      )}
+
+      {previewTarget && previewTarget.kind !== 'render' && (
+        <RecordingPreviewModal
+          title={`${previewTarget.kind}: ${previewTarget.label} — ${presenterLabel(previewTarget.presenter)}`}
+          videoUrl={previewTarget.videoUrl}
+          downloadName={previewTarget.label}
+          trimStartSec={previewTarget.trimStartSec ?? undefined}
+          trimEndSec={previewTarget.trimEndSec ?? undefined}
           onClose={() => setPreviewTarget(null)}
           onDelete={() => {
             setDeleteTarget(previewTarget)

@@ -3,15 +3,15 @@
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import Modal from '@/app/components/Modal'
-import type { AdminUser } from '@/app/api/admin/users/route'
-import { AdminFiltersModal } from '@/app/admin/_components/AdminFiltersModal'
-import { AdminSettingsButton } from '@/app/admin/_components/AdminSettingsButton'
+import type { AdminUser } from '@/app/api/tools/users/route'
+import { AdminFiltersModal } from '@/app/tools/_components/AdminFiltersModal'
+import { AdminSettingsButton } from '@/app/tools/_components/AdminSettingsButton'
 import {
   EMPTY_FILTER_OPTIONS,
   encodeFiltersForApi,
   type FilterChipKind,
-} from '@/app/admin/_components/filters'
-import { useAdminFilters } from '@/app/admin/_components/useAdminFilters'
+} from '@/app/tools/_components/filters'
+import { useAdminFilters } from '@/app/tools/_components/useAdminFilters'
 
 const USAGE_FILTER_KINDS: FilterChipKind[] = ['presenter', 'product', 'merchant']
 import {
@@ -27,11 +27,11 @@ import {
   Pie,
   Cell,
 } from 'recharts'
-import type { UsageResponse } from '@/app/api/admin/usage/route'
-import { Card, CardHeader, StatBox } from '@/app/admin/_components/Card'
-import { SegmentedControl } from '@/app/admin/_components/SegmentedControl'
-import { TOOLTIP_STYLE, PALETTE, pickStableColor } from '@/app/admin/_components/chartTheme'
-import { sliceLast } from '@/app/admin/_components/series'
+import type { UsageResponse } from '@/app/api/tools/usage/route'
+import { Card, CardHeader, StatBox } from '@/app/tools/_components/Card'
+import { SegmentedControl } from '@/app/tools/_components/SegmentedControl'
+import { TOOLTIP_STYLE, PALETTE, pickStableColor } from '@/app/tools/_components/chartTheme'
+import { sliceLast } from '@/app/tools/_components/series'
 
 type WindowDays = 7 | 30 | 90
 type PieWindow = WindowDays | 'all'
@@ -158,8 +158,8 @@ export default function AdminUsageClient() {
     // data stays visible during refetch (better UX than blanking).
     let cancelled = false
     const url = filtersParam
-      ? `/api/admin/usage?filters=${encodeURIComponent(filtersParam)}`
-      : '/api/admin/usage'
+      ? `/api/tools/usage?filters=${encodeURIComponent(filtersParam)}`
+      : '/api/tools/usage'
     fetch(url, { cache: 'no-store' })
       .then((r) => r.json())
       .then((d: UsageResponse | { error: string }) => {
@@ -389,10 +389,10 @@ export default function AdminUsageClient() {
             <h3 className="mt-1 text-muted">How VLAD is being used internally.</h3>
           </div>
           <Link
-            href="/admin"
+            href="/tools"
             className="col-start-3 mt-1 justify-self-end text-sm text-muted hover:text-foreground"
           >
-            ← Admin tools
+            ← Tools
           </Link>
         </div>
 

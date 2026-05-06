@@ -111,16 +111,17 @@ export function pollJob(
  * POST /api/merge-export to stub a vlad_renders row and enqueue the merge job.
  * The DB row exists with status='rendering' before this returns, so a refresh
  * mid-render reveals the in-progress task on next mount.
+ *
+ * Body is forwarded as-is so the retry path can replay the exact request that
+ * created the original render.
  */
 export async function startMergeJob(
-  merchantRecordingId: string,
-  productRecordingId: string,
-  brand: string,
+  body: Record<string, unknown>,
 ): Promise<{ jobId: string; renderId: string }> {
   const res = await fetch('/api/merge-export', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ merchantRecordingId, productRecordingId, brand }),
+    body: JSON.stringify(body),
   })
   if (!res.ok) {
     const data = await res.json().catch(() => ({})) as { error?: string }
@@ -135,8 +136,7 @@ export async function startMergeJob(
  * renderId, videoR2Key } and skips the job entirely.
  */
 export async function startProductOnlyJob(
-  productRecordingId: string,
-  merchantBrand: { websiteUrl: string; brandName: string },
+  body: Record<string, unknown>,
 ): Promise<
   | { cached: true; renderId: string; videoR2Key: string }
   | { cached?: false; jobId: string; renderId: string }
@@ -144,7 +144,7 @@ export async function startProductOnlyJob(
   const res = await fetch('/api/product-only-export', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ productRecordingId, merchantBrand }),
+    body: JSON.stringify(body),
   })
   if (!res.ok) {
     const data = await res.json().catch(() => ({})) as { error?: string }

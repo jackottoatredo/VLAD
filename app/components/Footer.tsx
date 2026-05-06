@@ -16,7 +16,7 @@ export default function Footer() {
 
   // Scrollable pages render the footer in-flow below the content instead of
   // fixed so it doesn't overlay long content.
-  const inFlowPaths = ['/docs', '/admin/engagement', '/admin/usage']
+  const inFlowPaths = ['/docs', '/tools/engagement', '/tools/usage']
   const isInFlow = inFlowPaths.some((p) => pathname === p || pathname?.startsWith(`${p}/`))
 
   const linkClass = 'text-muted hover:text-foreground transition-colors'

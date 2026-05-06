@@ -30,6 +30,7 @@ type PendingRecording = {
   flowId: string;
   presenter: string;
   recordedAt: string;
+  durationMs: number;
   events: RelayEvent[];
   webcamBlob: Blob | null;
 };
@@ -204,6 +205,12 @@ export function useRecording({ webcamMode, onCommitted }: UseRecordingOpts) {
     setIsRecording(false);
     const flowId = flowIdRef.current;
     const presenter = presenterRef.current;
+    // Anchor durationMs to the recording-start event's perf timestamp so it aligns
+    // with keyframe `t` values. Captured at stop-click time — not after awaiting
+    // MediaRecorder — so it reflects the user-perceived stop moment, including any
+    // tail past the last in-iframe mouse event.
+    const startPerf = eventsRef.current[0]?.timestamp ?? performance.now();
+    const durationMs = Math.max(0, performance.now() - startPerf);
 
     // Finalize the webcam blob from whatever MediaRecorder buffered, but don't upload.
     const webcamBlob = await new Promise<Blob | null>((resolve) => {
@@ -219,6 +226,7 @@ export function useRecording({ webcamMode, onCommitted }: UseRecordingOpts) {
       flowId,
       presenter,
       recordedAt: recordingStartedAt.current,
+      durationMs,
       events: eventsRef.current,
       webcamBlob,
     };
@@ -240,6 +248,7 @@ export function useRecording({ webcamMode, onCommitted }: UseRecordingOpts) {
           flowId: pending.flowId,
           presenter: pending.presenter,
           recordedAt: pending.recordedAt,
+          durationMs: pending.durationMs,
           virtualWidth: IFRAME_WIDTH,
           virtualHeight: IFRAME_HEIGHT,
           events: pending.events,

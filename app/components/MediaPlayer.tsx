@@ -1,6 +1,13 @@
 'use client'
 
-type LoadingStage = { label: string; progress: number }
+type LoadingStage = {
+  label: string
+  progress: number
+  /** Optional parallel sub-tasks rendered as nested mini-bars below the
+   *  parent. Used by the v4 layered render step (Background / Overlay
+   *  lanes) so the user can see what's happening in parallel. */
+  subTasks?: { label: string; progress: number }[]
+}
 
 type MediaPlayerProps = {
   videoUrl?: string | null
@@ -50,6 +57,24 @@ export default function MediaPlayer({
                   style={{ width: `${Math.round(stage.progress)}%` }}
                 />
               </div>
+              {stage.subTasks && stage.subTasks.length > 0 && (
+                <div className="ml-3 mt-1 space-y-1">
+                  {stage.subTasks.map((sub) => (
+                    <div key={sub.label} className="space-y-0.5">
+                      <div className="flex justify-between text-[10px] text-muted opacity-80">
+                        <span>{sub.label}</span>
+                        <span>{Math.round(sub.progress)}%</span>
+                      </div>
+                      <div className="h-0.5 w-full overflow-hidden rounded-full bg-border">
+                        <div
+                          className="h-full rounded-full bg-foreground/70 transition-all duration-500"
+                          style={{ width: `${Math.round(sub.progress)}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
         </div>

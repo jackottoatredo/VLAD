@@ -10,14 +10,10 @@ type Props = {
   /** Clip playback to this range (seconds). When end is 0 or undefined, no upper bound. */
   trimStartSec?: number
   trimEndSec?: number
-  /** When present, enables the share-link / email-snippet / gif copy actions. */
-  slug?: string | null
   onClose: () => void
   onDelete?: () => void
   onEdit?: () => void
 }
-
-type CopyAction = 'link' | 'gif'
 
 function formatTime(sec: number) {
   if (!Number.isFinite(sec) || sec < 0) return '0:00'
@@ -26,24 +22,21 @@ function formatTime(sec: number) {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
-export default function PreviewModal({
+export default function RecordingPreviewModal({
   title,
   videoUrl,
   downloadName,
   trimStartSec,
   trimEndSec,
-  slug,
   onClose,
   onDelete,
   onEdit,
 }: Props) {
-  const [copied, setCopied] = useState<CopyAction | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
 
-  // Stream from our API for playback (authed, no presign needed)
   const streamUrl = videoUrl ? `/api/stream?key=${encodeURIComponent(videoUrl)}` : null
   const downloadUrl = videoUrl
     ? `/api/stream?key=${encodeURIComponent(videoUrl)}${downloadName ? `&filename=${encodeURIComponent(downloadName)}` : ''}`
@@ -57,7 +50,6 @@ export default function PreviewModal({
   const relativeTime = Math.max(0, Math.min(clipDuration, currentTime - clipStart))
   const progress = clipDuration > 0 ? relativeTime / clipDuration : 0
 
-  // Sync video element state + enforce the clipping window.
   useEffect(() => {
     const v = videoRef.current
     if (!v || !streamUrl) return
@@ -98,7 +90,6 @@ export default function PreviewModal({
     const v = videoRef.current
     if (!v) return
     if (v.paused) {
-      // If at/past the clip end, rewind to the clip start for replay.
       const atEnd = effectiveEnd > 0 && v.currentTime >= effectiveEnd - 0.05
       if (atEnd) v.currentTime = clipStart
       else if (clipStart > 0 && v.currentTime < clipStart) v.currentTime = clipStart
@@ -116,38 +107,6 @@ export default function PreviewModal({
     const target = clipStart + ratio * clipDuration
     v.currentTime = Math.max(clipStart, Math.min(effectiveEnd > 0 ? effectiveEnd : v.duration, target))
     setCurrentTime(v.currentTime)
-  }
-
-  function flashCopied(action: CopyAction) {
-    setCopied(action)
-    setTimeout(() => setCopied((c) => (c === action ? null : c)), 2000)
-  }
-
-  async function copyShareLink() {
-    if (!slug) {
-      console.warn('[PreviewModal] copyShareLink: no slug yet (worker wiring pending)')
-      return
-    }
-    try {
-      const url = `${window.location.origin}/v/${slug}`
-      await navigator.clipboard.writeText(url)
-      flashCopied('link')
-    } catch (err) {
-      console.error('Failed to copy share link:', err)
-    }
-  }
-
-  function downloadGif() {
-    if (!slug) {
-      console.warn('[PreviewModal] downloadGif: no slug yet (worker wiring pending)')
-      return
-    }
-    const a = document.createElement('a')
-    a.href = `/v/${slug}/download-gif`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    flashCopied('gif')
   }
 
   return (
@@ -207,33 +166,12 @@ export default function PreviewModal({
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
           </button>
         )}
-        <button
-          onClick={copyShareLink}
-          title="Copy share link"
-          className={`transition-colors ${copied === 'link' ? 'text-green-500' : 'text-muted hover:text-foreground'}`}
-        >
-          {copied === 'link' ? (
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-          ) : (
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-          )}
-        </button>
-        <button
-          onClick={downloadGif}
-          title="Download GIF preview"
-          className={`transition-colors ${copied === 'gif' ? 'text-green-500' : 'text-muted hover:text-foreground'}`}
-        >
-          {copied === 'gif' ? (
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-          ) : (
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
-          )}
-        </button>
         {downloadUrl && (
           <a
             href={downloadUrl}
             download={downloadName ? `${downloadName}.mp4` : true}
             className="text-muted transition-colors hover:text-foreground"
+            title="Download video"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           </a>
@@ -242,6 +180,7 @@ export default function PreviewModal({
           <button
             onClick={onDelete}
             className="text-muted transition-colors hover:text-red-500"
+            title="Delete"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
           </button>

@@ -8,7 +8,7 @@ import {
   type FilterOptions,
   type SlugMeta,
   type VisitorMeta,
-} from "@/app/admin/_components/filters";
+} from "@/app/tools/_components/filters";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -952,9 +952,12 @@ async function fetchAllTimeFunnelAndBins(
 }
 
 export async function GET(request: Request) {
+  // Engagement is exposed to all authed users via /tools/engagement.
+  // Regular users see the same data as admins; the only difference is
+  // the default include-presenter filter the /tools landing page sets
+  // on the link. Filtering is UX, not a security boundary.
   const session = await requireSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (session.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   // Filters from the shared modal. Decoded once and threaded through
   // every aggregation so the dashboard reflects the active filters end

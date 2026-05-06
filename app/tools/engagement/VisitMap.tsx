@@ -7,8 +7,8 @@ import type { FeatureCollection } from 'geojson'
 import type { Topology, GeometryCollection } from 'topojson-specification'
 import worldTopology from 'world-atlas/countries-110m.json'
 import usaTopology from 'us-atlas/states-10m.json'
-import type { CityVisitsEntry } from '@/app/api/admin/engagement/route'
-import { PALETTE } from '@/app/admin/_components/chartTheme'
+import type { CityVisitsEntry } from '@/app/api/tools/engagement/route'
+import { PALETTE } from '@/app/tools/_components/chartTheme'
 
 // Pre-compute the GeoJSON FeatureCollections once at module load.
 // world-atlas / us-atlas data is ~100-150KB each and never changes;

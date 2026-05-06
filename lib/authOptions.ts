@@ -2,6 +2,7 @@ import type { NextAuthOptions } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
 import { supabase } from "@/lib/db/supabase";
 import { emailToName } from "@/lib/nameUtils";
+import { inviteUserToVladChannel } from "@/lib/slack/inviteToChannel";
 import { logEvent } from "@/lib/stats/events";
 import type { UserRole } from "@/types/next-auth";
 
@@ -19,7 +20,10 @@ export const authOptions: NextAuthOptions = {
   },
   events: {
     async signIn({ user }) {
-      if (user.email) void logEvent({ type: "login", userId: user.email });
+      if (user.email) {
+        void logEvent({ type: "login", userId: user.email });
+        void inviteUserToVladChannel(user.email);
+      }
     },
   },
   callbacks: {

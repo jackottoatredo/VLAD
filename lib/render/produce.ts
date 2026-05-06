@@ -105,7 +105,7 @@ async function trimVideoFile(
 
   // Frame-accurate trim via re-encode (see prior commit history for why
   // -c copy with fast-seek desyncs the webcam audio).
-  const args: string[] = [];
+  const args: string[] = ["-threads", "1"];
   if (startSec > 0) args.push("-ss", String(startSec));
   args.push("-i", composedPath);
   if (hasEnd) args.push("-t", String(trimEndSec! - startSec));
@@ -118,6 +118,7 @@ async function trimVideoFile(
     "-ar", "48000",
     "-ac", "2",
     "-movflags", "+faststart",
+    "-threads", "1",
     "-y",
     trimmedPath,
   );

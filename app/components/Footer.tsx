@@ -12,7 +12,7 @@ export default function Footer() {
   const pathname = usePathname()
 
   // Public share pages are for external recipients; suppress internal links.
-  if (pathname?.startsWith('/v/')) return null
+  if (pathname?.startsWith('/video-demos/')) return null
 
   // Scrollable pages render the footer in-flow below the content instead of
   // fixed so it doesn't overlay long content.

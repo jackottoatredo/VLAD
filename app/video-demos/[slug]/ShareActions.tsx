@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { SHARE_BASE_URL } from '@/app/config'
 import { useVisitorId } from './useVisitorId'
 
 type Props = {
@@ -41,7 +42,7 @@ export default function ShareActions({ slug, downloadHref, interactiveDemoUrl }:
 
   async function copyLink() {
     try {
-      const url = `${window.location.origin}/v/${slug}`
+      const url = `${SHARE_BASE_URL ?? window.location.origin}/video-demos/${slug}`
       await navigator.clipboard.writeText(url)
       setCopied(true)
       beaconClick('click_copy_link', slug, visitorId)
@@ -57,16 +58,16 @@ export default function ShareActions({ slug, downloadHref, interactiveDemoUrl }:
   // `group` lets the trailing arrow translate on hover of the link itself.
   const primary = `${baseBtn} group bg-accent text-white hover:opacity-90`
 
-  // Both outbound CTAs route through /v/[slug]/go so clicks log
+  // Both outbound CTAs route through /video-demos/[slug]/go so clicks log
   // server-side regardless of client JS. interactiveDemoUrl is null
   // when the share row has no brand_url; in that case we fall back to
   // a placeholder href so the button still renders. Append visitor_id
   // when localStorage has resolved so the redirect endpoint can attach
   // it to the click event.
   const visitorParam = visitorId ? `&v=${encodeURIComponent(visitorId)}` : ''
-  const bookDemoHref = `/v/${slug}/go?to=book-demo${visitorParam}`
+  const bookDemoHref = `/video-demos/${slug}/go?to=book-demo${visitorParam}`
   const interactiveDemoHref = interactiveDemoUrl
-    ? `/v/${slug}/go?to=interactive-demo${visitorParam}`
+    ? `/video-demos/${slug}/go?to=interactive-demo${visitorParam}`
     : '#'
   const interactiveEnabled = !!interactiveDemoUrl
 

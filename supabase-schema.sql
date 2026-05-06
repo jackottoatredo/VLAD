@@ -83,7 +83,7 @@ create index vlad_event_log_user_idx
 create index vlad_event_log_target_idx
   on vlad_event_log (target_id) where target_id is not null;
 
--- Append-only public-traffic engagement on /v/[slug] share pages. Separate
+-- Append-only public-traffic engagement on /video-demos/[slug] share pages. Separate
 -- from vlad_event_log because the audience (anonymous, public) and schema
 -- (network/UA fields, no user_id) differ. No FK on slug — events outlive
 -- their source render.

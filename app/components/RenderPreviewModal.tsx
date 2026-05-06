@@ -137,8 +137,10 @@ export default function RenderPreviewModal({
   async function copyAbsolute(path: string | null, id: CopyId) {
     if (!path) return
     try {
-      const base = SHARE_BASE_URL ?? window.location.origin
-      await navigator.clipboard.writeText(`${base}${path}`)
+      // Temporarily bypassing SHARE_BASE_URL while the redo.com path-forward
+      // is being debugged — copy the regular app origin so admins get a URL
+      // that resolves directly.
+      await navigator.clipboard.writeText(`${window.location.origin}${path}`)
       flashCopy(id)
     } catch (err) {
       console.error('Failed to copy URL:', err)

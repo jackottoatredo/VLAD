@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Audio icon morph — svg test</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #1a1a1a;
+      --fg: #e8e8e8;
+      --muted: #888;
+      --accent: #FF4405;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+    main {
+      width: min(640px, 100%);
+      display: grid;
+      gap: 24px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .stage {
+      display: grid;
+      place-items: center;
+      padding: 32px;
+      background: #222;
+      border: 1px solid #333;
+      border-radius: 12px;
+      min-height: 480px;
+    }
+    .stage svg {
+      width: 400px;
+      height: 400px;
+      display: block;
+    }
+    .controls {
+      display: grid;
+      gap: 16px;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 60px 1fr 80px;
+      gap: 12px;
+      align-items: center;
+    }
+    .row label {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .row input[type="range"] {
+      accent-color: var(--accent);
+      width: 100%;
+    }
+    .row .value {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 13px;
+      color: var(--fg);
+      text-align: right;
+    }
+    .actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    button {
+      padding: 8px 12px;
+      border: 1px solid #333;
+      background: #2a2a2a;
+      color: var(--fg);
+      font-size: 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    button:hover { border-color: var(--accent); }
+    button.active { border-color: var(--accent); color: var(--accent); }
+    .legend {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Audio icon morph — t / v test</h1>
+
+    <div class="stage">
+      <!-- Inlined copy of public/audio-icon.svg so CSS variables set by JS
+           on the <svg> element actually drive the rendering. (External
+           <img src> SVGs run in their own sandboxed style scope and don't
+           inherit parent CSS vars.) -->
+      <svg id="icon" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" style="--t: 0; --v: 0;">
+        <g style="
+          --collapse:  clamp(0, calc(var(--t) * 2), 1);
+          --expand:    clamp(0, calc(var(--t) * 2 - 1), 1);
+          --r:         calc(200px - 193px * var(--collapse) + 93px * var(--expand));
+          --r-throb:   calc((206px - 193px * var(--collapse) + 93px * var(--expand)) * (1 + 0.2 * var(--v)));
+          --mic-scale: calc((200 - 193 * var(--collapse) + 93 * var(--expand)) / 200);
+          --back-op:   var(--expand);
+          --front-op:  calc(1 - var(--collapse));
+        ">
+          <circle cx="256" cy="256"
+                  style="r: var(--r); opacity: var(--back-op);"
+                  fill="#4584D5" stroke="#FF4405" stroke-width="12"/>
+
+          <circle cx="256" cy="256"
+                  style="r: var(--r-throb);"
+                  fill="#FF4405" fill-opacity="0.5"
+                  stroke="#FF4405" stroke-width="4"/>
+
+          <g style="
+            opacity: var(--back-op);
+            transform-origin: 256px 256px;
+            transform: scale(var(--mic-scale));
+          ">
+            <circle cx="256" cy="256" r="200" fill="black" stroke="#FF4405" stroke-width="12"/>
+            <path fill="white" d="M227.454 212.591C222.452 205.138 217.773 197.033 217.773 187.296C217.773 166.515 234.446 149.706 254.938 149.815C275.43 149.706 292.103 166.515 292.103 187.296C292.103 197.033 287.424 205.138 282.422 212.591C277.796 219.554 273.924 224.722 270.159 230.542C265.049 238.865 261.392 246.372 261.392 256.001C261.392 265.629 264.996 273.843 270.159 281.459C273.547 287.28 277.796 292.448 282.422 299.41C287.424 306.863 292.103 314.968 292.103 324.706C292.103 345.485 275.43 362.295 254.938 362.185C234.446 362.295 217.773 345.485 217.773 324.706C217.773 314.968 222.452 306.863 227.454 299.41C232.08 292.448 236.329 287.28 239.717 281.459C244.881 273.843 248.484 265.629 248.484 256.001C248.484 246.372 244.827 238.865 239.717 230.542C235.952 224.722 232.08 219.554 227.454 212.591Z"/>
+          </g>
+
+          <circle cx="256" cy="256"
+                  style="r: var(--r); opacity: var(--front-op);"
+                  fill="#4584D5" stroke="#FF4405" stroke-width="12"/>
+        </g>
+      </svg>
+    </div>
+
+    <div class="controls">
+      <div class="row">
+        <label for="t">t</label>
+        <input id="t" type="range" min="0" max="1" step="0.001" value="0" />
+        <span class="value" id="tValue">0.000</span>
+      </div>
+      <div class="row">
+        <label for="v">v</label>
+        <input id="v" type="range" min="0" max="1" step="0.001" value="0" />
+        <span class="value" id="vValue">0.000</span>
+      </div>
+      <div class="actions">
+        <button id="reset">reset</button>
+        <button id="bounce">▶ bounce t (one-shot)</button>
+        <button id="pulse">▶ pulse v (loop)</button>
+      </div>
+      <div class="legend">
+        t = 0.0 → webcam state (large blue, mic hidden)<br />
+        t = 0.5 → transition state (collapsed to a point)<br />
+        t = 1.0 → audio state (small mic on black, webcam tucked behind throb)<br />
+        v = 0.0 → throb at base size · v = 1.0 → throb scale × 1.2
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const svg = document.getElementById('icon');
+    const tSlider = document.getElementById('t');
+    const vSlider = document.getElementById('v');
+    const tValue = document.getElementById('tValue');
+    const vValue = document.getElementById('vValue');
+
+    function setT(v) {
+      const clamped = Math.max(0, Math.min(1, v));
+      svg.style.setProperty('--t', String(clamped));
+      tSlider.value = String(clamped);
+      tValue.textContent = clamped.toFixed(3);
+    }
+    function setV(v) {
+      const clamped = Math.max(0, Math.min(1, v));
+      svg.style.setProperty('--v', String(clamped));
+      vSlider.value = String(clamped);
+      vValue.textContent = clamped.toFixed(3);
+    }
+
+    tSlider.addEventListener('input', (e) => setT(parseFloat(e.target.value)));
+    vSlider.addEventListener('input', (e) => setV(parseFloat(e.target.value)));
+
+    document.getElementById('reset').addEventListener('click', () => {
+      cancelAnimations();
+      setT(0);
+      setV(0);
+    });
+
+    // ---------------------------------------------------------------------
+    // Bounce animator — drives t through a spring curve so you can see how
+    // a real transition would feel. Single-shot; click again to replay.
+    // Curve: linear collapse to 1.0, then easeOutBack overshoot past 1
+    // back to 1 (the "spring" feel the user described).
+    // ---------------------------------------------------------------------
+    let animId = null;
+    function cancelAnimations() {
+      if (animId !== null) {
+        cancelAnimationFrame(animId);
+        animId = null;
+      }
+    }
+
+    function easeOutBack(x) {
+      const c1 = 1.70158;
+      const c3 = c1 + 1;
+      return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
+    }
+
+    document.getElementById('bounce').addEventListener('click', () => {
+      cancelAnimations();
+      const start = performance.now();
+      const totalMs = 900;
+      const collapseMs = 300;
+      const expandMs = totalMs - collapseMs;
+      const tick = (now) => {
+        const elapsed = now - start;
+        let t;
+        if (elapsed < collapseMs) {
+          t = (elapsed / collapseMs) * 0.5;
+        } else if (elapsed < totalMs) {
+          const e = (elapsed - collapseMs) / expandMs;
+          t = 0.5 + easeOutBack(e) * 0.5;
+        } else {
+          t = 1;
+        }
+        setT(t);
+        if (elapsed < totalMs) animId = requestAnimationFrame(tick);
+        else animId = null;
+      };
+      animId = requestAnimationFrame(tick);
+    });
+
+    // ---------------------------------------------------------------------
+    // Pulse animator — sine-wave the volume to fake an audio amplitude
+    // track so you can preview the throb behavior at full audio state.
+    // ---------------------------------------------------------------------
+    let pulseId = null;
+    const pulseBtn = document.getElementById('pulse');
+    pulseBtn.addEventListener('click', () => {
+      if (pulseId !== null) {
+        cancelAnimationFrame(pulseId);
+        pulseId = null;
+        pulseBtn.classList.remove('active');
+        pulseBtn.textContent = '▶ pulse v (loop)';
+        return;
+      }
+      pulseBtn.classList.add('active');
+      pulseBtn.textContent = '⏸ stop pulse';
+      const start = performance.now();
+      const tick = (now) => {
+        const t = (now - start) / 600;
+        const v = 0.5 + 0.5 * Math.sin(t * Math.PI);
+        setV(Math.max(0, v));
+        pulseId = requestAnimationFrame(tick);
+      };
+      pulseId = requestAnimationFrame(tick);
+    });
+  </script>
+</body>
+</html>

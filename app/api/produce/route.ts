@@ -1,14 +1,25 @@
 import { NextResponse } from "next/server";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { requireSession } from "@/lib/apiAuth";
+import { shortJobId } from "@/lib/queue/jobId";
 import { DEFAULT_FPS, VIDEO_WIDTH, VIDEO_HEIGHT, RENDER_ZOOM } from "@/app/config";
 import { eventsToKeyframes } from "@/lib/render/keyframes";
-import { type WebcamSettings, DEFAULT_WEBCAM_SETTINGS } from "@/types/webcam";
 import { jobsQueue } from "@/lib/queue/connection";
 import type { ProduceJobPayload } from "@/lib/queue/payloads";
 import { downloadBufferFromR2, getPresignedUrl } from "@/lib/storage/r2";
 import { findCachedRender } from "@/lib/cache/render-cache";
 import { supabase } from "@/lib/db/supabase";
+import {
+  type RenderSpec,
+  type WebcamPosition,
+  type Webcam,
+  DEFAULT_WEBCAM,
+  DEFAULT_THROB_MIN,
+  DEFAULT_THROB_MAX,
+  hashSpec,
+  trimKeyOf,
+} from "@/lib/render/spec";
+import { amplitudeKeyForWebcam } from "@/lib/audio/amplitude";
 
 export const runtime = "nodejs";
 
@@ -22,12 +33,22 @@ function hashBuffer(buf: Buffer): string {
   return createHash("sha256").update(buf).digest("hex");
 }
 
-function webcamFingerprint(s: WebcamSettings): string {
-  return `${s.webcamMode}_${s.webcamVertical}_${s.webcamHorizontal}`;
-}
-
-function trimKey(startSec: number | undefined, endSec: number | undefined): string {
-  return `${(startSec ?? 0).toFixed(3)}_${(endSec ?? 0).toFixed(3)}`;
+function parseWebcam(
+  body: Record<string, unknown>,
+): Webcam {
+  const mode =
+    typeof body.webcamMode === "string" && ["video", "audio", "off"].includes(body.webcamMode)
+      ? (body.webcamMode as Webcam["mode"])
+      : DEFAULT_WEBCAM.mode;
+  const vertical: WebcamPosition["vertical"] =
+    typeof body.webcamVertical === "string" && ["top", "bottom"].includes(body.webcamVertical)
+      ? (body.webcamVertical as WebcamPosition["vertical"])
+      : DEFAULT_WEBCAM.position.vertical;
+  const horizontal: WebcamPosition["horizontal"] =
+    typeof body.webcamHorizontal === "string" && ["left", "right"].includes(body.webcamHorizontal)
+      ? (body.webcamHorizontal as WebcamPosition["horizontal"])
+      : DEFAULT_WEBCAM.position.horizontal;
+  return { mode, position: { vertical, horizontal } };
 }
 
 type RequestBody = {
@@ -80,9 +101,6 @@ export async function POST(request: Request) {
   const url = body.url.trim();
   const dirName = `${userId}_${flowId}`;
 
-  // Mouse + webcam source keys. If an existing vlad_recordings row owns this flowId,
-  // prefer its stored URLs (handles reopened saved/draft recordings whose source
-  // files may live at either sessions/ or recordings/).
   let mouseR2Key = `sessions/${userId}/${flowId}/mouse.json`;
   let webcamR2Key: string | null = `sessions/${userId}/${flowId}/webcam.webm`;
 
@@ -104,7 +122,6 @@ export async function POST(request: Request) {
       : null;
   }
 
-  // Read mouse events from R2
   let mouseBuffer: Buffer;
   try {
     mouseBuffer = await downloadBufferFromR2(mouseR2Key);
@@ -112,7 +129,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "No recording found for this flow." }, { status: 404 });
   }
 
-  let mouseData: { events?: unknown; virtualWidth?: unknown; virtualHeight?: unknown };
+  let mouseData: { events?: unknown; virtualWidth?: unknown; virtualHeight?: unknown; durationMs?: unknown };
   try {
     mouseData = JSON.parse(mouseBuffer.toString("utf-8")) as typeof mouseData;
   } catch {
@@ -128,21 +145,14 @@ export async function POST(request: Request) {
   }
 
   const keyframes = eventsToKeyframes(mouseData.events as Parameters<typeof eventsToKeyframes>[0]);
-  const durationMs = keyframes.length > 0 ? keyframes[keyframes.length - 1].t : 1000;
+  // Prefer the explicit stop-click duration captured by the client. Falls back to
+  // last-keyframe time for legacy mouse.json files saved before durationMs existed.
+  const durationMs = typeof mouseData.durationMs === "number" && mouseData.durationMs > 0
+    ? mouseData.durationMs
+    : keyframes.length > 0 ? keyframes[keyframes.length - 1].t : 1000;
   const settleHint = keyframes.length > 0 ? { x: keyframes[0].x, y: keyframes[0].y } : undefined;
 
-  const webcamSettings: WebcamSettings = {
-    webcamMode: typeof body.webcamMode === "string" && ["video", "audio", "off"].includes(body.webcamMode)
-      ? body.webcamMode as WebcamSettings["webcamMode"]
-      : DEFAULT_WEBCAM_SETTINGS.webcamMode,
-    webcamVertical: typeof body.webcamVertical === "string" && ["top", "bottom"].includes(body.webcamVertical)
-      ? body.webcamVertical as WebcamSettings["webcamVertical"]
-      : DEFAULT_WEBCAM_SETTINGS.webcamVertical,
-    webcamHorizontal: typeof body.webcamHorizontal === "string" && ["left", "right"].includes(body.webcamHorizontal)
-      ? body.webcamHorizontal as WebcamSettings["webcamHorizontal"]
-      : DEFAULT_WEBCAM_SETTINGS.webcamHorizontal,
-  };
-
+  const webcam = parseWebcam(body as Record<string, unknown>);
   const trimStartSec = typeof body.trimStartSec === "number" ? body.trimStartSec : undefined;
   const trimEndSec = typeof body.trimEndSec === "number" ? body.trimEndSec : undefined;
   const preview = body.preview === true;
@@ -152,28 +162,49 @@ export async function POST(request: Request) {
       ? Math.max(1, Math.min(10, Math.round(body.priority)))
       : 1;
 
-  // Compute cache keys
+  // Recording flow: throb disabled (per user spec — no animation in single-section
+  // postprocessing). Audio mode shows a static circle.
+  const spec: RenderSpec = {
+    webcam,
+    throb: webcam.mode === "audio" && webcamR2Key
+      ? {
+          enabled: false,
+          amplitudeKey: amplitudeKeyForWebcam(webcamR2Key),
+          minScale: DEFAULT_THROB_MIN,
+          maxScale: DEFAULT_THROB_MAX,
+        }
+      : undefined,
+    trim:
+      trimStartSec || trimEndSec
+        ? { startSec: trimStartSec ?? 0, endSec: trimEndSec ?? 0 }
+        : undefined,
+  };
+
   const mouseHash = hashBuffer(mouseBuffer);
   const urlHash = hashUrl(url);
-  const wcFP = webcamFingerprint(webcamSettings);
-  const tKey = trimKey(trimStartSec, trimEndSec);
+  const specHash = hashSpec(spec);
+  const tKey = trimKeyOf(spec);
 
-  // Check Redis cache for cached artifacts (keyed on flowId via safeId)
-  const cached = await findCachedRender(userId, flowId, urlHash, mouseHash, wcFP, tKey, tier);
+  const cached = await findCachedRender(userId, flowId, urlHash, mouseHash, specHash, tKey, tier);
 
-  // Fully cached — presign and return
+  // Fully cached at the trim sub-stage → return the trimmed mp4 directly.
   if (cached.trimmedR2Key) {
     const presigned = await getPresignedUrl(cached.trimmedR2Key);
     return NextResponse.json({ videoUrl: presigned, videoR2Key: cached.trimmedR2Key });
   }
 
-  // Composite cached + no trim needed → return composite
-  if (cached.startFromStep === 3 && cached.compositeR2Key && (!trimStartSec || trimStartSec === 0) && (!trimEndSec || trimEndSec === 0)) {
+  // Composite cached + no trim requested → return the composite directly.
+  // (When trim values are set we still need to run the trim stage even on
+  // a composite cache hit, so we fall through to the worker.)
+  if (
+    cached.startFromStep === 3 &&
+    cached.compositeR2Key &&
+    (!trimStartSec || trimStartSec === 0) &&
+    (!trimEndSec || trimEndSec === 0)
+  ) {
     const presigned = await getPresignedUrl(cached.compositeR2Key);
     return NextResponse.json({ videoUrl: presigned, videoR2Key: cached.compositeR2Key });
   }
-
-  const step = cached.startFromStep;
 
   const job = await jobsQueue.add("produce", {
     type: "produce",
@@ -190,22 +221,21 @@ export async function POST(request: Request) {
     durationMs,
     keyframes,
     settleHint,
-    webcamSettings,
+    spec,
     webcamR2Key,
-    trimStartSec,
-    trimEndSec,
-    startFromStep: step,
-    existingRenderR2Key: cached.renderR2Key,
+    startFromStep: cached.startFromStep,
+    existingBackgroundR2Key: cached.backgroundR2Key,
+    existingOverlayR2Key: cached.overlayR2Key,
     existingRenderDurationMs: cached.renderDurationMs,
     existingCompositeR2Key: cached.compositeR2Key,
     urlHash,
     mouseHash,
-    wcFingerprint: wcFP,
+    specHash,
     trimKeyStr: tKey,
     preview,
     flowId,
   } satisfies ProduceJobPayload, {
-    jobId: randomUUID().slice(0, 8),
+    jobId: shortJobId(),
     priority,
   });
 

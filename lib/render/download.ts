@@ -33,6 +33,8 @@ export type DownloadedRecording = {
     events: unknown[];
     virtualWidth: number;
     virtualHeight: number;
+    /** Stop-click time minus recording-start, in ms. Absent on legacy recordings. */
+    durationMs?: number;
   };
 };
 
@@ -75,6 +77,7 @@ export async function downloadRecording(
       events: parsed.events as unknown[],
       virtualWidth: parsed.virtualWidth,
       virtualHeight: parsed.virtualHeight,
+      durationMs: typeof parsed.durationMs === "number" ? parsed.durationMs : undefined,
     },
   };
 }

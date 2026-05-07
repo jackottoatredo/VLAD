@@ -9,9 +9,7 @@ import type {
   ProduceJobPayload,
   MergeJobPayload,
   MergeRecordingPayload,
-  VisitSummaryJobPayload,
 } from "@/lib/queue/payloads";
-import { processVisitSummary } from "@/lib/notifications/processVisitSummary";
 import {
   processDailyDigestTick,
   processWeeklyDigestTick,
@@ -966,9 +964,6 @@ const worker = new Worker<JobPayload>(
     }
     if (job.data.type === "merge") {
       return processMergeJob(job as Job<MergeJobPayload>);
-    }
-    if (job.data.type === "visit_summary") {
-      return processVisitSummary((job as Job<VisitSummaryJobPayload>).data);
     }
     if (job.data.type === "daily_digest_tick") {
       return processDailyDigestTick();

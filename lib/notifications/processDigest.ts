@@ -2,89 +2,57 @@ import { supabase } from "@/lib/db/supabase";
 import { sendUserDM } from "@/lib/slack/sendUserDM";
 import { isInternalIpHash } from "@/lib/stats/internalIps";
 import { buildEngagementUrl } from "@/lib/notifications/engagementUrl";
+import { TRACKED_EVENT_TYPES, formatStatLines } from "@/lib/notifications/stats";
 import type { EngagementType } from "@/lib/stats/engagement";
 
 type Window = "daily" | "weekly";
 
-type RenderRow = {
-  slug: string;
-  user_id: string | null;
-  brand_name: string | null;
-  brand_url: string | null;
-};
+const DIGEST_TZ = "America/Denver";
 
-type EventRow = {
-  type: EngagementType;
-  slug: string;
-  ip_hash: string | null;
-  is_bot: boolean | null;
-};
-
+type RenderRow = { slug: string; user_id: string | null };
+type EventRow = { type: EngagementType; slug: string; ip_hash: string | null; is_bot: boolean | null };
 type RepRow = {
   user_id: string;
-  // Supabase JS returns nested relations as arrays even on !inner joins
-  // where it's effectively one row. Treat as a single record.
   vlad_users: { first_name: string | null; last_name: string | null }[] | null;
 };
 
-type BrandTotals = {
-  brandName: string;
-  brandUrl: string | null;
-  visits: number;
-  completions: number;
-  bookClicks: number;
-};
-
-type RepTotals = {
-  totalVisits: number;
-  totalCompletions: number;
-  totalBookClicks: number;
-  brands: Map<string, BrandTotals>;
-};
-
-function emptyTotals(): RepTotals {
-  return {
-    totalVisits: 0,
-    totalCompletions: 0,
-    totalBookClicks: 0,
-    brands: new Map(),
-  };
+// "Sunday, May 6" — formatted in Mountain Time so the label matches the
+// cron tick's local clock.
+function formatDigestDate(d: Date): string {
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    timeZone: DIGEST_TZ,
+  }).format(d);
 }
 
-function formatTotals(window: Window, repName: string, repEmail: string, totals: RepTotals): string {
-  const periodLabel = window === "daily" ? "Yesterday" : "Last week";
-  const header =
-    `:bar_chart: ${periodLabel} on your shares: ${totals.totalVisits} visits, ` +
-    `${totals.totalCompletions} video completions, ` +
-    `${totals.totalBookClicks} booking ${totals.totalBookClicks === 1 ? "click" : "clicks"}.`;
-
-  const sortedBrands = [...totals.brands.values()]
-    .sort((a, b) => b.visits - a.visits)
-    .slice(0, 5);
-
-  const lines = sortedBrands.map((b) => {
-    const url = buildEngagementUrl([
-      { kind: "presenter", value: repEmail, label: repName },
-      ...(b.brandUrl ? [{ kind: "merchant", value: b.brandUrl, label: b.brandName }] : []),
-    ]);
-    const detail = [
-      `${b.visits} visit${b.visits === 1 ? "" : "s"}`,
-      b.completions > 0 ? `${b.completions} completion${b.completions === 1 ? "" : "s"}` : null,
-      b.bookClicks > 0 ? `${b.bookClicks} booking ${b.bookClicks === 1 ? "click" : "clicks"}` : null,
-    ]
-      .filter(Boolean)
-      .join(", ");
-    return `• *${b.brandName}* — ${detail}  <${url}|view>`;
+// "April 28 – May 4" — week range label. Used as the heading for weekly.
+function formatWeekRange(start: Date, end: Date): string {
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    day: "numeric",
+    timeZone: DIGEST_TZ,
   });
+  return `${fmt.format(start)} – ${fmt.format(end)}`;
+}
 
-  if (lines.length === 0) return header;
-  return `${header}\nTop brands:\n${lines.join("\n")}`;
+function formatRepName(rep: RepRow): string {
+  const u = rep.vlad_users?.[0] ?? null;
+  const name = [u?.first_name, u?.last_name].filter(Boolean).join(" ").trim();
+  return name || rep.user_id;
 }
 
 async function processDigestForWindow(window: Window): Promise<void> {
   const toggleColumn = window === "daily" ? "notify_daily_digest" : "notify_weekly_digest";
   const windowMs = (window === "daily" ? 1 : 7) * 24 * 60 * 60 * 1000;
-  const cutoff = new Date(Date.now() - windowMs).toISOString();
+  const now = new Date();
+  const cutoff = new Date(now.getTime() - windowMs);
+
+  const headingRange =
+    window === "daily"
+      ? formatDigestDate(cutoff) // "Sunday, May 6"
+      : `week of ${formatWeekRange(cutoff, now)}`;
 
   // Step 1 — recipients.
   const { data: prefsData } = await supabase
@@ -94,74 +62,56 @@ async function processDigestForWindow(window: Window): Promise<void> {
   const reps = (prefsData ?? []) as RepRow[];
   if (reps.length === 0) return;
 
-  // Step 2 — every render owned by any opted-in rep. One query for all.
+  // Step 2 — every render owned by any opted-in rep.
   const repEmails = reps.map((r) => r.user_id);
   const { data: rendersData } = await supabase
     .from("vlad_renders")
-    .select("slug, user_id, brand_name, brand_url")
+    .select("slug, user_id")
     .in("user_id", repEmails);
   const renders = (rendersData ?? []) as RenderRow[];
   if (renders.length === 0) return;
 
-  const slugToRender = new Map<string, RenderRow>();
-  for (const r of renders) slugToRender.set(r.slug, r);
+  const slugToRep = new Map<string, string>();
+  for (const r of renders) {
+    if (r.user_id) slugToRep.set(r.slug, r.user_id);
+  }
 
-  // Step 3 — events in the window for those slugs.
-  const slugs = renders.map((r) => r.slug);
+  // Step 3 — events in the window.
   const { data: eventsData } = await supabase
     .from("vlad_engagement_events")
     .select("type, slug, ip_hash, is_bot")
-    .gte("created_at", cutoff)
-    .in("slug", slugs);
+    .gte("created_at", cutoff.toISOString())
+    .in("slug", [...slugToRep.keys()])
+    .in("type", [...TRACKED_EVENT_TYPES]);
   const events = ((eventsData ?? []) as EventRow[])
     .filter((e) => !e.is_bot && !isInternalIpHash(e.ip_hash));
 
-  // Step 4 — fold into per-rep, per-brand totals.
-  const perRep = new Map<string, RepTotals>();
+  // Step 4 — fold into per-rep per-type counts.
+  const perRep = new Map<string, Map<EngagementType, number>>();
   for (const e of events) {
-    const render = slugToRender.get(e.slug);
-    if (!render?.user_id) continue;
-    let totals = perRep.get(render.user_id);
-    if (!totals) {
-      totals = emptyTotals();
-      perRep.set(render.user_id, totals);
+    const rep = slugToRep.get(e.slug);
+    if (!rep) continue;
+    let counts = perRep.get(rep);
+    if (!counts) {
+      counts = new Map();
+      perRep.set(rep, counts);
     }
-    const brandKey = render.brand_url ?? render.brand_name ?? render.slug;
-    let brandTotals = totals.brands.get(brandKey);
-    if (!brandTotals) {
-      brandTotals = {
-        brandName: render.brand_name ?? render.brand_url ?? render.slug,
-        brandUrl: render.brand_url,
-        visits: 0,
-        completions: 0,
-        bookClicks: 0,
-      };
-      totals.brands.set(brandKey, brandTotals);
-    }
-    if (e.type === "human_visit") {
-      totals.totalVisits++;
-      brandTotals.visits++;
-    } else if (e.type === "video_end") {
-      totals.totalCompletions++;
-      brandTotals.completions++;
-    } else if (e.type === "click_book_demo") {
-      totals.totalBookClicks++;
-      brandTotals.bookClicks++;
-    }
+    counts.set(e.type, (counts.get(e.type) ?? 0) + 1);
   }
 
   // Step 5 — DM each rep with non-zero activity.
   for (const rep of reps) {
-    const totals = perRep.get(rep.user_id);
-    if (!totals || totals.totalVisits + totals.totalCompletions + totals.totalBookClicks === 0) {
-      continue;
-    }
-    const userRow = rep.vlad_users?.[0] ?? null;
-    const repName = [userRow?.first_name, userRow?.last_name]
-      .filter(Boolean)
-      .join(" ")
-      .trim() || rep.user_id;
-    const text = formatTotals(window, repName, rep.user_id, totals);
+    const counts = perRep.get(rep.user_id);
+    if (!counts || counts.size === 0) continue;
+    const repName = formatRepName(rep);
+    const viewUrl = buildEngagementUrl([
+      { kind: "presenter", value: rep.user_id, label: repName },
+    ]);
+    const text = [
+      `Engagement Stats for ${headingRange}:`,
+      formatStatLines(counts),
+      `<${viewUrl}|View Engagement Page>`,
+    ].join("\n");
     await sendUserDM({ email: rep.user_id, text });
   }
 }

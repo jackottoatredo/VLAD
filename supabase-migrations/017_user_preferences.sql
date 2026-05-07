@@ -17,8 +17,11 @@ create table vlad_user_preferences (
     check (book_button_mode in ('website_form', 'hidden', 'hubspot')),
 
   -- Notification opt-ins. All default off.
+  -- notify_visit gates the per-render Slack DM that grows in place via
+  -- chat.update as engagement events accumulate (one message per render,
+  -- not per visit). The daily/weekly toggles gate the cross-render
+  -- summaries.
   notify_visit                  boolean not null default false,
-  notify_visit_summary          boolean not null default false,
   notify_daily_digest           boolean not null default false,
   notify_weekly_digest          boolean not null default false,
 

@@ -17,7 +17,7 @@ const BENIGN_ERRORS = new Set([
 
 export type DMResult =
   | { status: "skipped"; reason: "missing_env" | "no_slack_user" | "benign"; slackError?: string }
-  | { status: "sent"; ts: string }
+  | { status: "sent"; ts: string; channel: string }
   | { status: "error"; slackError: string };
 
 type SendArgs = {
@@ -89,7 +89,9 @@ export async function sendUserDM({ email, text, blocks, threadTs }: SendArgs): P
   });
   const post = (await postRes.json()) as PostMessageResponse;
   if (post.ok && post.ts) {
-    return { status: "sent", ts: post.ts };
+    // chat.update needs the same channel ID we posted to. For DMs that's
+    // the recipient's Slack user ID — exactly what we resolved above.
+    return { status: "sent", ts: post.ts, channel: lookup.id };
   }
   const slackError = post.error ?? "unknown";
   return BENIGN_ERRORS.has(slackError)

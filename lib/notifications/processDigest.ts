@@ -109,20 +109,15 @@ async function processDigestForWindow(window: Window): Promise<void> {
     ]);
     const blocks: unknown[] = [
       {
-        type: "header",
-        text: { type: "plain_text", text: `Engagement Stats — ${headingRange}`, emoji: true },
+        type: "section",
+        text: { type: "mrkdwn", text: `*${headingRange}*` },
+        accessory: {
+          type: "button",
+          text: { type: "plain_text", text: "View Stats" },
+          url: viewUrl,
+        },
       },
       ...buildStatGridBlocks(counts),
-      {
-        type: "actions",
-        elements: [
-          {
-            type: "button",
-            text: { type: "plain_text", text: "View Engagement Page" },
-            url: viewUrl,
-          },
-        ],
-      },
     ];
     // Plain-text fallback for notification preview.
     const text = `Engagement Stats for ${headingRange}\n${formatStatLines(counts)}`;

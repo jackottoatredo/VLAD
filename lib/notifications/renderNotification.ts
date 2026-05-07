@@ -42,8 +42,9 @@ function formatRepName(prefs: PrefsRow, fallback: string): string {
   return name || fallback;
 }
 
-// Slack Block Kit payload. Header + two stat-grid rows (3 cells each) + a
-// link button. We hand-roll the grid because Slack's `fields` API forces a
+// Slack Block Kit payload. Title section with the render name and a
+// "View Stats" accessory button on the same line, followed by the 3x2
+// stat grid. We hand-roll the grid because Slack's `fields` API forces a
 // 2-column layout and we want 3.
 function buildBlocks({
   renderName,
@@ -56,20 +57,15 @@ function buildBlocks({
 }): unknown[] {
   return [
     {
-      type: "header",
-      text: { type: "plain_text", text: `Engagement Stats — ${renderName}`, emoji: true },
+      type: "section",
+      text: { type: "mrkdwn", text: `*${renderName}*` },
+      accessory: {
+        type: "button",
+        text: { type: "plain_text", text: "View Stats" },
+        url: viewUrl,
+      },
     },
     ...buildStatGridBlocks(counts),
-    {
-      type: "actions",
-      elements: [
-        {
-          type: "button",
-          text: { type: "plain_text", text: "View Engagement Page" },
-          url: viewUrl,
-        },
-      ],
-    },
   ];
 }
 

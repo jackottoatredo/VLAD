@@ -37,7 +37,6 @@ create table vlad_user_preferences (
   book_button_mode              text not null default 'website_form'
     check (book_button_mode in ('website_form', 'hidden', 'hubspot')),
   notify_visit                  boolean not null default false,
-  notify_visit_summary          boolean not null default false,
   notify_daily_digest           boolean not null default false,
   notify_weekly_digest          boolean not null default false,
   slack_user_id                 text,
@@ -173,3 +172,16 @@ create index vlad_engagement_humans_idx
 
 create index vlad_engagement_ip_recent_idx
   on vlad_engagement_events (ip_hash, created_at desc);
+
+-- One row per render that has a live engagement-stats DM in Slack. Created
+-- on the first non-internal, non-bot tracked event for the slug; subsequent
+-- events edit the same message via chat.update. Counts are recomputed from
+-- vlad_engagement_events GROUP BY type — no denormalization here.
+create table vlad_render_notifications (
+  slug            text primary key,
+  rep_email       text not null,
+  slack_channel   text not null,
+  slack_ts        text not null,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now()
+);

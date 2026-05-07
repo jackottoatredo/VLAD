@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react'
 
 type Prefs = {
   notify_visit: boolean
-  notify_visit_summary: boolean
   notify_daily_digest: boolean
   notify_weekly_digest: boolean
 }
@@ -19,19 +18,15 @@ type State =
 const ROWS: { key: Key; label: string; description: string }[] = [
   {
     key: 'notify_visit',
-    label: 'Live visit ping',
-    description: 'DM me the moment someone opens one of my share pages.',
-  },
-  {
-    key: 'notify_visit_summary',
-    label: '5-minute visit summary',
+    label: 'Per-render engagement',
     description:
-      'Threaded reply to the live ping summarizing what the visitor did over the next 5 minutes.',
+      'One Slack DM per share the first time it gets opened. The same message updates as visits, plays, downloads, link copies, booking clicks, and live-demo opens accumulate.',
   },
   {
     key: 'notify_daily_digest',
     label: 'Daily digest',
-    description: 'A roll-up at 8am Mountain Time covering yesterday across all my shares.',
+    description:
+      'A roll-up at 8am Mountain Time covering yesterday across all my shares.',
   },
   {
     key: 'notify_weekly_digest',
@@ -69,12 +64,7 @@ export default function NotificationSettings() {
   async function toggle(key: Key, next: boolean) {
     if (state.kind !== 'ready') return
     const prev = state.prefs
-    // Optimistic update; revert on failure.
-    const optimistic: Prefs = { ...prev, [key]: next }
-    if (key === 'notify_visit' && next === false) {
-      optimistic.notify_visit_summary = false
-    }
-    setState({ kind: 'ready', prefs: optimistic })
+    setState({ kind: 'ready', prefs: { ...prev, [key]: next } })
     setSavingKey(key)
     try {
       const res = await fetch('/api/users/me/notifications', {
@@ -104,36 +94,26 @@ export default function NotificationSettings() {
     return <p className="text-sm text-red-600 dark:text-red-500">{state.message}</p>
   }
 
-  const visitOn = state.prefs.notify_visit
-
   return (
     <div className="space-y-1">
-      {ROWS.map((row) => {
-        const summaryDisabled = row.key === 'notify_visit_summary' && !visitOn
-        const checked = state.prefs[row.key]
-        return (
-          <div
-            key={row.key}
-            className="flex items-start justify-between gap-4 border-b border-border py-3 last:border-b-0"
-          >
-            <div className={summaryDisabled ? 'opacity-50' : ''}>
-              <p className="text-sm text-foreground">{row.label}</p>
-              <p className="text-xs text-muted">
-                {summaryDisabled
-                  ? 'Requires Live visit ping to be on.'
-                  : row.description}
-              </p>
-            </div>
-            <input
-              type="checkbox"
-              className="mt-1 h-4 w-4 accent-foreground disabled:opacity-50"
-              checked={checked}
-              disabled={summaryDisabled || savingKey === row.key}
-              onChange={(e) => toggle(row.key, e.target.checked)}
-            />
+      {ROWS.map((row) => (
+        <div
+          key={row.key}
+          className="flex items-start justify-between gap-4 border-b border-border py-3 last:border-b-0"
+        >
+          <div>
+            <p className="text-sm text-foreground">{row.label}</p>
+            <p className="text-xs text-muted">{row.description}</p>
           </div>
-        )
-      })}
+          <input
+            type="checkbox"
+            className="mt-1 h-4 w-4 accent-foreground disabled:opacity-50"
+            checked={state.prefs[row.key]}
+            disabled={savingKey === row.key}
+            onChange={(e) => toggle(row.key, e.target.checked)}
+          />
+        </div>
+      ))}
     </div>
   )
 }

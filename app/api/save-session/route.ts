@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/apiAuth";
-import { uploadToR2 } from "@/lib/storage/r2";
+import { uploadToR2, VLAD_NAMESPACE } from "@/lib/storage/r2";
 
 export const runtime = "nodejs";
 
@@ -28,7 +28,7 @@ export async function POST(request: Request) {
 
   const payload = { ...record, userId: session.email, flowId };
   const jsonBuffer = Buffer.from(JSON.stringify(payload, null, 2), "utf-8");
-  const r2Key = `sessions/${session.email}/${flowId}/mouse.json`;
+  const r2Key = `${VLAD_NAMESPACE}/sessions/${session.email}/${flowId}/mouse.json`;
 
   await uploadToR2(r2Key, jsonBuffer, "application/json");
 

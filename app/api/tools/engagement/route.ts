@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabase } from "@/lib/db/supabase";
 import { requireSession } from "@/lib/apiAuth";
 import { MS_PER_DAY, dayKey, buildDateRange } from "@/lib/stats/dateRange";
+import { INTERNAL_IP_HASHES } from "@/lib/stats/internalIps";
 import {
   decodeFiltersFromApi,
   makeEventAllowed,
@@ -15,20 +16,6 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const SERIES_DAYS = 90;
-
-// IP hashes treated as internal — set INTERNAL_IP_HASHES in env as a
-// comma-separated list (e.g. "e650bf6e991b6958,abc123..."). Any visit
-// with an ip_hash in this set is tagged `internal` in the Referrer
-// sources donut, regardless of its actual referrer_kind. Lets the
-// dashboard show "this is our team's traffic" as a first-class slice
-// without polluting the data on disk. Update freely; the change picks
-// up retroactively because it's applied at aggregation time.
-const INTERNAL_IP_HASHES = new Set(
-  (process.env.INTERNAL_IP_HASHES ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean),
-);
 
 // Daily visit count split by audience. `bot` includes any visit row with
 // is_bot=true (Slackbot/LinkedInBot/etc + generic crawlers). Human visits

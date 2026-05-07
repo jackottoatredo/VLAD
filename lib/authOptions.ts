@@ -13,6 +13,9 @@ export const authOptions: NextAuthOptions = {
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+      authorization: {
+        params: { prompt: "select_account" },
+      },
     }),
   ],
   pages: {
@@ -41,6 +44,13 @@ export const authOptions: NextAuthOptions = {
         { id: email, first_name: firstName, last_name: lastName },
         { onConflict: "id" },
       );
+
+      // Materialize a preferences row so downstream code never has to
+      // null-branch. ignoreDuplicates so existing prefs (booking selection,
+      // notification toggles) survive re-sign-in.
+      await supabase
+        .from("vlad_user_preferences")
+        .upsert({ user_id: email }, { onConflict: "user_id", ignoreDuplicates: true });
 
       return true;
     },

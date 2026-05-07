@@ -12,7 +12,7 @@ export default function ThemeToggle() {
   useEffect(() => setMounted(true), []);
 
   // Public share pages render in their own theme — suppress the toggle.
-  if (pathname?.startsWith("/video-demos/")) return null;
+  if (pathname === "/video-demos" || pathname?.startsWith("/video-demos/")) return null;
 
   const isDark = mounted && resolvedTheme === "dark";
 

@@ -1,3 +1,5 @@
+import { supabase } from "@/lib/db/supabase";
+
 type SlackResponse = { ok: boolean; error?: string };
 type LookupResponse = SlackResponse & { user?: { id: string } };
 
@@ -24,6 +26,14 @@ export async function inviteUserToVladChannel(email: string): Promise<void> {
       }
       return;
     }
+
+    // Cache the Slack user ID on the prefs row so downstream DM helpers
+    // can skip users.lookupByEmail. Fire-and-forget; failure here doesn't
+    // affect the invite flow.
+    void supabase
+      .from("vlad_user_preferences")
+      .update({ slack_user_id: lookup.user.id })
+      .eq("user_id", email);
 
     const inviteRes = await fetch(`${SLACK_API}/conversations.invite`, {
       method: "POST",

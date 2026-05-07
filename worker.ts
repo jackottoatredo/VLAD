@@ -3,8 +3,19 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { REDIS_CONNECTION, QUEUE_NAME } from "@/lib/queue/connection";
-import type { JobPayload, ProduceJobPayload, MergeJobPayload, MergeRecordingPayload } from "@/lib/queue/payloads";
+import { REDIS_CONNECTION, QUEUE_NAME, jobsQueue } from "@/lib/queue/connection";
+import type {
+  JobPayload,
+  ProduceJobPayload,
+  MergeJobPayload,
+  MergeRecordingPayload,
+  VisitSummaryJobPayload,
+} from "@/lib/queue/payloads";
+import { processVisitSummary } from "@/lib/notifications/processVisitSummary";
+import {
+  processDailyDigestTick,
+  processWeeklyDigestTick,
+} from "@/lib/notifications/processDigest";
 import type { JobProgress, JobStep } from "@/lib/queue/progress";
 import { createReplayAction } from "@/lib/render/actions";
 import { produceSessionVideo, type ProduceResult } from "@/lib/render/produce";
@@ -17,7 +28,7 @@ import { downloadRecording } from "@/lib/render/download";
 import { extractPoster } from "@/lib/render/poster";
 import { extractSquarePoster } from "@/lib/render/posterSquare";
 import { extractPreviewGif } from "@/lib/render/gif";
-import { uploadToR2, downloadFromR2 } from "@/lib/storage/r2";
+import { uploadToR2, downloadFromR2, VLAD_NAMESPACE } from "@/lib/storage/r2";
 import { supabase } from "@/lib/db/supabase";
 import { updateRenderCache } from "@/lib/cache/render-cache";
 import { logEvent } from "@/lib/stats/events";
@@ -851,7 +862,7 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
       });
       completeStep(2);
 
-      finalR2Key = `merges/${userId}/${d.outputSessionName}/${path.basename(mergedPath)}`;
+      finalR2Key = `${VLAD_NAMESPACE}/merges/${userId}/${d.outputSessionName}/${path.basename(mergedPath)}`;
       const fileBuffer = await readFile(mergedPath);
       await uploadToR2(finalR2Key, fileBuffer, "video/mp4");
       finalLocalPath = mergedPath;
@@ -956,6 +967,15 @@ const worker = new Worker<JobPayload>(
     if (job.data.type === "merge") {
       return processMergeJob(job as Job<MergeJobPayload>);
     }
+    if (job.data.type === "visit_summary") {
+      return processVisitSummary((job as Job<VisitSummaryJobPayload>).data);
+    }
+    if (job.data.type === "daily_digest_tick") {
+      return processDailyDigestTick();
+    }
+    if (job.data.type === "weekly_digest_tick") {
+      return processWeeklyDigestTick();
+    }
     throw new Error(`Unknown job type: ${(job.data as Record<string, unknown>).type}`);
   },
   {
@@ -964,6 +984,21 @@ const worker = new Worker<JobPayload>(
     lockDuration,
     stalledInterval,
   },
+);
+
+// Register recurring digest ticks. upsertJobScheduler is keyed on the
+// scheduler id, so re-registering on every worker boot is idempotent — no
+// duplicate schedules. tz pins the cron evaluation to Mountain Time so the
+// 8am wake-up is local-clock-correct regardless of container TZ.
+void jobsQueue.upsertJobScheduler(
+  "daily-digest-tick",
+  { pattern: "0 8 * * *", tz: "America/Denver" },
+  { name: "daily_digest_tick", data: { type: "daily_digest_tick" } },
+);
+void jobsQueue.upsertJobScheduler(
+  "weekly-digest-tick",
+  { pattern: "0 8 * * 1", tz: "America/Denver" },
+  { name: "weekly_digest_tick", data: { type: "weekly_digest_tick" } },
 );
 
 worker.on("completed", (job) => {
@@ -982,7 +1017,7 @@ worker.on("failed", async (job, err) => {
       console.error(`[worker] Failed to mark render row error for job ${job.id}:`, updateErr);
     }
   }
-  if (job) {
+  if (job && (job.data.type === "produce" || job.data.type === "merge")) {
     const renderId =
       job.data.type === "merge"
         ? job.data.renderId

@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { chromium } from "playwright";
-import { uploadToR2 } from "@/lib/storage/r2";
+import { uploadToR2, VLAD_NAMESPACE } from "@/lib/storage/r2";
 import { FFMPEG_BIN } from "@/lib/render/ffmpeg-bin";
 import type { Webcam, ThrobSpec } from "@/lib/render/spec";
 import {
@@ -491,7 +491,7 @@ export async function renderUnifiedMergeOverlay(
 
   const fileName = `${options.sessionName}-uov-${Date.now()}-${randomUUID().slice(0, 8)}.mov`;
   const outputPath = path.join(tempDir, fileName);
-  const r2Key = `renders/${options.userId}/${options.sessionName}/${fileName}`;
+  const r2Key = `${VLAD_NAMESPACE}/renders/${options.userId}/${options.sessionName}/${fileName}`;
 
   const browser = await chromium.launch({
     headless: true,

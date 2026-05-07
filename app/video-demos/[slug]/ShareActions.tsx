@@ -9,6 +9,8 @@ type Props = {
   downloadHref: string
   /** When null, the explore button still renders with href="#" — placeholder until upstream wiring lands. */
   interactiveDemoUrl: string | null
+  /** False when the rep set book_button_mode='hidden' in /tools/settings — the Book a meeting button is omitted entirely. */
+  showBookButton: boolean
 }
 
 // Fire-and-forget beacon for client-side click events. Errors swallowed —
@@ -36,7 +38,7 @@ function beaconClick(type: 'click_copy_link', slug: string, visitorId: string | 
   }
 }
 
-export default function ShareActions({ slug, downloadHref, interactiveDemoUrl }: Props) {
+export default function ShareActions({ slug, downloadHref, interactiveDemoUrl, showBookButton }: Props) {
   const [copied, setCopied] = useState(false)
   const visitorId = useVisitorId()
 
@@ -85,10 +87,12 @@ export default function ShareActions({ slug, downloadHref, interactiveDemoUrl }:
         {copied ? <CheckIcon /> : <LinkIcon />}
         <span>{copied ? 'Copied' : 'Copy Link'}</span>
       </button>
-      <a href={bookDemoHref} target="_blank" rel="noreferrer" className={secondary}>
-        <CalendarIcon />
-        <span>Book a Demo</span>
-      </a>
+      {showBookButton && (
+        <a href={bookDemoHref} target="_blank" rel="noreferrer" className={secondary}>
+          <CalendarIcon />
+          <span>Book a meeting</span>
+        </a>
+      )}
       <a
         href={interactiveDemoHref}
         target={interactiveEnabled ? '_blank' : undefined}

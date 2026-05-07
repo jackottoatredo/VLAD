@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
 import { SHARE_BASE_URL } from '@/app/config'
 import Modal from './Modal'
 
@@ -42,6 +43,12 @@ export default function RenderPreviewModal({
   // 'Copied ✓' for 2s. Downloads and Open Link don't flash — the browser /
   // new tab is the confirmation.
   const [copiedId, setCopiedId] = useState<CopyId | null>(null)
+  // The owner's book_button_mode + cached meeting name — drives the
+  // booking-link status footer under the Share page card. Loaded once on
+  // mount; null until the fetch resolves (or when there's no slug since
+  // the share tab is disabled in that case).
+  const [bookingMode, setBookingMode] = useState<'website_form' | 'hidden' | 'hubspot' | null>(null)
+  const [bookingMeetingName, setBookingMeetingName] = useState<string | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
@@ -59,6 +66,26 @@ export default function RenderPreviewModal({
   const clipDuration = effectiveEnd > clipStart ? effectiveEnd - clipStart : 0
   const relativeTime = Math.max(0, Math.min(clipDuration, currentTime - clipStart))
   const progress = clipDuration > 0 ? relativeTime / clipDuration : 0
+
+  // Resolve the owner's booking-link mode once. Modal is only opened by
+  // logged-in users (the rep), so the GET reflects their own setting.
+  // Errors are swallowed — failure to fetch hides the warning, which is a
+  // safe default. Skip when sharing is disabled (no slug).
+  useEffect(() => {
+    if (!slug) return
+    let cancelled = false
+    void fetch('/api/users/me/hubspot-meeting', { cache: 'no-store' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body: { mode?: 'website_form' | 'hidden' | 'hubspot'; meetingName?: string | null } | null) => {
+        if (cancelled || !body?.mode) return
+        setBookingMode(body.mode)
+        setBookingMeetingName(body.meetingName ?? null)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [slug])
 
   // The video element is unmounted when the user switches to the Share tab,
   // so the listeners must reattach when they return. Re-running on `tab`
@@ -147,7 +174,8 @@ export default function RenderPreviewModal({
 
   function openSharePage() {
     if (!sharePagePath) return
-    window.open(sharePagePath, '_blank', 'noopener,noreferrer')
+    const base = SHARE_BASE_URL ?? window.location.origin
+    window.open(`${base}${sharePagePath}`, '_blank', 'noopener,noreferrer')
   }
 
   // The Clipboard API doesn't accept image/gif or video/mp4 (deliberate
@@ -303,6 +331,13 @@ export default function RenderPreviewModal({
                   { label: 'Open link', onAction: openSharePage },
                   { label: copiedId === 'share' ? 'Copied ✓' : 'Copy URL', active: copiedId === 'share', onAction: () => copyAbsolute(sharePagePath, 'share') },
                 ]}
+                footer={
+                  <BookingLinkStatus
+                    mode={bookingMode}
+                    meetingName={bookingMeetingName}
+                    onNavigate={onClose}
+                  />
+                }
               />
               <ShareCard
                 icon={
@@ -374,11 +409,14 @@ function ShareCard({
   name,
   description,
   actions,
+  footer,
 }: {
   icon: React.ReactNode
   name: string
   description: string
   actions: CardAction[]
+  /** Rendered below the action buttons. Used by the Share-page card to surface the booking-link warning. */
+  footer?: React.ReactNode
 }) {
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col items-center rounded-lg border border-border bg-background px-[10%] pb-[10%] pt-[5%] text-center">
@@ -403,6 +441,61 @@ function ShareCard({
           </button>
         ))}
       </div>
+      {footer}
     </div>
+  )
+}
+
+// Status line for the rep's booking-link configuration. Always renders;
+// amber when no rep-specific link is configured (default website form or
+// hidden), muted when a HubSpot link is set. The whole row is a Next Link
+// to /tools/settings — clicking closes the modal first via onNavigate.
+function BookingLinkStatus({
+  mode,
+  meetingName,
+  onNavigate,
+}: {
+  mode: 'website_form' | 'hidden' | 'hubspot' | null
+  meetingName: string | null
+  onNavigate: () => void
+}) {
+  // Pre-resolve label state so the row never collapses while the GET is
+  // in flight — pessimistic copy keeps the warning color until proven
+  // otherwise. (Nothing is shown to viewers; this is rep-only UI.)
+  const label =
+    mode === 'hubspot'
+      ? meetingName ?? 'HubSpot meeting link'
+      : mode === 'hidden'
+        ? 'Hidden'
+        : 'Generic website form'
+  const isWarning = mode !== 'hubspot'
+  const colorCls = isWarning
+    ? 'text-amber-600 dark:text-amber-400'
+    : 'text-muted'
+  return (
+    <Link
+      href="/tools/settings"
+      onClick={onNavigate}
+      className={`mt-2 flex w-full items-center justify-center gap-1 text-[0.7rem] leading-tight hover:underline ${colorCls}`}
+      title="Edit booking link in Settings"
+    >
+      <span className="shrink-0">Booking link:</span>
+      <span className="min-w-0 truncate">{label}</span>
+      <svg
+        width="11"
+        height="11"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+        className="shrink-0"
+      >
+        <path d="M12 20h9" />
+        <path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4Z" />
+      </svg>
+    </Link>
   )
 }

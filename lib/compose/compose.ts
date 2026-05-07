@@ -4,7 +4,7 @@ import { mkdir, readFile, rm } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { FFMPEG_BIN } from "@/lib/render/ffmpeg-bin";
-import { uploadToR2 } from "@/lib/storage/r2";
+import { uploadToR2, VLAD_NAMESPACE } from "@/lib/storage/r2";
 import { renderCursorFrames } from "@/lib/render/cursor-layer";
 
 /**
@@ -72,7 +72,7 @@ export async function compositeSessionVideo(options: ComposeOptions): Promise<Co
   const outputDir = path.dirname(backgroundVideoPath);
   const fileName = `${sessionName}-final-${Date.now()}-${randomUUID().slice(0, 8)}.mp4`;
   const outputPath = path.join(outputDir, fileName);
-  const r2Key = `composites/${userId}/${sessionName}/${fileName}`;
+  const r2Key = `${VLAD_NAMESPACE}/composites/${userId}/${sessionName}/${fileName}`;
 
   const wantsCursorOverlay =
     !!options.cursorPositions &&

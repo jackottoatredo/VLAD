@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { chromium } from "playwright";
-import { uploadToR2 } from "@/lib/storage/r2";
+import { uploadToR2, VLAD_NAMESPACE } from "@/lib/storage/r2";
 import { FFMPEG_BIN } from "@/lib/render/ffmpeg-bin";
 import { injectOverlay, tickOverlay } from "@/lib/render/overlay";
 import type { RenderSpec } from "@/lib/render/spec";
@@ -65,7 +65,7 @@ export async function renderOverlayToWebm(
 
   const fileName = `${options.sessionName}-ov-${Date.now()}-${randomUUID().slice(0, 8)}.mov`;
   const outputPath = path.join(tempDir, fileName);
-  const r2Key = `renders/${options.userId}/${options.sessionName}/${fileName}`;
+  const r2Key = `${VLAD_NAMESPACE}/renders/${options.userId}/${options.sessionName}/${fileName}`;
 
   const totalFrames = Math.max(1, Math.round((options.durationMs / 1000) * options.fps));
 

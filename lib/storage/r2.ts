@@ -11,6 +11,11 @@ import path from "node:path";
 
 const BUCKET = process.env.S3_BUCKET!;
 
+// Top-level namespace for every VLAD-owned R2 key. The bucket is shared with
+// other Redo apps (Shopify scrape data under harvest/, screenshots/, etc.) —
+// VLAD writes everything under `vlad/` so ownership is unambiguous.
+export const VLAD_NAMESPACE = "vlad";
+
 export const r2Client = new S3Client({
   region: process.env.S3_REGION ?? "auto",
   endpoint: process.env.S3_ENDPOINT!,

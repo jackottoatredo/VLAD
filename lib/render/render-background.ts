@@ -6,7 +6,7 @@ import ffmpeg from "fluent-ffmpeg";
 import { chromium, type Page } from "playwright";
 import { type CursorPosition, type RenderAction } from "@/lib/render/actions";
 import { installVirtualTimeClock, type VirtualTimeClock } from "@/lib/render/virtual-time";
-import { uploadToR2 } from "@/lib/storage/r2";
+import { uploadToR2, VLAD_NAMESPACE } from "@/lib/storage/r2";
 import { resolvedFfmpegPath } from "@/lib/render/ffmpeg-bin";
 import { VIRTUAL_PREVIEW_SCALE_FACTOR, PREVIEW_DOWNSCALE_FACTOR } from "@/app/config";
 
@@ -62,7 +62,7 @@ export async function renderBackgroundToMp4(
 
   const fileName = `${options.sessionName}-bg-${Date.now()}-${randomUUID().slice(0, 8)}.mp4`;
   const outputPath = path.join(tempDir, fileName);
-  const r2Key = `renders/${options.userId}/${options.sessionName}/${fileName}`;
+  const r2Key = `${VLAD_NAMESPACE}/renders/${options.userId}/${options.sessionName}/${fileName}`;
 
   const browser = await chromium.launch({
     headless: true,
@@ -85,6 +85,26 @@ export async function renderBackgroundToMp4(
     await page.goto(options.url, {
       waitUntil: "networkidle",
       timeout: 30_000,
+    });
+
+    // Enzuzo cookie banner is injected by Cloudflare across the site and the
+    // banner script flips inline display:none → visible after load, so we need
+    // a stylesheet rule with !important to keep it suppressed during capture.
+    await page.addStyleTag({
+      content: `
+        #ez-cookie-notification,
+        [id^="enzuzo-"],
+        [class*="enzuzo-"] {
+          display: none !important;
+          visibility: hidden !important;
+          opacity: 0 !important;
+          pointer-events: none !important;
+        }
+        html.enzuzo-overflow-hidden,
+        body.enzuzo-overflow-hidden {
+          overflow: auto !important;
+        }
+      `,
     });
 
     // Settle phase — wiggle the mouse near the starting cursor position so

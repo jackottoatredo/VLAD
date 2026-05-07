@@ -51,9 +51,9 @@ export default async function ToolsPage() {
       description: 'See how leads are interacting with shared demo pages.',
     },
     {
-      href: '/tools/notifications',
-      title: 'Notifications',
-      description: 'Get pinged when a lead engages with your share. Coming soon.',
+      href: '/tools/settings',
+      title: 'Settings & Notifications',
+      description: 'Configure your HubSpot booking link and other share-page preferences.',
     },
   ]
   if (isAdmin) {
@@ -81,7 +81,7 @@ export default async function ToolsPage() {
             </h1>
             <h3 className="mt-1 text-muted">
               {isAdmin
-                ? 'Engagement, notifications, and admin-only recording / usage tooling.'
+                ? 'Engagement, settings, and admin-only recording / usage tooling.'
                 : 'Track engagement on your shared demos.'}
             </h3>
           </div>

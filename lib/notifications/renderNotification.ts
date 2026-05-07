@@ -3,7 +3,7 @@ import { sendUserDM } from "@/lib/slack/sendUserDM";
 import { updateUserMessage } from "@/lib/slack/updateMessage";
 import { isInternalIpHash } from "@/lib/stats/internalIps";
 import { buildEngagementUrl } from "@/lib/notifications/engagementUrl";
-import { TRACKED_EVENT_TYPES, formatStatLines } from "@/lib/notifications/stats";
+import { STAT_DEFS, TRACKED_EVENT_TYPES, buildStatGridBlocks } from "@/lib/notifications/stats";
 import type { EngagementType } from "@/lib/stats/engagement";
 
 type DispatchArgs = {
@@ -42,7 +42,10 @@ function formatRepName(prefs: PrefsRow, fallback: string): string {
   return name || fallback;
 }
 
-function buildMessage({
+// Slack Block Kit payload. Header + two stat-grid rows (3 cells each) + a
+// link button. We hand-roll the grid because Slack's `fields` API forces a
+// 2-column layout and we want 3.
+function buildBlocks({
   renderName,
   counts,
   viewUrl,
@@ -50,10 +53,37 @@ function buildMessage({
   renderName: string;
   counts: Map<EngagementType, number>;
   viewUrl: string;
+}): unknown[] {
+  return [
+    {
+      type: "header",
+      text: { type: "plain_text", text: `Engagement Stats — ${renderName}`, emoji: true },
+    },
+    ...buildStatGridBlocks(counts),
+    {
+      type: "actions",
+      elements: [
+        {
+          type: "button",
+          text: { type: "plain_text", text: "View Engagement Page" },
+          url: viewUrl,
+        },
+      ],
+    },
+  ];
+}
+
+// Plain-text fallback used by Slack for notification previews and screen
+// readers. Mirrors the block content as one stat per line.
+function buildFallbackText({
+  renderName,
+  counts,
+}: {
+  renderName: string;
+  counts: Map<EngagementType, number>;
 }): string {
-  const heading = `Engagement Stats for *${renderName}*`;
-  const body = formatStatLines(counts);
-  return `${heading}\n${body}\n<${viewUrl}|View Engagement Page>`;
+  const lines = STAT_DEFS.map((s) => `${s.emoji} ${s.label}: ${counts.get(s.eventType) ?? 0}`);
+  return `Engagement Stats for ${renderName}\n${lines.join("\n")}`;
 }
 
 // Recompute counts from vlad_engagement_events on every event. Cheap for
@@ -108,13 +138,24 @@ export async function notifyRenderEvent(args: DispatchArgs): Promise<void> {
       ? [{ kind: "merchant", value: render.brand_url, label: render.brand_name ?? render.brand_url }]
       : []),
   ]);
-  const text = buildMessage({ renderName, counts, viewUrl });
+  const blocks = buildBlocks({ renderName, counts, viewUrl });
+  const text = buildFallbackText({ renderName, counts });
 
-  const { data: notifData } = await supabase
+  // Look up the existing notification row. If the table itself is missing
+  // (migration 018 not applied) we surface it loudly and bail rather than
+  // spam a new chat.postMessage on every event.
+  const { data: notifData, error: notifErr } = await supabase
     .from("vlad_render_notifications")
     .select("slack_channel, slack_ts")
     .eq("slug", args.slug)
     .maybeSingle();
+  if (notifErr) {
+    console.error(
+      `[notifyRenderEvent] notification lookup failed for ${args.slug}: ${notifErr.message}. ` +
+        `Bailing to avoid posting duplicate DMs. Has migration 018_render_notifications.sql been applied?`,
+    );
+    return;
+  }
   const existing = notifData as NotifRow | null;
 
   if (existing) {
@@ -122,25 +163,35 @@ export async function notifyRenderEvent(args: DispatchArgs): Promise<void> {
       channel: existing.slack_channel,
       ts: existing.slack_ts,
       text,
+      blocks,
     });
     if (result.status === "gone") {
       // Slack message was deleted (or we lost edit perms). Drop the row so
       // the next event posts a fresh DM and starts over.
       await supabase.from("vlad_render_notifications").delete().eq("slug", args.slug);
+    } else if (result.status === "error") {
+      console.error(
+        `[notifyRenderEvent] chat.update failed for ${args.slug}: ${result.slackError}`,
+      );
     }
     return;
   }
 
   // First event for this render — post a new DM.
-  const dm = await sendUserDM({ email: render.user_id, text });
-  if (dm.status !== "sent") return;
+  const dm = await sendUserDM({ email: render.user_id, text, blocks });
+  if (dm.status !== "sent") {
+    if (dm.status === "error") {
+      console.error(`[notifyRenderEvent] initial DM failed for ${args.slug}: ${dm.slackError}`);
+    }
+    return;
+  }
 
   // Cache the channel + ts so the next event edits this same message.
   // ignoreDuplicates so a race on concurrent first events doesn't error
   // out — the second-place winner just leaves an orphan Slack message,
   // and chat.update on subsequent events lands on whichever ts the row
   // ended up holding.
-  await supabase
+  const { error: upsertErr } = await supabase
     .from("vlad_render_notifications")
     .upsert(
       {
@@ -152,4 +203,10 @@ export async function notifyRenderEvent(args: DispatchArgs): Promise<void> {
       },
       { onConflict: "slug", ignoreDuplicates: true },
     );
+  if (upsertErr) {
+    console.error(
+      `[notifyRenderEvent] notification row upsert failed for ${args.slug}: ${upsertErr.message}. ` +
+        `Future events will keep posting fresh DMs until this is fixed.`,
+    );
+  }
 }

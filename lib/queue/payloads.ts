@@ -123,4 +123,38 @@ export type MergeJobPayload = {
   merge: MergeRenderSpec;
 };
 
-export type JobPayload = ProduceJobPayload | MergeJobPayload;
+/**
+ * Delayed job (5 min) enqueued from the engagement event handler when a
+ * non-internal human visit fires AND the rep has notify_visit_summary on.
+ * Worker handler reads any follow-up events for the same (slug, visitorId)
+ * and posts a threaded reply to the original live-visit DM.
+ */
+export type VisitSummaryJobPayload = {
+  type: "visit_summary";
+  /** Rep email — used for prefs re-check + DM target. */
+  repEmail: string;
+  /** Visitor identifier on the share page. */
+  visitorId: string;
+  /** Render slug whose engagement we're summarizing. */
+  slug: string;
+  /** Slack ts of the live visit DM — used as thread parent. */
+  parentTs: string;
+  /** ISO timestamp of the live-visit insert; events with created_at >= this
+   *  count as part of the visit window. */
+  visitStartedAt: string;
+};
+
+/** Recurring tick at 8am MT every day. Worker handler fans out per-rep
+ *  digests for everyone who has notify_daily_digest enabled. */
+export type DailyDigestTickPayload = { type: "daily_digest_tick" };
+
+/** Recurring tick at 8am MT every Monday. Same shape as daily but a 7-day
+ *  window. */
+export type WeeklyDigestTickPayload = { type: "weekly_digest_tick" };
+
+export type JobPayload =
+  | ProduceJobPayload
+  | MergeJobPayload
+  | VisitSummaryJobPayload
+  | DailyDigestTickPayload
+  | WeeklyDigestTickPayload;

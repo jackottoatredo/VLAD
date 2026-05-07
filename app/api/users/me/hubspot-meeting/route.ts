@@ -15,9 +15,9 @@ export async function GET() {
   }
 
   const { data, error } = await supabase
-    .from("vlad_users")
+    .from("vlad_user_preferences")
     .select("book_button_mode, hubspot_meeting_name")
-    .eq("id", session.email)
+    .eq("user_id", session.email)
     .maybeSingle();
 
   if (error) {
@@ -100,9 +100,11 @@ export async function PATCH(request: Request) {
   }
 
   const { error } = await supabase
-    .from("vlad_users")
-    .update(update)
-    .eq("id", session.email);
+    .from("vlad_user_preferences")
+    .upsert(
+      { user_id: session.email, ...update },
+      { onConflict: "user_id" },
+    );
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

@@ -47,9 +47,9 @@ type BookMode = "website_form" | "hidden" | "hubspot";
 // later metadata→page or page→action call doesn't double-query.
 const fetchBookButtonMode = cache(async (userId: string): Promise<BookMode> => {
   const { data } = await supabase
-    .from("vlad_users")
+    .from("vlad_user_preferences")
     .select("book_button_mode")
-    .eq("id", userId)
+    .eq("user_id", userId)
     .maybeSingle();
   const mode = (data as { book_button_mode?: string } | null)?.book_button_mode;
   return mode === "hidden" || mode === "hubspot" ? mode : "website_form";

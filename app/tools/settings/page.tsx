@@ -5,6 +5,7 @@ import { authOptions } from '@/lib/authOptions'
 import { supabase } from '@/lib/db/supabase'
 import HubSpotMeetingSetting from './HubSpotMeetingSetting'
 import AdminUserBookingControl from './AdminUserBookingControl'
+import NotificationSettings from './NotificationSettings'
 
 type UserRow = {
   book_button_mode: 'website_form' | 'hidden' | 'hubspot' | null
@@ -17,9 +18,9 @@ export default async function SettingsPage() {
   const isAdmin = session.user.role === 'admin'
 
   const { data } = await supabase
-    .from('vlad_users')
+    .from('vlad_user_preferences')
     .select('book_button_mode, hubspot_meeting_id')
-    .eq('id', session.user.email)
+    .eq('user_id', session.user.email)
     .maybeSingle()
   const row = (data as UserRow | null) ?? null
   const initialMode = row?.book_button_mode ?? 'website_form'
@@ -54,11 +55,12 @@ export default async function SettingsPage() {
           )}
         </section>
 
-        <section className="space-y-1 border-t border-border pt-6">
+        <section className="space-y-3 border-t border-border pt-6">
           <h2 className="text-lg font-medium text-foreground">Notifications</h2>
           <p className="text-sm text-muted">
-            Get pinged when a lead engages with your share. Coming soon.
+            Slack DMs when leads engage with your shares. All off by default.
           </p>
+          <NotificationSettings />
         </section>
 
         <div className="flex justify-start text-xs text-foreground">

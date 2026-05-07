@@ -12,7 +12,7 @@ export const runtime = "nodejs";
 // Returns the rep's HubSpot meeting links plus the id of their currently
 // selected one (so the dropdown can pre-select it). On the first call for a
 // rep we resolve their HubSpot user_id from their email and persist it on
-// vlad_users; subsequent calls skip that lookup.
+// vlad_user_preferences; subsequent calls skip that lookup.
 //
 // Admin override: when ?email=<other> is supplied AND the caller has the
 // admin role, the response reflects that other rep's links + selection.
@@ -37,9 +37,9 @@ export async function GET(request: Request) {
   const targetEmail = overrideEmail ?? session.email;
 
   const { data: userRow, error: userErr } = await supabase
-    .from("vlad_users")
+    .from("vlad_user_preferences")
     .select("hubspot_user_id, hubspot_meeting_id, book_button_mode")
-    .eq("id", targetEmail)
+    .eq("user_id", targetEmail)
     .maybeSingle();
 
   if (userErr) {
@@ -65,9 +65,9 @@ export async function GET(request: Request) {
       }
       // Cache so subsequent requests skip the email→id lookup.
       await supabase
-        .from("vlad_users")
+        .from("vlad_user_preferences")
         .update({ hubspot_user_id: hubspotUserId })
-        .eq("id", targetEmail);
+        .eq("user_id", targetEmail);
     }
 
     const links = await listMeetingLinks(hubspotUserId);

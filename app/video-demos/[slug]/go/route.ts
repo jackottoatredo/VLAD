@@ -23,8 +23,8 @@ type ShareRow = {
 type ResolveContext = {
   row: ShareRow;
   // The rep's saved HubSpot meeting link, if any. Loaded once from
-  // vlad_users by user_id; null when unset, when user_id is missing, or
-  // on lookup error. Only book-demo uses it.
+  // vlad_user_preferences by user_id; null when unset, when user_id is
+  // missing, or on lookup error. Only book-demo uses it.
   hubspotMeetingLink: string | null;
 };
 
@@ -82,9 +82,9 @@ export async function GET(
   let hubspotMeetingLink: string | null = null;
   if (to === "book-demo" && row.user_id) {
     const { data: userRow } = await supabase
-      .from("vlad_users")
+      .from("vlad_user_preferences")
       .select("book_button_mode, hubspot_meeting_link")
-      .eq("id", row.user_id)
+      .eq("user_id", row.user_id)
       .maybeSingle();
     const u = userRow as
       | { book_button_mode: "website_form" | "hidden" | "hubspot"; hubspot_meeting_link: string | null }

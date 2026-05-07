@@ -45,6 +45,13 @@ export const authOptions: NextAuthOptions = {
         { onConflict: "id" },
       );
 
+      // Materialize a preferences row so downstream code never has to
+      // null-branch. ignoreDuplicates so existing prefs (booking selection,
+      // notification toggles) survive re-sign-in.
+      await supabase
+        .from("vlad_user_preferences")
+        .upsert({ user_id: email }, { onConflict: "user_id", ignoreDuplicates: true });
+
       return true;
     },
     async session({ session, token }) {

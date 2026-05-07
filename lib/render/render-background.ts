@@ -87,6 +87,26 @@ export async function renderBackgroundToMp4(
       timeout: 30_000,
     });
 
+    // Enzuzo cookie banner is injected by Cloudflare across the site and the
+    // banner script flips inline display:none → visible after load, so we need
+    // a stylesheet rule with !important to keep it suppressed during capture.
+    await page.addStyleTag({
+      content: `
+        #ez-cookie-notification,
+        [id^="enzuzo-"],
+        [class*="enzuzo-"] {
+          display: none !important;
+          visibility: hidden !important;
+          opacity: 0 !important;
+          pointer-events: none !important;
+        }
+        html.enzuzo-overflow-hidden,
+        body.enzuzo-overflow-hidden {
+          overflow: auto !important;
+        }
+      `,
+    });
+
     // Settle phase — wiggle the mouse near the starting cursor position so
     // hover-gated initialisation runs before capture begins.
     const SETTLE_MS = 4000;

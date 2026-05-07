@@ -6,7 +6,6 @@ export const runtime = "nodejs";
 
 const NOTIFY_KEYS = [
   "notify_visit",
-  "notify_visit_summary",
   "notify_daily_digest",
   "notify_weekly_digest",
 ] as const;
@@ -27,7 +26,7 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("vlad_user_preferences")
-    .select("notify_visit, notify_visit_summary, notify_daily_digest, notify_weekly_digest")
+    .select("notify_visit, notify_daily_digest, notify_weekly_digest")
     .eq("user_id", session.email)
     .maybeSingle();
 
@@ -38,16 +37,12 @@ export async function GET() {
   const row = (data as Partial<Record<NotifyKey, boolean>> | null) ?? {};
   return NextResponse.json({
     notify_visit: !!row.notify_visit,
-    notify_visit_summary: !!row.notify_visit_summary,
     notify_daily_digest: !!row.notify_daily_digest,
     notify_weekly_digest: !!row.notify_weekly_digest,
   });
 }
 
-// PATCH body: { key: NotifyKey; enabled: boolean }. The summary toggle
-// requires the live ping to be on — turning the live ping off cascades the
-// summary off so a stale tab can't end up with a config that the dispatcher
-// wouldn't honor anyway.
+// PATCH body: { key: NotifyKey; enabled: boolean }.
 export async function PATCH(request: Request) {
   const session = await requireSession();
   if (!session) {
@@ -67,32 +62,11 @@ export async function PATCH(request: Request) {
   if (typeof enabled !== "boolean") {
     return NextResponse.json({ error: "enabled must be boolean." }, { status: 400 });
   }
-  if (key === "notify_visit_summary" && enabled) {
-    // Server-side gate: don't let the summary be enabled without the live
-    // ping. (UI also gates this; this is a defense-in-depth check.)
-    const { data: current } = await supabase
-      .from("vlad_user_preferences")
-      .select("notify_visit")
-      .eq("user_id", session.email)
-      .maybeSingle();
-    const visitOn = (current as { notify_visit?: boolean } | null)?.notify_visit;
-    if (!visitOn) {
-      return NextResponse.json(
-        { error: "Live visit ping must be on to enable the summary." },
-        { status: 400 },
-      );
-    }
-  }
-
-  const update: Record<string, boolean> = { [key]: enabled };
-  if (key === "notify_visit" && enabled === false) {
-    update.notify_visit_summary = false;
-  }
 
   const { error } = await supabase
     .from("vlad_user_preferences")
     .upsert(
-      { user_id: session.email, ...update },
+      { user_id: session.email, [key]: enabled },
       { onConflict: "user_id" },
     );
 

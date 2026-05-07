@@ -2,7 +2,7 @@ import { supabase } from "@/lib/db/supabase";
 import { sendUserDM } from "@/lib/slack/sendUserDM";
 import { isInternalIpHash } from "@/lib/stats/internalIps";
 import { buildEngagementUrl } from "@/lib/notifications/engagementUrl";
-import { TRACKED_EVENT_TYPES, formatStatLines } from "@/lib/notifications/stats";
+import { TRACKED_EVENT_TYPES, formatStatLines, buildStatGridBlocks } from "@/lib/notifications/stats";
 import type { EngagementType } from "@/lib/stats/engagement";
 
 type Window = "daily" | "weekly";
@@ -107,12 +107,26 @@ async function processDigestForWindow(window: Window): Promise<void> {
     const viewUrl = buildEngagementUrl([
       { kind: "presenter", value: rep.user_id, label: repName },
     ]);
-    const text = [
-      `Engagement Stats for ${headingRange}:`,
-      formatStatLines(counts),
-      `<${viewUrl}|View Engagement Page>`,
-    ].join("\n");
-    await sendUserDM({ email: rep.user_id, text });
+    const blocks: unknown[] = [
+      {
+        type: "header",
+        text: { type: "plain_text", text: `Engagement Stats — ${headingRange}`, emoji: true },
+      },
+      ...buildStatGridBlocks(counts),
+      {
+        type: "actions",
+        elements: [
+          {
+            type: "button",
+            text: { type: "plain_text", text: "View Engagement Page" },
+            url: viewUrl,
+          },
+        ],
+      },
+    ];
+    // Plain-text fallback for notification preview.
+    const text = `Engagement Stats for ${headingRange}\n${formatStatLines(counts)}`;
+    await sendUserDM({ email: rep.user_id, text, blocks });
   }
 }
 

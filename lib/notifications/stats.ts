@@ -11,14 +11,14 @@ export type StatDef = {
 // hand: one section block per row, each rendering its three cells inline.
 export const STAT_GRID: ReadonlyArray<ReadonlyArray<StatDef>> = [
   [
-    { emoji: ":eyes:",                label: "visits",          eventType: "human_visit" },
-    { emoji: ":movie_camera:",        label: "video plays",     eventType: "video_play" },
-    { emoji: ":spiral_calendar_pad:", label: "booking clicks",  eventType: "click_book_demo" },
+    { emoji: ":eyes:",                label: "page visits",        eventType: "human_visit" },
+    { emoji: ":movie_camera:",        label: "video plays",        eventType: "video_play" },
+    { emoji: ":spiral_calendar_pad:", label: "meetings scheduled", eventType: "click_book_demo" },
   ],
   [
     { emoji: ":arrow_down:",          label: "downloads",       eventType: "asset_download" },
-    { emoji: ":link:",                label: "link copies",     eventType: "click_copy_link" },
-    { emoji: ":computer:",            label: "live demo opens", eventType: "click_interactive_demo" },
+    { emoji: ":link:",                label: "links copied",    eventType: "click_copy_link" },
+    { emoji: ":computer:",            label: "previews opened", eventType: "click_interactive_demo" },
   ],
 ];
 
@@ -38,30 +38,25 @@ export function formatStatLines(counts: Map<EngagementType, number>): string {
     .join("\n");
 }
 
-// Build the two `section` blocks (one per row of three) that render the
-// stats grid in Slack. Each cell shows the emoji, bold count, and label —
-// counts pop visually since they're the load-bearing data.
-//
-// Alignment caveat: Slack mrkdwn renders in a proportional font, so strict
-// column alignment isn't possible without code-block monospace (which
-// would break emoji rendering). We pad the label portion of each cell
-// with non-breaking spaces (U+00A0, preserved by Slack across runs) and
-// use a tab between cells. Visually-aligned-ish, not pixel-perfect.
-const LABEL_WIDTH = 18; // >= "live demo opens" (15) + buffer
-const NBSP = " ";
-
-function padLabel(label: string): string {
-  return label + NBSP.repeat(Math.max(0, LABEL_WIDTH - label.length));
-}
-
-export function buildStatGridBlocks(counts: Map<EngagementType, number>): unknown[] {
-  return STAT_GRID.map((row) => ({
-    type: "section",
-    text: {
-      type: "mrkdwn",
-      text: row
-        .map((cell) => `${cell.emoji} *${counts.get(cell.eventType) ?? 0}* ${padLabel(cell.label)}`)
-        .join("\t"),
+// Build a single markdown block containing the title (as an H3 heading,
+// rendered full-width) followed by the 6x2 pipe table. Markdown tables
+// don't support column spanning, so the heading is the workaround for a
+// "header that spans both columns".
+export function buildStatGridBlocks(
+  counts: Map<EngagementType, number>,
+  title: string,
+): unknown[] {
+  const lines: string[] = [
+    `### ${title}`,
+    ``,
+    `| Metric | Count |`,
+    `| --- | --- |`,
+    ...STAT_DEFS.map((s) => `| ${s.emoji} ${s.label} | **${counts.get(s.eventType) ?? 0}** |`),
+  ];
+  return [
+    {
+      type: "markdown",
+      text: lines.join("\n"),
     },
-  }));
+  ];
 }

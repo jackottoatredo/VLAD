@@ -10,19 +10,39 @@ create table vlad_users (
   first_name           text not null,
   last_name            text not null default '',
   role                 text not null default 'user' check (role in ('user', 'admin')),
-  -- HubSpot booking integration. hubspot_user_id is resolved once from the
-  -- rep's email via /settings/v3/users and cached. The meeting fields hold
-  -- the rep's chosen link and are populated only when book_button_mode =
-  -- 'hubspot'. book_button_mode is the source of truth for what the share
-  -- page does: 'website_form' (default) → BOOK_DEMO_URL, 'hidden' → no
-  -- button at all, 'hubspot' → redirect to hubspot_meeting_link.
-  hubspot_user_id      text,
-  hubspot_meeting_id   text,
-  hubspot_meeting_link text,
-  hubspot_meeting_name text,
-  book_button_mode     text not null default 'website_form'
-    check (book_button_mode in ('website_form', 'hidden', 'hubspot')),
   created_at           timestamptz default now()
+);
+
+-- Per-user preferences. Split out from vlad_users so future preference fields
+-- don't keep widening the users table. One row per user, materialized on
+-- signup via authOptions and on first booking-save / notification-toggle.
+--
+-- Booking fields: hubspot_user_id is resolved once from the rep's email via
+-- /settings/v3/users and cached. The meeting fields hold the rep's chosen
+-- link and are populated only when book_button_mode = 'hubspot'.
+-- book_button_mode is the source of truth for what the share page does:
+-- 'website_form' (default) → BOOK_DEMO_URL, 'hidden' → no button at all,
+-- 'hubspot' → redirect to hubspot_meeting_link.
+--
+-- Notification fields: each toggle controls one Slack DM stream. All default
+-- off (opt-in). slack_user_id is cached on first successful Slack lookup so
+-- subsequent DMs skip users.lookupByEmail.
+create table vlad_user_preferences (
+  user_id                       text primary key
+                                  references vlad_users(id) on delete cascade,
+  hubspot_user_id               text,
+  hubspot_meeting_id            text,
+  hubspot_meeting_link          text,
+  hubspot_meeting_name          text,
+  book_button_mode              text not null default 'website_form'
+    check (book_button_mode in ('website_form', 'hidden', 'hubspot')),
+  notify_visit                  boolean not null default false,
+  notify_visit_summary          boolean not null default false,
+  notify_daily_digest           boolean not null default false,
+  notify_weekly_digest          boolean not null default false,
+  slack_user_id                 text,
+  created_at                    timestamptz not null default now(),
+  updated_at                    timestamptz not null default now()
 );
 
 create table vlad_recordings (

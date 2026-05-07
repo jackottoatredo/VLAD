@@ -6,6 +6,7 @@ import { parseUaFamily } from "@/lib/stats/uaFamily";
 import { parseDeviceType } from "@/lib/stats/deviceType";
 import { parseReferrer, type ReferrerKind } from "@/lib/stats/referrer";
 import { upsertVisitor } from "@/lib/stats/visitors";
+import { notifyOnVisit } from "@/lib/notifications/notifyOnVisit";
 
 export type EngagementType =
   | "bot_visit"
@@ -116,8 +117,22 @@ export async function logEngagementEvent(args: LogEngagementArgs): Promise<void>
         "row=",
         row,
       );
-    } else if (process.env.NODE_ENV !== "production") {
+      return;
+    }
+    if (process.env.NODE_ENV !== "production") {
       console.log(`[engagement] logged ${args.type}/${args.slug}`);
+    }
+
+    // Fire-and-forget rep notification on a successful human visit. Never
+    // surface failures — Slack hiccups must not affect engagement logging.
+    if (args.type === "human_visit") {
+      void notifyOnVisit({
+        slug: args.slug,
+        visitorId: args.visitorId ?? null,
+        ipHash,
+        isBot,
+        insertedAt: new Date(),
+      }).catch((err) => console.error(`[notifyOnVisit] failed for ${args.slug}:`, err));
     }
   } catch (err) {
     console.error(`[engagement] insert threw for ${args.type}/${args.slug}:`, err);

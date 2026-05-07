@@ -110,8 +110,11 @@ export default function ShareVideoPlayer({ slug, src, poster, className }: Props
     }
 
     const onPlay = () => {
+      // Short debounce only — enough to swallow the synthetic pause→play
+      // that browsers fire during seeking or buffer underruns (sub-second),
+      // but not so long that a legitimate replay gets dropped.
       const now = Date.now()
-      if (now - lastPlayMsRef.current < 30_000) return
+      if (now - lastPlayMsRef.current < 2_000) return
       lastPlayMsRef.current = now
       beacon('video_play', { currentTime: v.currentTime })
     }
@@ -121,8 +124,10 @@ export default function ShareVideoPlayer({ slug, src, poster, className }: Props
       // that's already captured by `video_end`. Also skip pauses caused by
       // seeking (the browser may fire pause→seeking→play in quick succession).
       if (v.ended || v.seeking) return
+      // Short debounce — see onPlay. Filters seek/buffer churn without
+      // dropping legitimate pause-after-resume actions.
       const now = Date.now()
-      if (now - lastPauseMsRef.current < 30_000) return
+      if (now - lastPauseMsRef.current < 2_000) return
       lastPauseMsRef.current = now
       beacon('video_pause', { currentTime: v.currentTime })
     }

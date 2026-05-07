@@ -41,14 +41,27 @@ export function formatStatLines(counts: Map<EngagementType, number>): string {
 // Build the two `section` blocks (one per row of three) that render the
 // stats grid in Slack. Each cell shows the emoji, bold count, and label —
 // counts pop visually since they're the load-bearing data.
+//
+// Alignment caveat: Slack mrkdwn renders in a proportional font, so strict
+// column alignment isn't possible without code-block monospace (which
+// would break emoji rendering). We pad the label portion of each cell
+// with non-breaking spaces (U+00A0, preserved by Slack across runs) and
+// use a tab between cells. Visually-aligned-ish, not pixel-perfect.
+const LABEL_WIDTH = 18; // >= "live demo opens" (15) + buffer
+const NBSP = " ";
+
+function padLabel(label: string): string {
+  return label + NBSP.repeat(Math.max(0, LABEL_WIDTH - label.length));
+}
+
 export function buildStatGridBlocks(counts: Map<EngagementType, number>): unknown[] {
   return STAT_GRID.map((row) => ({
     type: "section",
     text: {
       type: "mrkdwn",
       text: row
-        .map((cell) => `${cell.emoji} *${counts.get(cell.eventType) ?? 0}* ${cell.label}`)
-        .join("    ·    "),
+        .map((cell) => `${cell.emoji} *${counts.get(cell.eventType) ?? 0}* ${padLabel(cell.label)}`)
+        .join("\t"),
     },
   }));
 }

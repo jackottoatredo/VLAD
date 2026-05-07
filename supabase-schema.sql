@@ -6,11 +6,23 @@
 -- with no foreign key, since `previews` is owned by a separate service.
 
 create table vlad_users (
-  id          text primary key,        -- email address (e.g. jack.otto@redo.com)
-  first_name  text not null,
-  last_name   text not null default '',
-  role        text not null default 'user' check (role in ('user', 'admin')),
-  created_at  timestamptz default now()
+  id                   text primary key,        -- email address (e.g. jack.otto@redo.com)
+  first_name           text not null,
+  last_name            text not null default '',
+  role                 text not null default 'user' check (role in ('user', 'admin')),
+  -- HubSpot booking integration. hubspot_user_id is resolved once from the
+  -- rep's email via /settings/v3/users and cached. The meeting fields hold
+  -- the rep's chosen link and are populated only when book_button_mode =
+  -- 'hubspot'. book_button_mode is the source of truth for what the share
+  -- page does: 'website_form' (default) → BOOK_DEMO_URL, 'hidden' → no
+  -- button at all, 'hubspot' → redirect to hubspot_meeting_link.
+  hubspot_user_id      text,
+  hubspot_meeting_id   text,
+  hubspot_meeting_link text,
+  hubspot_meeting_name text,
+  book_button_mode     text not null default 'website_form'
+    check (book_button_mode in ('website_form', 'hidden', 'hubspot')),
+  created_at           timestamptz default now()
 );
 
 create table vlad_recordings (

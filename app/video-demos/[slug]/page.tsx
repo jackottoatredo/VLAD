@@ -27,17 +27,32 @@ type ShareRow = {
   gif_key: string | null;
   brand_url: string | null;
   product_name: string | null;
+  user_id: string | null;
 };
 
 // Memoize per-request so generateMetadata + the page body share one DB call.
 const fetchShareRow = cache(async (slug: string): Promise<ShareRow | null> => {
   const { data, error } = await supabase
     .from("vlad_renders")
-    .select("brand, brand_name, slug, video_url, poster_key, poster_square_key, gif_key, brand_url, product_name")
+    .select("brand, brand_name, slug, video_url, poster_key, poster_square_key, gif_key, brand_url, product_name, user_id")
     .eq("slug", slug)
     .single();
   if (error || !data) return null;
   return data as ShareRow;
+});
+
+type BookMode = "website_form" | "hidden" | "hubspot";
+
+// The owning rep's preference for the Book button. Memoized per-request so a
+// later metadata→page or page→action call doesn't double-query.
+const fetchBookButtonMode = cache(async (userId: string): Promise<BookMode> => {
+  const { data } = await supabase
+    .from("vlad_users")
+    .select("book_button_mode")
+    .eq("id", userId)
+    .maybeSingle();
+  const mode = (data as { book_button_mode?: string } | null)?.book_button_mode;
+  return mode === "hidden" || mode === "hubspot" ? mode : "website_form";
 });
 
 // "mammut.com" → "Mammut", "and-collar.com" → "And Collar"
@@ -178,6 +193,11 @@ export default async function SharePage({
         : "")
     : null;
 
+  const bookButtonMode = row.user_id
+    ? await fetchBookButtonMode(row.user_id)
+    : "website_form";
+  const showBookButton = bookButtonMode !== "hidden";
+
   return (
     <main className="force-light share-fill-on-landscape flex min-h-screen flex-1 items-center justify-center bg-background px-4 py-10 text-foreground">
       <div className="share-wrapper-on-landscape w-full max-w-6xl lg:max-w-[60vw]">
@@ -203,7 +223,12 @@ export default async function SharePage({
           />
         </div>
         <div className="share-hide-on-landscape">
-          <ShareActions slug={slug} downloadHref={downloadHref} interactiveDemoUrl={interactiveDemoUrl} />
+          <ShareActions
+            slug={slug}
+            downloadHref={downloadHref}
+            interactiveDemoUrl={interactiveDemoUrl}
+            showBookButton={showBookButton}
+          />
         </div>
       </div>
     </main>

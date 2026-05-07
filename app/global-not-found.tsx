@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import Link from "next/link";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -34,24 +33,16 @@ export default function GlobalNotFound() {
       </head>
       <body className="min-h-screen bg-background text-foreground">
         <div className="flex min-h-screen w-full items-center justify-center bg-background px-4 font-sans">
-          <main className="w-full max-w-md space-y-6 rounded-2xl border border-border bg-surface p-8 text-center shadow-md">
-            <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-accent">
-                404
-              </p>
-              <h1 className="text-3xl font-semibold tracking-tight text-foreground">
-                Page not found
-              </h1>
-              <p className="text-sm text-muted">
-                The page you’re looking for doesn’t exist or has moved.
-              </p>
-            </div>
-            <Link
-              href="/"
-              className="inline-flex w-full items-center justify-center rounded-xl border border-border bg-background px-4 py-3 text-sm font-medium text-foreground transition hover:border-muted hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-            >
-              Back to home
-            </Link>
+          <main className="w-full max-w-md space-y-2 rounded-2xl border border-border bg-surface p-8 text-center shadow-md">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-accent">
+              404
+            </p>
+            <h1 className="text-3xl font-semibold tracking-tight text-foreground">
+              Page not found
+            </h1>
+            <p className="text-sm text-muted">
+              The page you’re looking for doesn’t exist or has moved.
+            </p>
           </main>
         </div>
       </body>

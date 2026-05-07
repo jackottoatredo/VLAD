@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/apiAuth";
-import { deleteManyFromR2 } from "@/lib/storage/r2";
+import { deleteManyFromR2, VLAD_NAMESPACE } from "@/lib/storage/r2";
 
 export const runtime = "nodejs";
 
@@ -26,8 +26,8 @@ export async function DELETE(
   }
 
   await deleteManyFromR2([
-    `sessions/${session.email}/${flowId}/mouse.json`,
-    `sessions/${session.email}/${flowId}/webcam.webm`,
+    `${VLAD_NAMESPACE}/sessions/${session.email}/${flowId}/mouse.json`,
+    `${VLAD_NAMESPACE}/sessions/${session.email}/${flowId}/webcam.webm`,
   ]);
 
   return NextResponse.json({ ok: true });

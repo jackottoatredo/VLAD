@@ -9,7 +9,7 @@ import { FFMPEG_BIN } from "@/lib/render/ffmpeg-bin";
 import { compositeSessionVideo } from "@/lib/compose/compose";
 import { type RenderAction } from "@/lib/render/actions";
 import type { RenderSpec } from "@/lib/render/spec";
-import { uploadToR2 } from "@/lib/storage/r2";
+import { uploadToR2, VLAD_NAMESPACE } from "@/lib/storage/r2";
 import { computeCursorPositions } from "@/lib/render/cursor-track";
 import type { Keyframe } from "@/lib/render/keyframes";
 
@@ -101,7 +101,7 @@ async function trimVideoFile(
 
   const trimmedName = `${sessionName}-trimmed-${Date.now()}-${randomUUID().slice(0, 8)}.mp4`;
   const trimmedPath = path.join(path.dirname(composedPath), trimmedName);
-  const r2Key = `trims/${userId}/${sessionName}/${trimmedName}`;
+  const r2Key = `${VLAD_NAMESPACE}/trims/${userId}/${sessionName}/${trimmedName}`;
 
   // Frame-accurate trim via re-encode (see prior commit history for why
   // -c copy with fast-seek desyncs the webcam audio).

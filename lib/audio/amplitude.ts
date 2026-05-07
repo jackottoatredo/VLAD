@@ -84,7 +84,7 @@ export async function extractAmplitudeTrack(audioBuffer: Buffer): Promise<Amplit
 
 /**
  * Derive the canonical amplitude R2 key for a webcam R2 key.
- * `sessions/.../webcam.webm` → `sessions/.../webcam.amplitude.json`.
+ * `vlad/sessions/.../webcam.webm` → `vlad/sessions/.../webcam.amplitude.json`.
  */
 export function amplitudeKeyForWebcam(webcamR2Key: string): string {
   return webcamR2Key.replace(/\.webm$/i, ".amplitude.json");

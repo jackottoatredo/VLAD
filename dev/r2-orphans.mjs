@@ -175,11 +175,19 @@ for (const obj of all) {
     continue;
   }
   if (top === "composites") {
-    orphans["composites (intermediate, never DB-referenced)"].push(obj);
+    // Defensive: even though composites are intermediate, vlad_recordings.preview_url
+    // CAN point at composites/.../preview.mp4 in some legacy/recording flows.
+    if (!referenced.has(obj.key)) {
+      orphans["composites (intermediate, never DB-referenced)"].push(obj);
+    }
     continue;
   }
   if (top === "trims") {
-    orphans["trims (intermediate, never DB-referenced)"].push(obj);
+    // Defensive: when a render has a trim, vlad_renders.video_url (and sibling
+    // poster/gif keys via path.posix.dirname) live under trims/.
+    if (!referenced.has(obj.key)) {
+      orphans["trims (intermediate, never DB-referenced)"].push(obj);
+    }
     continue;
   }
 }

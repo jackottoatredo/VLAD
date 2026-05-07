@@ -6,7 +6,7 @@ import { DEFAULT_FPS, VIDEO_WIDTH, VIDEO_HEIGHT, RENDER_ZOOM } from "@/app/confi
 import { eventsToKeyframes } from "@/lib/render/keyframes";
 import { jobsQueue } from "@/lib/queue/connection";
 import type { ProduceJobPayload } from "@/lib/queue/payloads";
-import { downloadBufferFromR2, getPresignedUrl } from "@/lib/storage/r2";
+import { downloadBufferFromR2, getPresignedUrl, VLAD_NAMESPACE } from "@/lib/storage/r2";
 import { findCachedRender } from "@/lib/cache/render-cache";
 import { supabase } from "@/lib/db/supabase";
 import {
@@ -101,8 +101,8 @@ export async function POST(request: Request) {
   const url = body.url.trim();
   const dirName = `${userId}_${flowId}`;
 
-  let mouseR2Key = `sessions/${userId}/${flowId}/mouse.json`;
-  let webcamR2Key: string | null = `sessions/${userId}/${flowId}/webcam.webm`;
+  let mouseR2Key = `${VLAD_NAMESPACE}/sessions/${userId}/${flowId}/mouse.json`;
+  let webcamR2Key: string | null = `${VLAD_NAMESPACE}/sessions/${userId}/${flowId}/webcam.webm`;
 
   const { data: existingRow } = await supabase
     .from("vlad_recordings")

@@ -17,7 +17,7 @@ import { downloadRecording } from "@/lib/render/download";
 import { extractPoster } from "@/lib/render/poster";
 import { extractSquarePoster } from "@/lib/render/posterSquare";
 import { extractPreviewGif } from "@/lib/render/gif";
-import { uploadToR2, downloadFromR2 } from "@/lib/storage/r2";
+import { uploadToR2, downloadFromR2, VLAD_NAMESPACE } from "@/lib/storage/r2";
 import { supabase } from "@/lib/db/supabase";
 import { updateRenderCache } from "@/lib/cache/render-cache";
 import { logEvent } from "@/lib/stats/events";
@@ -851,7 +851,7 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
       });
       completeStep(2);
 
-      finalR2Key = `merges/${userId}/${d.outputSessionName}/${path.basename(mergedPath)}`;
+      finalR2Key = `${VLAD_NAMESPACE}/merges/${userId}/${d.outputSessionName}/${path.basename(mergedPath)}`;
       const fileBuffer = await readFile(mergedPath);
       await uploadToR2(finalR2Key, fileBuffer, "video/mp4");
       finalLocalPath = mergedPath;

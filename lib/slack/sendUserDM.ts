@@ -88,10 +88,13 @@ export async function sendUserDM({ email, text, blocks, threadTs }: SendArgs): P
     }),
   });
   const post = (await postRes.json()) as PostMessageResponse;
-  if (post.ok && post.ts) {
-    // chat.update needs the same channel ID we posted to. For DMs that's
-    // the recipient's Slack user ID — exactly what we resolved above.
-    return { status: "sent", ts: post.ts, channel: lookup.id };
+  if (post.ok && post.ts && post.channel) {
+    // chat.update requires the *DM channel ID* (starts with D...), NOT the
+    // user ID we passed to chat.postMessage. Slack auto-opens the DM and
+    // returns the resulting channel id in `post.channel` — that's what
+    // future chat.update calls must use. (Per docs.slack.dev — passing a
+    // user ID to chat.update returns channel_not_found.)
+    return { status: "sent", ts: post.ts, channel: post.channel };
   }
   const slackError = post.error ?? "unknown";
   return BENIGN_ERRORS.has(slackError)

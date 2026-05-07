@@ -17,9 +17,10 @@ export type UpdateResult =
   | { status: "skipped"; reason: "missing_env" }
   | { status: "error"; slackError: string };
 
-// Edit an existing chat.postMessage. `channel` is the same channel ID used
-// at post time — for a DM that's the recipient's Slack user ID. `ts` is the
-// message timestamp returned by the original chat.postMessage.
+// Edit an existing chat.postMessage. `channel` MUST be the channel ID
+// returned by the original chat.postMessage response (`post.channel`),
+// not the user ID we passed in. For DMs that's a `D...` ID — passing a
+// user ID will yield channel_not_found. `ts` is the message timestamp.
 //
 // `text` is required by Slack as a fallback (notifications, screen readers).
 // `blocks` is the rich rendering. Pass blocks to keep the visual layout

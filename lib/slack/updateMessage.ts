@@ -20,14 +20,21 @@ export type UpdateResult =
 // Edit an existing chat.postMessage. `channel` is the same channel ID used
 // at post time — for a DM that's the recipient's Slack user ID. `ts` is the
 // message timestamp returned by the original chat.postMessage.
+//
+// `text` is required by Slack as a fallback (notifications, screen readers).
+// `blocks` is the rich rendering. Pass blocks to keep the visual layout
+// (fields grid, button); the `text` argument also gets used to overwrite
+// the message's fallback string.
 export async function updateUserMessage({
   channel,
   ts,
   text,
+  blocks,
 }: {
   channel: string;
   ts: string;
   text: string;
+  blocks?: unknown[];
 }): Promise<UpdateResult> {
   const { SLACK_BOT_TOKEN } = process.env;
   if (!SLACK_BOT_TOKEN) {
@@ -44,8 +51,7 @@ export async function updateUserMessage({
       channel,
       ts,
       text,
-      // chat.update with `text` only and no `blocks` clears any blocks
-      // from the original message. Acceptable here — we don't use blocks.
+      ...(blocks ? { blocks } : {}),
     }),
   });
   const body = (await res.json()) as SlackResponse;

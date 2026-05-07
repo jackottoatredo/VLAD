@@ -42,11 +42,11 @@ function formatRepName(prefs: PrefsRow, fallback: string): string {
   return name || fallback;
 }
 
-// Slack Block Kit payload. Title section with the render name and a
-// "View Stats" accessory button on the same line, followed by the 3x2
-// stat grid. We hand-roll the grid because Slack's `fields` API forces a
-// 2-column layout and we want 3.
-function buildBlocks({
+// Slack Block Kit payload. Single markdown block contains the render
+// name (as an H3 heading rendered full-width — pipe tables can't span
+// columns) and the 6x2 stats table; a small actions block underneath
+// holds the "View Stats" button.
+export function buildPerRenderBlocks({
   renderName,
   counts,
   viewUrl,
@@ -56,16 +56,17 @@ function buildBlocks({
   viewUrl: string;
 }): unknown[] {
   return [
+    ...buildStatGridBlocks(counts, renderName),
     {
-      type: "section",
-      text: { type: "mrkdwn", text: `*${renderName}*` },
-      accessory: {
-        type: "button",
-        text: { type: "plain_text", text: "View Stats" },
-        url: viewUrl,
-      },
+      type: "actions",
+      elements: [
+        {
+          type: "button",
+          text: { type: "plain_text", text: "View Stats" },
+          url: viewUrl,
+        },
+      ],
     },
-    ...buildStatGridBlocks(counts),
   ];
 }
 
@@ -134,7 +135,7 @@ export async function notifyRenderEvent(args: DispatchArgs): Promise<void> {
       ? [{ kind: "merchant", value: render.brand_url, label: render.brand_name ?? render.brand_url }]
       : []),
   ]);
-  const blocks = buildBlocks({ renderName, counts, viewUrl });
+  const blocks = buildPerRenderBlocks({ renderName, counts, viewUrl });
   const text = buildFallbackText({ renderName, counts });
 
   // Look up the existing notification row. If the table itself is missing

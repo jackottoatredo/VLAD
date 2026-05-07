@@ -43,16 +43,51 @@ function formatRepName(rep: RepRow): string {
   return name || rep.user_id;
 }
 
+// Slack Block Kit payload for daily/weekly digests. Same shape as the
+// per-render notification — title heading + stats table inside a single
+// markdown block, with a "View Stats" actions block underneath.
+export function buildDigestBlocks({
+  headingRange,
+  counts,
+  viewUrl,
+}: {
+  headingRange: string;
+  counts: Map<EngagementType, number>;
+  viewUrl: string;
+}): unknown[] {
+  return [
+    ...buildStatGridBlocks(counts, headingRange),
+    {
+      type: "actions",
+      elements: [
+        {
+          type: "button",
+          text: { type: "plain_text", text: "View Stats" },
+          url: viewUrl,
+        },
+      ],
+    },
+  ];
+}
+
+// Heading rendered as the H3 title inside the digest's markdown block.
+// Bold prefix ("Daily Summary" / "Weekly Summary") composes with the
+// surrounding heading via Slack's markdown block. Exported so the test
+// endpoint can generate realistic-looking headings.
+export function formatDigestHeading(window: "daily" | "weekly", now = new Date()): string {
+  const windowMs = (window === "daily" ? 1 : 7) * 24 * 60 * 60 * 1000;
+  const start = new Date(now.getTime() - windowMs);
+  if (window === "daily") return `**Daily Summary** - ${formatDigestDate(start)}`;
+  return `**Weekly Summary** - ${formatWeekRange(start, now)}`;
+}
+
 async function processDigestForWindow(window: Window): Promise<void> {
   const toggleColumn = window === "daily" ? "notify_daily_digest" : "notify_weekly_digest";
   const windowMs = (window === "daily" ? 1 : 7) * 24 * 60 * 60 * 1000;
   const now = new Date();
   const cutoff = new Date(now.getTime() - windowMs);
 
-  const headingRange =
-    window === "daily"
-      ? formatDigestDate(cutoff) // "Sunday, May 6"
-      : `week of ${formatWeekRange(cutoff, now)}`;
+  const headingRange = formatDigestHeading(window, now);
 
   // Step 1 — recipients.
   const { data: prefsData } = await supabase
@@ -107,18 +142,7 @@ async function processDigestForWindow(window: Window): Promise<void> {
     const viewUrl = buildEngagementUrl([
       { kind: "presenter", value: rep.user_id, label: repName },
     ]);
-    const blocks: unknown[] = [
-      {
-        type: "section",
-        text: { type: "mrkdwn", text: `*${headingRange}*` },
-        accessory: {
-          type: "button",
-          text: { type: "plain_text", text: "View Stats" },
-          url: viewUrl,
-        },
-      },
-      ...buildStatGridBlocks(counts),
-    ];
+    const blocks = buildDigestBlocks({ headingRange, counts, viewUrl });
     // Plain-text fallback for notification preview.
     const text = `Engagement Stats for ${headingRange}\n${formatStatLines(counts)}`;
     await sendUserDM({ email: rep.user_id, text, blocks });

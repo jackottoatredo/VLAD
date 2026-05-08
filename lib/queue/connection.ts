@@ -28,4 +28,8 @@ export const QUEUE_NAME = "jobs";
 const g = globalThis as unknown as { __jobsQueue?: Queue };
 export const jobsQueue = (g.__jobsQueue ??= new Queue(QUEUE_NAME, {
   connection: REDIS_CONNECTION,
+  defaultJobOptions: {
+    removeOnComplete: { age: 3600, count: 100 },
+    removeOnFail: false,
+  },
 }));

@@ -4,6 +4,7 @@ import {
   GetObjectCommand,
   DeleteObjectCommand,
   DeleteObjectsCommand,
+  ListObjectsV2Command,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -103,6 +104,34 @@ export async function deleteManyFromR2(keys: string[]): Promise<void> {
   } catch {
     /* swallow */
   }
+}
+
+/**
+ * List every key under a prefix, paginating until the bucket is exhausted.
+ * Returns just the keys — sizes/timestamps are dropped since callers that
+ * need them can use ListObjectsV2 directly. Useful for cleanup paths that
+ * need to find files an upstream session/render wrote (intermediates in
+ * vlad/composites/, vlad/renders/, vlad/trims/) when those keys aren't
+ * tracked in any DB column or cache entry.
+ */
+export async function listKeysWithPrefix(prefix: string): Promise<string[]> {
+  const out: string[] = [];
+  let token: string | undefined;
+  do {
+    const res = await r2Client.send(
+      new ListObjectsV2Command({
+        Bucket: BUCKET,
+        Prefix: prefix,
+        ContinuationToken: token,
+        MaxKeys: 1000,
+      }),
+    );
+    for (const o of res.Contents ?? []) {
+      if (o.Key) out.push(o.Key);
+    }
+    token = res.IsTruncated ? res.NextContinuationToken : undefined;
+  } while (token);
+  return out;
 }
 
 /**

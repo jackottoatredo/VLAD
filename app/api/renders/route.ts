@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/db/supabase";
 import { requireSession } from "@/lib/apiAuth";
+import { deleteManyFromR2, listKeysWithPrefix, VLAD_NAMESPACE } from "@/lib/storage/r2";
 
 export const runtime = "nodejs";
 
@@ -132,12 +133,53 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Missing id." }, { status: 400 });
   }
 
+  // Capture the R2 keys before the row is gone — Phase 5 cleanup.
+  let selectQuery = supabase
+    .from("vlad_renders")
+    .select("user_id, video_url, poster_key, poster_square_key, gif_key, job_id")
+    .eq("id", body.id);
+  if (session.role !== "admin") selectQuery = selectQuery.eq("user_id", session.email);
+  const { data: existing } = await selectQuery.maybeSingle();
+
   let deleteQuery = supabase.from("vlad_renders").delete().eq("id", body.id);
   if (session.role !== "admin") deleteQuery = deleteQuery.eq("user_id", session.email);
   const { error } = await deleteQuery;
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  if (existing) {
+    const keys: string[] = [
+      existing.video_url,
+      existing.poster_key,
+      existing.poster_square_key,
+      existing.gif_key,
+    ].filter((k): k is string => typeof k === "string" && !!k);
+
+    // Merge-export pipelines write per-section render intermediates under
+    // vlad/renders/{user}/merge_{jobId}/{merchant,product,uov}/. These aren't
+    // referenced by any column on the row, so they'd leak unless we scan by
+    // job_id. Render rows produced by /api/product-only-export use the
+    // recording-tied dirname instead and have no merge intermediates — their
+    // job_id prefix scan returns nothing, which is safe.
+    if (existing.job_id) {
+      const mergePrefix = `${VLAD_NAMESPACE}/renders/${existing.user_id}/merge_${existing.job_id}/`;
+      try {
+        keys.push(...(await listKeysWithPrefix(mergePrefix)));
+      } catch (err) {
+        console.warn(`[renders DELETE] merge intermediate scan failed for ${body.id}:`, err);
+      }
+    }
+
+    const dedup = [...new Set(keys)];
+    if (dedup.length > 0) {
+      try {
+        await deleteManyFromR2(dedup);
+      } catch (err) {
+        console.warn(`[renders DELETE] R2 cleanup failed for ${body.id}:`, err);
+      }
+    }
   }
 
   return NextResponse.json({ ok: true });

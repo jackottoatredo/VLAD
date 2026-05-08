@@ -237,7 +237,11 @@ export async function POST(request: Request) {
   }
 
   const newJobId = shortJobId();
-  const dirName = `${userId}_product-only_${productRecordingId}_${urlHash}`;
+  // Product-only-export fans one product recording out to N renders (one per
+  // brand URL), so we nest by urlHash under the recordingId. Layout matches
+  // plain produce at the recordingId level — Hook 1's single-prefix scan
+  // (`vlad/{sub}/{userId}/{recordingId}/`) cleans both flow types uniformly.
+  const dirName = `${productRecordingId}/${urlHash}`;
 
   const { data: stub, error: stubErr } = await supabase
     .from("vlad_renders")

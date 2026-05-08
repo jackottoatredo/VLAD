@@ -26,7 +26,7 @@ import { downloadRecording } from "@/lib/render/download";
 import { extractPoster } from "@/lib/render/poster";
 import { extractSquarePoster } from "@/lib/render/posterSquare";
 import { extractPreviewGif } from "@/lib/render/gif";
-import { uploadToR2, downloadFromR2, VLAD_NAMESPACE } from "@/lib/storage/r2";
+import { uploadToR2, downloadFromR2, deleteManyFromR2, VLAD_NAMESPACE } from "@/lib/storage/r2";
 import { supabase } from "@/lib/db/supabase";
 import { updateRenderCache } from "@/lib/cache/render-cache";
 import { logEvent } from "@/lib/stats/events";
@@ -85,6 +85,14 @@ async function finalizeRenderRow(
     gif_key: string;
   },
 ): Promise<void> {
+  // Capture the predecessor keys BEFORE the update so we can delete them if
+  // this is a re-render. Same row id, new outputs → old files become orphan.
+  const { data: prev } = await supabase
+    .from("vlad_renders")
+    .select("video_url, poster_key, poster_square_key, gif_key")
+    .eq("id", renderId)
+    .maybeSingle();
+
   const { error } = await supabase
     .from("vlad_renders")
     .update({
@@ -95,6 +103,28 @@ async function finalizeRenderRow(
     .eq("id", renderId);
   if (error) {
     throw new Error(`vlad_renders update failed: ${error.message}`);
+  }
+
+  if (prev) {
+    const oldKeys = (
+      [
+        [prev.video_url, fields.video_url],
+        [prev.poster_key, fields.poster_key],
+        [prev.poster_square_key, fields.poster_square_key],
+        [prev.gif_key, fields.gif_key],
+      ] as const
+    )
+      .filter(
+        ([oldK, newK]) => typeof oldK === "string" && oldK && oldK !== newK,
+      )
+      .map(([oldK]) => oldK as string);
+    if (oldKeys.length > 0) {
+      try {
+        await deleteManyFromR2(oldKeys);
+      } catch (err) {
+        console.warn(`[worker] predecessor R2 cleanup failed for render ${renderId}:`, err);
+      }
+    }
   }
 }
 
@@ -335,11 +365,29 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceJo
 
     if (d.flowId && result.finalR2Key) {
       try {
+        // Capture the previous draft preview so we can delete it if the
+        // worker is producing a fresh final preview (otherwise the prior
+        // recordings/{id}/preview.mp4 — or last produce's finalR2Key —
+        // becomes orphan).
+        const { data: prev } = await supabase
+          .from("vlad_recordings")
+          .select("preview_url")
+          .eq("id", d.flowId)
+          .eq("status", "draft")
+          .maybeSingle();
         await supabase
           .from("vlad_recordings")
           .update({ preview_url: result.finalR2Key, updated_at: new Date().toISOString() })
           .eq("id", d.flowId)
           .eq("status", "draft");
+        const oldPreview = prev?.preview_url;
+        if (typeof oldPreview === "string" && oldPreview && oldPreview !== result.finalR2Key) {
+          try {
+            await deleteManyFromR2([oldPreview]);
+          } catch (err) {
+            console.warn(`[worker] draft preview cleanup failed for ${d.flowId}:`, err);
+          }
+        }
       } catch {
         /* swallow — best-effort */
       }
@@ -735,7 +783,7 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
 
       const unifiedOverlay = await renderUnifiedMergeOverlay({
         userId,
-        sessionName: `${d.outputSessionName}-uov`,
+        sessionName: `${d.outputSessionName}/uov`,
         width: d.merchant!.width,
         height: d.merchant!.height,
         zoom: 1.25,

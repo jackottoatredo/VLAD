@@ -33,10 +33,11 @@ const ALLOWED_CATEGORIES = new Set([
   "(root) test artifact",
 ]);
 
-// VLAD-owned top-level prefixes. Any orphan key not under one of these is
-// rejected — defends against accidental deletion of other-app data sharing
-// this bucket.
-const VLAD_TOP_PREFIXES = new Set([
+// VLAD-owned sub-prefixes under the vlad/ namespace. Every legitimate VLAD
+// key now lives at `vlad/<sub>/...` post-migration. Any orphan key not under
+// one of these is rejected — defends against accidental deletion of other-app
+// data sharing this bucket.
+const VLAD_SUBPREFIXES = new Set([
   "sessions",
   "recordings",
   "renders",
@@ -86,18 +87,13 @@ if (unknownCategories.length > 0) {
 const allKeys = [];
 for (const [cat, keys] of Object.entries(orphans)) {
   for (const key of keys) {
-    if (cat === "(root) test artifact") {
-      // Allow root-level artifacts only if explicitly in this category.
-      allKeys.push({ cat, key });
-      continue;
-    }
-    const top = key.split("/")[0];
     if (FORBIDDEN_PREFIXES.some((p) => key.startsWith(p))) {
       console.error(`Refusing to run: key '${key}' is under a forbidden (other-app) prefix.`);
       process.exit(1);
     }
-    if (!VLAD_TOP_PREFIXES.has(top)) {
-      console.error(`Refusing to run: key '${key}' is not under a VLAD prefix (top='${top}').`);
+    const parts = key.split("/");
+    if (parts[0] !== "vlad" || !VLAD_SUBPREFIXES.has(parts[1])) {
+      console.error(`Refusing to run: key '${key}' is not under a VLAD sub-prefix (expected vlad/<sub>/...).`);
       process.exit(1);
     }
     allKeys.push({ cat, key });

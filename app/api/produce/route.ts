@@ -99,7 +99,10 @@ export async function POST(request: Request) {
 
   const userId = session.email;
   const url = body.url.trim();
-  const dirName = `${userId}_${flowId}`;
+  // dirName lives under vlad/{renders,composites,trims}/{userId}/, so the
+  // userId prefix would be redundant. Just the recording id keeps every
+  // intermediate for one recording in a single, easily-listed directory.
+  const dirName = flowId;
 
   let mouseR2Key = `${VLAD_NAMESPACE}/sessions/${userId}/${flowId}/mouse.json`;
   let webcamR2Key: string | null = `${VLAD_NAMESPACE}/sessions/${userId}/${flowId}/webcam.webm`;

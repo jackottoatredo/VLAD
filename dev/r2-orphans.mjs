@@ -87,7 +87,11 @@ const draftFlowIds = new Set(recordings.filter((r) => r.status === "draft").map(
 
 const all = JSON.parse(readFileSync("dev/r2-listing.json", "utf8"));
 
-const VLAD_PREFIXES = new Set([
+// Sub-prefixes under the vlad/ namespace. Post-migration every VLAD-owned
+// key is shaped as `vlad/<sub>/...`. Anything outside vlad/ is either other-app
+// data (other Redo apps share this bucket) or pre-migration leftover and is
+// skipped here — Phase 4 / cleanup-postrestart already cleaned those up.
+const VLAD_SUBPREFIXES = new Set([
   "sessions",
   "recordings",
   "renders",
@@ -107,7 +111,6 @@ const orphans = {
   "composites (intermediate, never DB-referenced)": [],
   "trims (intermediate, never DB-referenced)": [],
   "users/ (legacy render path)": [],
-  "(root) test artifact": [],
 };
 
 const fmt = (n) =>
@@ -115,22 +118,22 @@ const fmt = (n) =>
 
 for (const obj of all) {
   const parts = obj.key.split("/");
-  const top = parts[0];
 
-  if (top === "(root)" || (parts.length === 1 && obj.key === "test.txt")) {
-    orphans["(root) test artifact"].push(obj);
-    continue;
-  }
-  if (!VLAD_PREFIXES.has(top)) continue;
+  // Only classify keys under the vlad/ namespace. Other-app + stray keys
+  // (harvest/, screenshots/, ..., or anything outside vlad/) are skipped.
+  if (parts[0] !== "vlad") continue;
 
-  if (top === "users") {
+  const sub = parts[1];
+  if (!VLAD_SUBPREFIXES.has(sub)) continue;
+
+  if (sub === "users") {
     orphans["users/ (legacy render path)"].push(obj);
     continue;
   }
 
-  if (top === "sessions") {
-    // Pattern: sessions/{userIdOrSlug}/{flowId}/{file}
-    const flowId = parts[2];
+  if (sub === "sessions") {
+    // Pattern: vlad/sessions/{userIdOrSlug}/{flowId}/{file}
+    const flowId = parts[3];
     if (!flowId || !activeFlowIds.has(flowId)) {
       orphans["sessions (no recording row)"].push(obj);
     } else if (!draftFlowIds.has(flowId)) {
@@ -143,9 +146,10 @@ for (const obj of all) {
     continue;
   }
 
-  if (top === "recordings") {
-    const flowId = parts[1];
-    const file = parts[2];
+  if (sub === "recordings") {
+    // Pattern: vlad/recordings/{flowId}/{file}
+    const flowId = parts[2];
+    const file = parts[3];
     if (file === "mouse.json" || file === "webcam.webm" || (file && file.startsWith("webcam."))) {
       // Legacy path — current code writes mouse + webcam to sessions/, only
       // preview.mp4 lives at recordings/{id}/.
@@ -159,22 +163,23 @@ for (const obj of all) {
         orphans["recordings/{id}/preview.mp4 (no row)"].push(obj);
       }
     }
+    void flowId;
     continue;
   }
 
-  if (top === "renders") {
+  if (sub === "renders") {
     if (!referenced.has(obj.key)) {
       orphans["renders (not referenced by any render row)"].push(obj);
     }
     continue;
   }
-  if (top === "merges") {
+  if (sub === "merges") {
     if (!referenced.has(obj.key)) {
       orphans["merges (not referenced by any render row)"].push(obj);
     }
     continue;
   }
-  if (top === "composites") {
+  if (sub === "composites") {
     // Defensive: even though composites are intermediate, vlad_recordings.preview_url
     // CAN point at composites/.../preview.mp4 in some legacy/recording flows.
     if (!referenced.has(obj.key)) {
@@ -182,7 +187,7 @@ for (const obj of all) {
     }
     continue;
   }
-  if (top === "trims") {
+  if (sub === "trims") {
     // Defensive: when a render has a trim, vlad_renders.video_url (and sibling
     // poster/gif keys via path.posix.dirname) live under trims/.
     if (!referenced.has(obj.key)) {
@@ -212,7 +217,8 @@ for (const obj of all) {
   if (referenced.has(obj.key)) {
     referencedSize += obj.size;
     referencedCount++;
-    const top = obj.key.split("/")[0];
+    const parts = obj.key.split("/");
+    const top = parts[0] === "vlad" && parts[1] ? `vlad/${parts[1]}` : parts[0];
     const cur = liveByPrefix.get(top) ?? { count: 0, bytes: 0 };
     cur.count++;
     cur.bytes += obj.size;

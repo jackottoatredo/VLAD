@@ -682,7 +682,7 @@ export async function POST(request: Request) {
 
       merchantPayload = {
         url: merchantUrl,
-        sessionName: `merge_${jobId}_merchant`,
+        sessionName: `merge_${jobId}/merchant`,
         width: merchantRec.mouseData.virtualWidth,
         height: merchantRec.mouseData.virtualHeight,
         keyframes: merchantKeyframes,
@@ -734,7 +734,7 @@ export async function POST(request: Request) {
 
       productPayload = {
         url: productUrl,
-        sessionName: `merge_${jobId}_product`,
+        sessionName: `merge_${jobId}/product`,
         width: productRec.mouseData.virtualWidth,
         height: productRec.mouseData.virtualHeight,
         keyframes: productKeyframes,

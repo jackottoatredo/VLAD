@@ -9,7 +9,7 @@ type Props = {
 
 export default function Markdown({ children, className = '' }: Props) {
   return (
-    <div className={`space-y-2 text-sm text-muted ${className}`}>
+    <div className={`space-y-2 text-sm text-foreground ${className}`}>
       <ReactMarkdown
         components={{
           strong: ({ children }) => (

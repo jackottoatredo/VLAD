@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/db/supabase";
 import { requireSession } from "@/lib/apiAuth";
+import { deleteByPrefix, renderDir } from "@/lib/storage/r2";
 
 export const runtime = "nodejs";
 
@@ -132,12 +133,32 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Missing id." }, { status: 400 });
   }
 
+  // Look up the row's owner so we can build the entity prefix for cleanup.
+  let selectQuery = supabase
+    .from("vlad_renders")
+    .select("user_id")
+    .eq("id", body.id);
+  if (session.role !== "admin") selectQuery = selectQuery.eq("user_id", session.email);
+  const { data: existing } = await selectQuery.maybeSingle();
+
   let deleteQuery = supabase.from("vlad_renders").delete().eq("id", body.id);
   if (session.role !== "admin") deleteQuery = deleteQuery.eq("user_id", session.email);
   const { error } = await deleteQuery;
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  // Post-restructure: every render artifact (video.mp4, share assets, every
+  // intermediates/{jobId}/ tree) lives under the render's prefix. One scan
+  // catches them all. The render's source recording survives untouched —
+  // its data is at `recordings/{recId}/`, not `renders/{renderId}/`.
+  if (existing) {
+    try {
+      await deleteByPrefix(`${renderDir(existing.user_id, body.id)}/`);
+    } catch (err) {
+      console.warn(`[renders DELETE] R2 cleanup failed for ${body.id}:`, err);
+    }
   }
 
   return NextResponse.json({ ok: true });

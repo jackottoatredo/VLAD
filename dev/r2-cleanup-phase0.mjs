@@ -21,29 +21,9 @@ const ORPHANS_PATH = "dev/r2-orphans.json";
 const LISTING_PATH = "dev/r2-listing.json";
 
 const ALLOWED_CATEGORIES = new Set([
-  "sessions (no recording row)",
-  "sessions (saved row, but session orig kept)",
-  "recordings/{id}/ legacy mouse+webcam",
-  "recordings/{id}/preview.mp4 (no row)",
-  "renders (not referenced by any render row)",
-  "merges (not referenced by any render row)",
-  "composites (intermediate, never DB-referenced)",
-  "trims (intermediate, never DB-referenced)",
-  "users/ (legacy render path)",
-  "(root) test artifact",
-]);
-
-// VLAD-owned top-level prefixes. Any orphan key not under one of these is
-// rejected — defends against accidental deletion of other-app data sharing
-// this bucket.
-const VLAD_TOP_PREFIXES = new Set([
-  "sessions",
-  "recordings",
-  "renders",
-  "merges",
-  "composites",
-  "trims",
-  "users",
+  "recordings/{id}/ no DB row",
+  "renders/{id}/ no DB row",
+  "vlad/ stray (not under users/)",
 ]);
 
 const FORBIDDEN_PREFIXES = ["harvest/", "screenshots/", "images/", "html/", "raw-batches/", "captures/"];
@@ -86,18 +66,12 @@ if (unknownCategories.length > 0) {
 const allKeys = [];
 for (const [cat, keys] of Object.entries(orphans)) {
   for (const key of keys) {
-    if (cat === "(root) test artifact") {
-      // Allow root-level artifacts only if explicitly in this category.
-      allKeys.push({ cat, key });
-      continue;
-    }
-    const top = key.split("/")[0];
     if (FORBIDDEN_PREFIXES.some((p) => key.startsWith(p))) {
       console.error(`Refusing to run: key '${key}' is under a forbidden (other-app) prefix.`);
       process.exit(1);
     }
-    if (!VLAD_TOP_PREFIXES.has(top)) {
-      console.error(`Refusing to run: key '${key}' is not under a VLAD prefix (top='${top}').`);
+    if (!key.startsWith("vlad/")) {
+      console.error(`Refusing to run: key '${key}' is not under the vlad/ namespace.`);
       process.exit(1);
     }
     allKeys.push({ cat, key });

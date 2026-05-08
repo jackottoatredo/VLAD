@@ -4,7 +4,7 @@ import { mkdir, readFile, rm } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { FFMPEG_BIN } from "@/lib/render/ffmpeg-bin";
-import { uploadToR2, VLAD_NAMESPACE } from "@/lib/storage/r2";
+import { uploadToR2 } from "@/lib/storage/r2";
 import { renderCursorFrames } from "@/lib/render/cursor-layer";
 
 /**
@@ -22,8 +22,9 @@ import { renderCursorFrames } from "@/lib/render/cursor-layer";
  */
 
 export type ComposeOptions = {
-  userId: string;
-  sessionName: string;
+  /** Full R2 prefix where this stage's output lands. The composer appends
+   *  `/composite.mp4`. Build via lib/storage/r2.ts helpers. */
+  intermediatesDir: string;
   /** Background-only render — page screenshots, no overlay/cursor. */
   backgroundVideoPath: string;
   /** Transparent overlay webm — webcam circle / audio icon, alpha-aware. */
@@ -64,15 +65,14 @@ function parseTimemark(mark: string): number {
 }
 
 export async function compositeSessionVideo(options: ComposeOptions): Promise<ComposeResult> {
-  const { userId, sessionName, backgroundVideoPath, overlayVideoPath, durationMs, onProgress } = options;
+  const { intermediatesDir, backgroundVideoPath, overlayVideoPath, durationMs, onProgress } = options;
   const webcamPath = options.webcamPath ?? null;
   const hasWebcamAudio = !options.muteAudio && !!webcamPath && existsSync(webcamPath);
 
   const durationSec = durationMs / 1000;
   const outputDir = path.dirname(backgroundVideoPath);
-  const fileName = `${sessionName}-final-${Date.now()}-${randomUUID().slice(0, 8)}.mp4`;
-  const outputPath = path.join(outputDir, fileName);
-  const r2Key = `${VLAD_NAMESPACE}/composites/${userId}/${sessionName}/${fileName}`;
+  const outputPath = path.join(outputDir, "composite.mp4");
+  const r2Key = `${intermediatesDir}/composite.mp4`;
 
   const wantsCursorOverlay =
     !!options.cursorPositions &&

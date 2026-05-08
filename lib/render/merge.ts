@@ -170,8 +170,12 @@ export async function composeLayeredMerge(
 
   // Trim each background to its trim window. The unified overlay does NOT
   // need trimming — it was rendered for the merged output duration directly.
-  parts.push(`[0:v]${trimSuffix(introTrimStart, introTrimEnd)}[bg0]`);
-  parts.push(`[1:v]${trimSuffix(productTrimStart, productTrimEnd)}[bg1]`);
+  // `fps=N` forces CFR after trim+setpts: some FFmpeg builds drop the
+  // inferred frame rate to 1/0 (undefined) on the link, which xfade rejects
+  // with "inputs needs to be a constant frame rate". Harmless on already-CFR
+  // sources.
+  parts.push(`[0:v]${trimSuffix(introTrimStart, introTrimEnd)},fps=${fps}[bg0]`);
+  parts.push(`[1:v]${trimSuffix(productTrimStart, productTrimEnd)},fps=${fps}[bg1]`);
   // Force yuva420p on the unified overlay branch so alpha survives any
   // FFmpeg pixel-format downcast before the final overlay step.
   parts.push(`[2:v]format=yuva420p[ovin]`);

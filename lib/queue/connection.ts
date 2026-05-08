@@ -30,6 +30,6 @@ export const jobsQueue = (g.__jobsQueue ??= new Queue(QUEUE_NAME, {
   connection: REDIS_CONNECTION,
   defaultJobOptions: {
     removeOnComplete: { age: 3600, count: 100 },
-    removeOnFail: false,
+    removeOnFail: { age: 7 * 24 * 60 * 60 },
   },
 }));

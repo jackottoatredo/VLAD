@@ -7,6 +7,8 @@ import Select from '@/app/components/Select'
 import MerchantChipInput, { type MerchantChip } from '@/app/components/MerchantChipInput'
 import type { WebcamMode, WebcamVertical, WebcamHorizontal } from '@/types/webcam'
 
+export type JobRequestPayload = { endpoint: string; body: unknown }
+
 type RecordingOption = { id: string; label: string }
 
 export type WebcamSource = 'self' | 'other' | 'custom'
@@ -198,6 +200,75 @@ type CustomSnapshot = {
 
 const CUSTOM_STORAGE_KEY = 'vlad_merge_custom_snapshot'
 
+/**
+ * Reverses the body shape produced by the merge-export / product-only-export
+ * routes back into a MergeFormState so the edit-and-rerender flow can
+ * pre-populate the modal in custom mode. Tolerant of legacy bodies — anything
+ * missing falls back to BLANK_* equivalents.
+ *
+ * Lives here (rather than at the call site) so the merge-export page and the
+ * admin recordings tool can share the same conversion.
+ */
+export function bodyToFormState(jobRequest: JobRequestPayload | null | undefined): MergeFormState | null {
+  if (!jobRequest || !jobRequest.body || typeof jobRequest.body !== 'object') return null
+  const body = jobRequest.body as Record<string, unknown>
+  const isProductOnly = jobRequest.endpoint === '/api/product-only-export'
+
+  const introS = (body.introSettings as Record<string, unknown> | undefined) ?? {}
+  const productS = (body.productSettings as Record<string, unknown> | undefined) ?? {}
+  const tr = (body.transition as Record<string, unknown> | undefined) ?? {}
+  const merchantBrand = body.merchantBrand as { websiteUrl?: string; brandName?: string } | undefined
+
+  const intro: IntroSettings = {
+    enabled: isProductOnly ? false : body.introEnabled !== false,
+    merchantRecordingIds:
+      typeof body.merchantRecordingId === 'string' ? [body.merchantRecordingId] : [],
+    modeSource: (introS.modeSource as WebcamSource) ?? 'self',
+    customMode: (introS.customMode as WebcamMode) ?? 'video',
+    positionSource: (introS.positionSource as WebcamSource) ?? 'self',
+    customPosition: (introS.customPosition as WebcamPosition) ?? DEFAULT_POSITION,
+  }
+
+  // Reconstruct a renderable merchant chip from the body's merchantBrand
+  // payload — only websiteUrl + brandName flow back to runProductOnlyTask, so
+  // a synthesized id is fine for the form's validation.
+  const brandMerchants: MerchantChip[] =
+    isProductOnly && merchantBrand?.websiteUrl
+      ? [{
+          kind: 'merchant',
+          id: `synthetic:${merchantBrand.websiteUrl}`,
+          brandName: merchantBrand.brandName ?? merchantBrand.websiteUrl,
+          websiteUrl: merchantBrand.websiteUrl,
+          status: 'complete',
+        }]
+      : []
+
+  const product: ProductSettings = {
+    enabled: isProductOnly ? true : body.productEnabled !== false,
+    productRecordingId: typeof body.productRecordingId === 'string' ? body.productRecordingId : '',
+    brandMerchants,
+    modeSource: (productS.modeSource as WebcamSource) ?? 'self',
+    customMode: (productS.customMode as WebcamMode) ?? 'video',
+    positionSource: (productS.positionSource as WebcamSource) ?? 'self',
+    customPosition: (productS.customPosition as WebcamPosition) ?? DEFAULT_POSITION,
+  }
+
+  const audio = (tr.audio as AudioTransition) ?? 'none'
+  const video = (tr.video as VideoTransition) ?? 'none'
+  const overlay = (tr.overlay as OverlayTransition) ?? 'none'
+  const mouse = (tr.mouse as MouseTransition) ?? 'none'
+  const transition: TransitionSettings = {
+    enabled: audio !== 'none' || video !== 'none' || overlay !== 'none' || mouse !== 'none',
+    audio, video, overlay, mouse,
+    audioDurationMs: typeof tr.audioDurationMs === 'number' ? tr.audioDurationMs : BLANK_TRANSITION.audioDurationMs,
+    videoDurationMs: typeof tr.videoDurationMs === 'number' ? tr.videoDurationMs : BLANK_TRANSITION.videoDurationMs,
+    overlayDurationMs: typeof tr.overlayDurationMs === 'number' ? tr.overlayDurationMs : BLANK_TRANSITION.overlayDurationMs,
+    mouseDurationMs: typeof tr.mouseDurationMs === 'number' ? tr.mouseDurationMs : BLANK_TRANSITION.mouseDurationMs,
+  }
+
+  return { preset: 'custom', intro, transition, product }
+}
+
 function p1Snapshot(): CustomSnapshot {
   return {
     intro: {
@@ -372,17 +443,26 @@ type Props = {
   products: RecordingOption[]
   onClose: () => void
   onSubmit: (state: MergeFormState) => void
+  /** Pre-populate the form (used by the render edit flow). When supplied, the
+   *  preset picker is skipped and the form opens straight into edit view. */
+  initialState?: MergeFormState
+  /** Optional override for the submit button copy (e.g. "Re-render" for edits). */
+  submitLabel?: string
+  /** Optional override for the modal header title. */
+  modalTitle?: string
 }
 
-export default function GenerateMergeModal({ merchants, products, onClose, onSubmit }: Props) {
-  const [state, setState] = useState<MergeFormState>({
-    preset: 'p1',
-    intro: { ...BLANK_INTRO, modeSource: 'custom', customMode: 'video', positionSource: 'other' },
-    transition: { ...P1_TRANSITION },
-    product: { ...BLANK_PRODUCT, modeSource: 'custom', customMode: 'audio', positionSource: 'self' },
-  })
+export default function GenerateMergeModal({ merchants, products, onClose, onSubmit, initialState, submitLabel, modalTitle }: Props) {
+  const [state, setState] = useState<MergeFormState>(
+    initialState ?? {
+      preset: 'p1',
+      intro: { ...BLANK_INTRO, modeSource: 'custom', customMode: 'video', positionSource: 'other' },
+      transition: { ...P1_TRANSITION },
+      product: { ...BLANK_PRODUCT, modeSource: 'custom', customMode: 'audio', positionSource: 'self' },
+    },
+  )
   const [customSnapshot, setCustomSnapshot] = useState<CustomSnapshot>(loadCustomSnapshot)
-  const [hasPickedPreset, setHasPickedPreset] = useState(false)
+  const [hasPickedPreset, setHasPickedPreset] = useState(initialState != null)
 
   // While editing in custom mode, mirror the active config into the snapshot
   // so subsequent preset switches don't lose in-progress edits.
@@ -545,7 +625,7 @@ export default function GenerateMergeModal({ merchants, products, onClose, onSub
 
   return (
     <Modal
-      title="Create a new rendering task"
+      title={modalTitle ?? 'Create a new rendering task'}
       onClose={onClose}
       size="md"
       headerRight={
@@ -746,7 +826,7 @@ export default function GenerateMergeModal({ merchants, products, onClose, onSub
           disabled={!!blockingMessage}
           className="w-full rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          Start {submitCount} rendering task{submitCount === 1 ? '' : 's'}
+          {submitLabel ?? `Start ${submitCount} rendering task${submitCount === 1 ? '' : 's'}`}
         </button>
       </form>
     </Modal>

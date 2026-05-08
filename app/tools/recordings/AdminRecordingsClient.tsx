@@ -6,7 +6,23 @@ import RecordingPreviewModal from '@/app/components/RecordingPreviewModal'
 import RenderPreviewModal from '@/app/components/RenderPreviewModal'
 import RenderLogModal from '@/app/components/RenderLogModal'
 import DeleteModal from '@/app/components/DeleteModal'
+import GenerateMergeModal, { type MergeFormState, bodyToFormState } from '@/app/merge-export/GenerateMergeModal'
+import { startMergeJob, startProductOnlyJob } from '@/app/merge-export/pipeline'
 import type { AdminRecordingRow } from '@/app/api/tools/recordings/route'
+
+type RecordingOption = { id: string; label: string }
+type ApiRecording = { id: string; type: 'merchant' | 'product'; name: string | null; product_name: string | null; merchant_id: string | null }
+type EditingRender = {
+  renderId: string
+  targetUserId: string
+  initialState: MergeFormState
+  merchants: RecordingOption[]
+  products: RecordingOption[]
+}
+
+function recordingLabel(r: ApiRecording): string {
+  return r.name ?? r.product_name ?? r.merchant_id ?? r.id.slice(0, 8)
+}
 
 const KIND_PILL_CLASS: Record<AdminRecordingRow['kind'], string> = {
   intro: 'border-blue-500/50 text-blue-600 dark:text-blue-400',
@@ -75,6 +91,15 @@ export default function AdminRecordingsClient() {
   const [previewTarget, setPreviewTarget] = useState<AdminRecordingRow | null>(null)
   const [logTarget, setLogTarget] = useState<AdminRecordingRow | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<AdminRecordingRow | null>(null)
+  // When non-null, GenerateMergeModal opens pre-populated with the owner's
+  // recordings + the original render's settings. Submitting here dispatches
+  // a fresh job under the original owner's account (admin override) and
+  // deletes the source render.
+  const [editingRender, setEditingRender] = useState<EditingRender | null>(null)
+  const [editError, setEditError] = useState<string | null>(null)
+  // Bumped after a re-render submit to force the rows-fetch effect to refire
+  // (the effect is keyed on `query`, and re-renders don't change the query).
+  const [refreshNonce, setRefreshNonce] = useState(0)
   const reqIdRef = useRef(0)
 
   useEffect(() => {
@@ -104,7 +129,7 @@ export default function AdminRecordingsClient() {
       }
     }, query ? DEBOUNCE_MS : 0)
     return () => clearTimeout(handle)
-  }, [query])
+  }, [query, refreshNonce])
 
   async function handleDelete() {
     if (!deleteTarget) return
@@ -116,6 +141,131 @@ export default function AdminRecordingsClient() {
     })
     setRows((prev) => prev.filter((r) => r.id !== deleteTarget.id))
     setDeleteTarget(null)
+  }
+
+  // Refetch the rows panel after a re-render. Bumps the nonce so the
+  // existing debounced effect re-runs without losing the active query.
+  function refreshRows() {
+    setRefreshNonce((n) => n + 1)
+  }
+
+  async function openRenderEdit(target: AdminRecordingRow) {
+    if (target.kind !== 'render' || !target.jobRequest) return
+    const initialState = bodyToFormState(target.jobRequest)
+    if (!initialState) {
+      setEditError('This render has no settings recorded — it predates the edit feature.')
+      return
+    }
+    setPreviewTarget(null)
+    setEditError(null)
+    const ownerId = target.presenter.email
+    try {
+      const [merchantRes, productRes] = await Promise.all([
+        fetch(`/api/recordings?type=merchant&userId=${encodeURIComponent(ownerId)}`),
+        fetch(`/api/recordings?type=product&userId=${encodeURIComponent(ownerId)}`),
+      ])
+      if (!merchantRes.ok || !productRes.ok) throw new Error('Failed to load recordings.')
+      const merchantData = (await merchantRes.json()) as { recordings?: ApiRecording[] }
+      const productData = (await productRes.json()) as { recordings?: ApiRecording[] }
+      const merchants: RecordingOption[] = (merchantData.recordings ?? []).map((r) => ({ id: r.id, label: recordingLabel(r) }))
+      const products: RecordingOption[] = (productData.recordings ?? []).map((r) => ({ id: r.id, label: recordingLabel(r) }))
+      setEditingRender({
+        renderId: target.id,
+        targetUserId: ownerId,
+        initialState,
+        merchants,
+        products,
+      })
+    } catch (err) {
+      setEditError((err as Error).message ?? 'Failed to load owner recordings.')
+    }
+  }
+
+  // Mirror of the merge-export page's handleGenerate dispatch logic, but
+  // sends `targetUserId` so the new render row is owned by the original
+  // user. After dispatching, the source render is deleted and the table
+  // refreshed.
+  async function handleEditSubmit(state: MergeFormState) {
+    if (!editingRender) return
+    const { renderId: oldId, targetUserId } = editingRender
+    const wantsBoth = state.intro.enabled && state.product.enabled
+    const introOnly = state.intro.enabled && !state.product.enabled
+    const productOnlyFlow = !state.intro.enabled && state.product.enabled
+
+    const introSection = (s: typeof state.intro) => ({
+      modeSource: s.modeSource,
+      customMode: s.customMode,
+      positionSource: s.positionSource,
+      customPosition: s.customPosition,
+    })
+    const productSection = (s: typeof state.product) => ({
+      modeSource: s.modeSource,
+      customMode: s.customMode,
+      positionSource: s.positionSource,
+      customPosition: s.customPosition,
+    })
+    const transitionForApi = state.transition.enabled
+      ? {
+          audio: state.transition.audio,
+          video: state.transition.video,
+          overlay: state.transition.overlay,
+          mouse: state.transition.mouse,
+          audioDurationMs: state.transition.audioDurationMs,
+          videoDurationMs: state.transition.videoDurationMs,
+          overlayDurationMs: state.transition.overlayDurationMs,
+          mouseDurationMs: state.transition.mouseDurationMs,
+        }
+      : {
+          audio: 'none' as const,
+          video: 'none' as const,
+          overlay: 'none' as const,
+          mouse: 'none' as const,
+          audioDurationMs: state.transition.audioDurationMs,
+          videoDurationMs: state.transition.videoDurationMs,
+          overlayDurationMs: state.transition.overlayDurationMs,
+          mouseDurationMs: state.transition.mouseDurationMs,
+        }
+
+    const dispatches: Promise<unknown>[] = []
+    if (wantsBoth || introOnly) {
+      const prodId = wantsBoth ? state.product.productRecordingId : null
+      for (const merchantId of state.intro.merchantRecordingIds) {
+        dispatches.push(
+          startMergeJob({
+            merchantRecordingId: merchantId,
+            productRecordingId: prodId ?? undefined,
+            introEnabled: true,
+            productEnabled: !!prodId,
+            introSettings: introSection(state.intro),
+            productSettings: productSection(state.product),
+            transition: transitionForApi,
+            targetUserId,
+          }).catch(() => {}),
+        )
+      }
+    } else if (productOnlyFlow) {
+      const prodId = state.product.productRecordingId
+      for (const chip of state.product.brandMerchants) {
+        if (chip.kind !== 'merchant' || chip.status !== 'complete') continue
+        dispatches.push(
+          startProductOnlyJob({
+            productRecordingId: prodId,
+            merchantBrand: { websiteUrl: chip.websiteUrl, brandName: chip.brandName },
+            productSettings: productSection(state.product),
+            targetUserId,
+          }).catch(() => {}),
+        )
+      }
+    }
+
+    setEditingRender(null)
+    await Promise.all(dispatches)
+    await fetch('/api/renders', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: oldId }),
+    }).catch(() => {})
+    refreshRows()
   }
 
   return (
@@ -265,7 +415,9 @@ export default function AdminRecordingsClient() {
           trimStartSec={previewTarget.trimStartSec ?? undefined}
           trimEndSec={previewTarget.trimEndSec ?? undefined}
           slug={previewTarget.slug}
+          jobRequest={previewTarget.jobRequest}
           onClose={() => setPreviewTarget(null)}
+          onEdit={previewTarget.jobRequest ? () => openRenderEdit(previewTarget) : undefined}
           onDelete={() => {
             setDeleteTarget(previewTarget)
             setPreviewTarget(null)
@@ -302,6 +454,25 @@ export default function AdminRecordingsClient() {
           onConfirm={handleDelete}
           onClose={() => setDeleteTarget(null)}
         />
+      )}
+
+      {editingRender && (
+        <GenerateMergeModal
+          merchants={editingRender.merchants}
+          products={editingRender.products}
+          onClose={() => setEditingRender(null)}
+          onSubmit={handleEditSubmit}
+          initialState={editingRender.initialState}
+          submitLabel="Re-render"
+          modalTitle="Edit & re-render"
+        />
+      )}
+
+      {editError && (
+        <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-md border border-red-500/50 bg-red-500/10 px-4 py-2 text-sm text-red-600 dark:text-red-400">
+          {editError}
+          <button onClick={() => setEditError(null)} className="ml-3 text-xs underline">dismiss</button>
+        </div>
       )}
     </div>
   )

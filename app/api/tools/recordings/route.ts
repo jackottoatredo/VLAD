@@ -26,6 +26,10 @@ export type AdminRecordingRow = {
   // count=100), failed jobs by removeOnFail (age=7d). The UI shows a "view
   // log" affordance only when this is true.
   logsAvailable?: boolean;
+  // Render-only. The original POST body that produced this render — drives
+  // the info popover and the admin-side edit-and-rerender flow. Null on
+  // legacy rows that predate the column.
+  jobRequest?: { endpoint: string; body: unknown } | null;
 };
 
 type ParsedFilter = {
@@ -90,7 +94,7 @@ function parseFilter(raw: string | null): ParsedFilter {
 const RECORDINGS_FIELDS =
   "id, user_id, type, name, product_name, merchant_id, preview_url, metadata, created_at, vlad_users(first_name, last_name)";
 const RENDERS_FIELDS =
-  "id, user_id, brand, brand_name, video_url, slug, status, job_id, created_at, vlad_users(first_name, last_name)";
+  "id, user_id, brand, brand_name, video_url, slug, status, job_id, job_request, created_at, vlad_users(first_name, last_name)";
 
 type RecordingDbRow = {
   id: string;
@@ -114,6 +118,7 @@ type RenderDbRow = {
   slug: string | null;
   status: "done" | "error" | string | null;
   job_id: string | null;
+  job_request: { endpoint: string; body: unknown } | null;
   created_at: string;
   vlad_users: { first_name: string; last_name: string } | null;
 };
@@ -163,6 +168,7 @@ function renderToRow(r: RenderDbRow): AdminRecordingRow {
     createdAt: r.created_at,
     status,
     jobId: r.job_id,
+    jobRequest: r.job_request,
   };
 }
 

@@ -14,15 +14,22 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const type = searchParams.get("type");
+  const userIdParam = searchParams.get("userId");
 
   if (type && type !== "product" && type !== "merchant") {
     return NextResponse.json({ error: "Invalid type." }, { status: 400 });
   }
 
+  // Admin-only override: lets the admin tools' edit-and-rerender flow load
+  // the original render owner's recordings into GenerateMergeModal, without
+  // letting non-admins see anything beyond their own.
+  const targetUserId =
+    userIdParam && session.role === "admin" ? userIdParam : session.email;
+
   let query = supabase
     .from("vlad_recordings")
     .select("id, type, name, product_name, merchant_id, preview_url, status, metadata, created_at, updated_at")
-    .eq("user_id", session.email)
+    .eq("user_id", targetUserId)
     .order("updated_at", { ascending: false });
 
   if (type) {

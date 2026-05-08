@@ -42,6 +42,9 @@ type RequestBody = {
   /** Optional resolved form settings from the modal — when omitted the
    *  recording's metadata is used directly (legacy default). */
   productSettings?: unknown;
+  /** Admin-only: render on behalf of another user. See the merge-export
+   *  route for the same field — non-admin callers can't use it. */
+  targetUserId?: unknown;
 };
 
 type MerchantBrand = {
@@ -113,7 +116,15 @@ export async function POST(request: Request) {
   if (productErr || !product) {
     return NextResponse.json({ error: "Product recording not found." }, { status: 404 });
   }
-  if (product.user_id !== session.email) {
+  // Admin override: admins may render on behalf of the recording's owner.
+  // The override only kicks in when targetUserId matches the recording's
+  // user_id, so an admin can't grab another user's recording into their
+  // own account.
+  const adminTargetsOwner =
+    session.role === "admin" &&
+    typeof body.targetUserId === "string" &&
+    body.targetUserId === product.user_id;
+  if (product.user_id !== session.email && !adminTargetsOwner) {
     return NextResponse.json({ error: "Forbidden." }, { status: 403 });
   }
   if (product.type !== "product") {
@@ -178,7 +189,11 @@ export async function POST(request: Request) {
   const cleanedBrandUrl = merchant.websiteUrl.replace(/^https?:\/\//i, "").replace(/\/+$/, "");
   const renderUrl = `${TARGET_URL}?product=${encodeURIComponent(product.product_name ?? "")}&brand=${encodeURIComponent(cleanedBrandUrl)}`;
 
-  const userId = session.email;
+  // Same admin override as merge-export — see RequestBody for details.
+  const userId =
+    session.role === "admin" && typeof body.targetUserId === "string" && body.targetUserId
+      ? body.targetUserId
+      : session.email;
   const urlHash = hashUrl(renderUrl);
   const mouseHash = hashBuffer(mouseBuffer);
   const specHash = hashSpec(spec);

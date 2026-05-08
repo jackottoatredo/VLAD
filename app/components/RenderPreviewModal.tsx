@@ -5,6 +5,8 @@ import Link from 'next/link'
 import { SHARE_BASE_URL } from '@/app/config'
 import Modal from './Modal'
 
+type JobRequestInfo = { endpoint: string; body: unknown }
+
 type Props = {
   title: string
   videoUrl?: string | null
@@ -14,8 +16,12 @@ type Props = {
   trimEndSec?: number
   /** When present, enables the share-link / GIF actions on the Share tab. */
   slug?: string | null
+  /** Original render job payload — surfaced via the info popover so the rep can see what settings produced this output. */
+  jobRequest?: JobRequestInfo | null
   onClose: () => void
   onDelete?: () => void
+  /** Opens the rendering flow pre-populated with this render's settings so the user can re-render after changes. */
+  onEdit?: () => void
 }
 
 type Tab = 'preview' | 'share'
@@ -28,6 +34,70 @@ function formatTime(sec: number) {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
+type SettingsRow = { label: string; value: string }
+
+// Endpoint values come from the merge-export page; anything else is unknown
+// historical data, so fall back to the raw string.
+function endpointLabel(endpoint: string): string {
+  if (endpoint === '/api/merge-export') return 'Merge export'
+  if (endpoint === '/api/product-only-export') return 'Product-only export'
+  return endpoint
+}
+
+// Defensive — body shape varies by endpoint and may be from an older schema.
+// Read each field with `in` checks and only push rows we recognize.
+function describeJobBody(body: unknown): SettingsRow[] {
+  if (!body || typeof body !== 'object') return []
+  const b = body as Record<string, unknown>
+  const rows: SettingsRow[] = []
+
+  const describeSection = (
+    label: string,
+    section: unknown,
+  ) => {
+    if (!section || typeof section !== 'object') return
+    const s = section as Record<string, unknown>
+    const mode = s.modeSource === 'custom' && typeof s.customMode === 'string' && s.customMode
+      ? `custom: ${s.customMode}`
+      : (typeof s.modeSource === 'string' ? s.modeSource : null)
+    const pos = s.positionSource === 'custom' && typeof s.customPosition === 'string' && s.customPosition
+      ? `custom: ${s.customPosition}`
+      : (typeof s.positionSource === 'string' ? s.positionSource : null)
+    if (mode) rows.push({ label: `${label} mode`, value: mode })
+    if (pos) rows.push({ label: `${label} position`, value: pos })
+  }
+
+  if (b.introEnabled !== false) describeSection('Intro', b.introSettings)
+  if (b.productEnabled !== false) describeSection('Product', b.productSettings)
+
+  const tr = b.transition
+  if (tr && typeof tr === 'object') {
+    const t = tr as Record<string, unknown>
+    const fmtTransition = (kind: unknown, dur: unknown): string | null => {
+      if (typeof kind !== 'string') return null
+      if (kind === 'none') return 'none'
+      return typeof dur === 'number' ? `${kind} (${Math.round(dur)}ms)` : kind
+    }
+    const audio = fmtTransition(t.audio, t.audioDurationMs)
+    const video = fmtTransition(t.video, t.videoDurationMs)
+    const overlay = fmtTransition(t.overlay, t.overlayDurationMs)
+    const mouse = fmtTransition(t.mouse, t.mouseDurationMs)
+    if (audio) rows.push({ label: 'Audio transition', value: audio })
+    if (video) rows.push({ label: 'Video transition', value: video })
+    if (overlay) rows.push({ label: 'Overlay transition', value: overlay })
+    if (mouse) rows.push({ label: 'Mouse transition', value: mouse })
+  }
+
+  const brand = b.merchantBrand
+  if (brand && typeof brand === 'object') {
+    const m = brand as Record<string, unknown>
+    if (typeof m.brandName === 'string' && m.brandName) rows.push({ label: 'Brand', value: m.brandName })
+    if (typeof m.websiteUrl === 'string' && m.websiteUrl) rows.push({ label: 'Website', value: m.websiteUrl })
+  }
+
+  return rows
+}
+
 export default function RenderPreviewModal({
   title,
   videoUrl,
@@ -35,10 +105,14 @@ export default function RenderPreviewModal({
   trimStartSec,
   trimEndSec,
   slug,
+  jobRequest,
   onClose,
   onDelete,
+  onEdit,
 }: Props) {
   const [tab, setTab] = useState<Tab>('preview')
+  const [showInfo, setShowInfo] = useState(false)
+  const infoRef = useRef<HTMLDivElement | null>(null)
   // Tracks which Copy URL just fired so the corresponding card flashes
   // 'Copied ✓' for 2s. Downloads and Open Link don't flash — the browser /
   // new tab is the confirmation.
@@ -66,6 +140,27 @@ export default function RenderPreviewModal({
   const clipDuration = effectiveEnd > clipStart ? effectiveEnd - clipStart : 0
   const relativeTime = Math.max(0, Math.min(clipDuration, currentTime - clipStart))
   const progress = clipDuration > 0 ? relativeTime / clipDuration : 0
+
+  // Dismiss the info popover on outside click or Escape. The listener is
+  // only attached while open so the modal's other interactions aren't
+  // affected. mousedown (not click) so the popover closes before the
+  // underlying button receives focus.
+  useEffect(() => {
+    if (!showInfo) return
+    function onDocMouseDown(e: MouseEvent) {
+      if (!infoRef.current) return
+      if (!infoRef.current.contains(e.target as Node)) setShowInfo(false)
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setShowInfo(false)
+    }
+    document.addEventListener('mousedown', onDocMouseDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDocMouseDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [showInfo])
 
   // Resolve the owner's booking-link mode once. Modal is only opened by
   // logged-in users (the rep), so the GET reflects their own setting.
@@ -247,6 +342,13 @@ export default function RenderPreviewModal({
     }
   }
 
+  const settingsRows = describeJobBody(jobRequest?.body)
+  const endpointName = jobRequest ? endpointLabel(jobRequest.endpoint) : null
+  const trimRow = hasTrim
+    ? `${formatTime(clipStart)} – ${clipEndRaw > 0 ? formatTime(clipEndRaw) : 'end'}`
+    : null
+  const hasAnySettings = !!endpointName || !!trimRow || !!slug || settingsRows.length > 0
+
   const tabs = (
     <div className="inline-flex items-center gap-1 rounded-lg border border-border bg-background p-1">
       {(['preview', 'share'] as const).map((t) => (
@@ -383,10 +485,74 @@ export default function RenderPreviewModal({
         <p className="min-w-0 flex-1 truncate text-base font-normal text-foreground" title={title}>
           {title}
         </p>
+        <div className="relative flex shrink-0 items-center" ref={infoRef}>
+          <button
+            type="button"
+            onClick={() => setShowInfo((s) => !s)}
+            className={`flex items-center transition-colors ${showInfo ? 'text-foreground' : 'text-muted hover:text-foreground'}`}
+            aria-label="Video settings"
+            aria-expanded={showInfo}
+            title="Video settings"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="16" x2="12" y2="12" />
+              <line x1="12" y1="8" x2="12.01" y2="8" />
+            </svg>
+          </button>
+          {showInfo && (
+            <div className="absolute right-0 bottom-full z-20 mb-2 w-72 rounded-lg border border-border bg-surface p-3 text-left shadow-lg">
+              <p className="text-[0.65rem] font-semibold uppercase tracking-wider text-muted">Video settings</p>
+              {hasAnySettings ? (
+                <dl className="mt-2 space-y-1.5 text-xs">
+                  {endpointName && (
+                    <div className="flex justify-between gap-3">
+                      <dt className="shrink-0 text-muted">Type</dt>
+                      <dd className="min-w-0 truncate text-foreground" title={endpointName}>{endpointName}</dd>
+                    </div>
+                  )}
+                  {trimRow && (
+                    <div className="flex justify-between gap-3">
+                      <dt className="shrink-0 text-muted">Trim</dt>
+                      <dd className="tabular-nums text-foreground">{trimRow}</dd>
+                    </div>
+                  )}
+                  {slug && (
+                    <div className="flex justify-between gap-3">
+                      <dt className="shrink-0 text-muted">Slug</dt>
+                      <dd className="min-w-0 truncate text-foreground" title={slug}>{slug}</dd>
+                    </div>
+                  )}
+                  {settingsRows.map((r) => (
+                    <div key={r.label} className="flex justify-between gap-3">
+                      <dt className="shrink-0 text-muted">{r.label}</dt>
+                      <dd className="min-w-0 truncate text-foreground" title={r.value}>{r.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : (
+                <p className="mt-2 text-xs text-muted">No settings recorded for this render.</p>
+              )}
+            </div>
+          )}
+        </div>
+        {tab === 'preview' && onEdit && (
+          <button
+            onClick={onEdit}
+            className="flex shrink-0 items-center text-muted transition-colors hover:text-foreground"
+            title="Edit settings & re-render"
+            aria-label="Edit settings & re-render"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 20h9" />
+              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+            </svg>
+          </button>
+        )}
         {tab === 'preview' && onDelete && (
           <button
             onClick={onDelete}
-            className="shrink-0 text-muted transition-colors hover:text-red-500"
+            className="flex shrink-0 items-center text-muted transition-colors hover:text-red-500"
             title="Delete"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>

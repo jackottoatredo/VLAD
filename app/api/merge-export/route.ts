@@ -48,6 +48,11 @@ type RequestBody = {
   /** When false, skip the intro section (intro-only / product-only flows live here). */
   introEnabled?: unknown;
   productEnabled?: unknown;
+  /** Admin-only: render on behalf of another user. Ignored for non-admin
+   *  callers — they always render as themselves. Used by the admin
+   *  recordings tool's edit flow so re-renders stay owned by the original
+   *  user rather than transferring to the admin. */
+  targetUserId?: unknown;
 };
 
 function parseSectionForm(v: unknown): SectionFormSettings | null {
@@ -328,7 +333,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Product recording has no product_name (SKU)." }, { status: 400 });
   }
 
-  const userId = session.email;
+  // Admin override: when the caller is an admin and a targetUserId is
+  // provided, attribute the new render to that user. Silently ignored for
+  // non-admins so a stray field can't escalate.
+  const userId =
+    session.role === "admin" && typeof body.targetUserId === "string" && body.targetUserId
+      ? body.targetUserId
+      : session.email;
   const jobId = shortJobId();
 
   // Naming: brand label + slug.

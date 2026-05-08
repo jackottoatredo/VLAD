@@ -81,36 +81,23 @@ for (const r of recordings) {
   }
 }
 
-// Active recording flowIds — needed to evaluate sessions/{user}/{flowId}/.
+// Active recording flowIds — needed to evaluate recordings/{recordingId}/.
 const activeFlowIds = new Set(recordings.map((r) => r.id));
 const draftFlowIds = new Set(recordings.filter((r) => r.status === "draft").map((r) => r.id));
+const activeRenderIds = new Set(renders.map((r) => r.id));
 
 const all = JSON.parse(readFileSync("dev/r2-listing.json", "utf8"));
 
-// Sub-prefixes under the vlad/ namespace. Post-migration every VLAD-owned
-// key is shaped as `vlad/<sub>/...`. Anything outside vlad/ is either other-app
-// data (other Redo apps share this bucket) or pre-migration leftover and is
-// skipped here — Phase 4 / cleanup-postrestart already cleaned those up.
-const VLAD_SUBPREFIXES = new Set([
-  "sessions",
-  "recordings",
-  "renders",
-  "merges",
-  "composites",
-  "trims",
-  "users",
-]);
+// Post-restructure layout: every VLAD key lives at
+// `vlad/users/{userId}/{recordings|renders}/{entityId}/...`. Anything outside
+// `vlad/users/` is either other-app data, a stray pre-migration leftover, or
+// shouldn't exist — call out the latter two so they get swept.
+const activeRecordingIds = activeFlowIds; // alias: flowId === recordingId by construction
 
 const orphans = {
-  "sessions (no recording row)": [],
-  "sessions (saved row, but session orig kept)": [],
-  "recordings/{id}/ legacy mouse+webcam": [],
-  "recordings/{id}/preview.mp4 (no row)": [],
-  "renders (not referenced by any render row)": [],
-  "merges (not referenced by any render row)": [],
-  "composites (intermediate, never DB-referenced)": [],
-  "trims (intermediate, never DB-referenced)": [],
-  "users/ (legacy render path)": [],
+  "recordings/{id}/ no DB row": [],
+  "renders/{id}/ no DB row": [],
+  "vlad/ stray (not under users/)": [],
 };
 
 const fmt = (n) =>
@@ -119,79 +106,43 @@ const fmt = (n) =>
 for (const obj of all) {
   const parts = obj.key.split("/");
 
-  // Only classify keys under the vlad/ namespace. Other-app + stray keys
-  // (harvest/, screenshots/, ..., or anything outside vlad/) are skipped.
+  // Only classify keys under the vlad/ namespace. Other-app prefixes get a
+  // pass — those belong to a different application sharing the bucket.
   if (parts[0] !== "vlad") continue;
 
-  const sub = parts[1];
-  if (!VLAD_SUBPREFIXES.has(sub)) continue;
-
-  if (sub === "users") {
-    orphans["users/ (legacy render path)"].push(obj);
+  // Anything under vlad/ that isn't users/{userId}/{recordings|renders}/{id}/
+  // is a stray. Includes leftover top-level subdirs from before the
+  // restructure (sessions/, composites/, trims/, merges/) plus any
+  // accidentally-misplaced new writes.
+  if (
+    parts[1] !== "users" ||
+    !parts[2] ||
+    (parts[3] !== "recordings" && parts[3] !== "renders") ||
+    !parts[4]
+  ) {
+    orphans["vlad/ stray (not under users/)"].push(obj);
     continue;
   }
 
-  if (sub === "sessions") {
-    // Pattern: vlad/sessions/{userIdOrSlug}/{flowId}/{file}
-    const flowId = parts[3];
-    if (!flowId || !activeFlowIds.has(flowId)) {
-      orphans["sessions (no recording row)"].push(obj);
-    } else if (!draftFlowIds.has(flowId)) {
-      // Recording is saved — original session file MAY still be the canonical
-      // mouse_events_url / webcam_url; check explicit reference first.
-      if (!referenced.has(obj.key) && !derivedSiblings.has(obj.key)) {
-        orphans["sessions (saved row, but session orig kept)"].push(obj);
-      }
+  const kind = parts[3]; // "recordings" | "renders"
+  const entityId = parts[4];
+
+  if (kind === "recordings") {
+    if (!activeRecordingIds.has(entityId)) {
+      orphans["recordings/{id}/ no DB row"].push(obj);
     }
+    // Otherwise the entity row is alive — every file under it (canonical
+    // session data, preview, intermediates) is legitimately owned. Hook 1
+    // wipes them all on recording delete.
+    void draftFlowIds;
+    void referenced;
+    void derivedSiblings;
     continue;
   }
 
-  if (sub === "recordings") {
-    // Pattern: vlad/recordings/{flowId}/{file}
-    const flowId = parts[2];
-    const file = parts[3];
-    if (file === "mouse.json" || file === "webcam.webm" || (file && file.startsWith("webcam."))) {
-      // Legacy path — current code writes mouse + webcam to sessions/, only
-      // preview.mp4 lives at recordings/{id}/.
-      if (referenced.has(obj.key)) {
-        // Some legacy rows still point at this path — keep them.
-      } else {
-        orphans["recordings/{id}/ legacy mouse+webcam"].push(obj);
-      }
-    } else if (file === "preview.mp4") {
-      if (!referenced.has(obj.key)) {
-        orphans["recordings/{id}/preview.mp4 (no row)"].push(obj);
-      }
-    }
-    void flowId;
-    continue;
-  }
-
-  if (sub === "renders") {
-    if (!referenced.has(obj.key)) {
-      orphans["renders (not referenced by any render row)"].push(obj);
-    }
-    continue;
-  }
-  if (sub === "merges") {
-    if (!referenced.has(obj.key)) {
-      orphans["merges (not referenced by any render row)"].push(obj);
-    }
-    continue;
-  }
-  if (sub === "composites") {
-    // Defensive: even though composites are intermediate, vlad_recordings.preview_url
-    // CAN point at composites/.../preview.mp4 in some legacy/recording flows.
-    if (!referenced.has(obj.key)) {
-      orphans["composites (intermediate, never DB-referenced)"].push(obj);
-    }
-    continue;
-  }
-  if (sub === "trims") {
-    // Defensive: when a render has a trim, vlad_renders.video_url (and sibling
-    // poster/gif keys via path.posix.dirname) live under trims/.
-    if (!referenced.has(obj.key)) {
-      orphans["trims (intermediate, never DB-referenced)"].push(obj);
+  if (kind === "renders") {
+    if (!activeRenderIds.has(entityId)) {
+      orphans["renders/{id}/ no DB row"].push(obj);
     }
     continue;
   }
@@ -209,27 +160,34 @@ for (const [name, arr] of Object.entries(orphans)) {
 console.log("  " + "-".repeat(56) + "  " + "-".repeat(20));
 console.log(`  ${"TOTAL VLAD ORPHANS".padEnd(56)} ${String(totalCount).padStart(7)} objs   ${fmt(totalBytes)}`);
 
-// Summarise things that ARE still referenced, so we can compare.
-let referencedSize = 0;
-let referencedCount = 0;
-const liveByPrefix = new Map();
+// Summarise things still tied to a live entity. Post-restructure that's
+// every key under a live recordingId or renderId — including intermediates
+// that aren't in any DB column. The orphan/live binary becomes:
+//   live   = key sits inside a recording / render dir whose row exists
+//   orphan = everything else under vlad/
+let liveSize = 0;
+let liveCount = 0;
+const liveByEntity = new Map();
 for (const obj of all) {
-  if (referenced.has(obj.key)) {
-    referencedSize += obj.size;
-    referencedCount++;
-    const parts = obj.key.split("/");
-    const top = parts[0] === "vlad" && parts[1] ? `vlad/${parts[1]}` : parts[0];
-    const cur = liveByPrefix.get(top) ?? { count: 0, bytes: 0 };
-    cur.count++;
-    cur.bytes += obj.size;
-    liveByPrefix.set(top, cur);
-  }
+  const parts = obj.key.split("/");
+  if (parts[0] !== "vlad" || parts[1] !== "users" || !parts[3] || !parts[4]) continue;
+  const kind = parts[3];
+  const entityId = parts[4];
+  const aliveSet = kind === "recordings" ? activeRecordingIds : kind === "renders" ? activeRenderIds : null;
+  if (!aliveSet || !aliveSet.has(entityId)) continue;
+  liveSize += obj.size;
+  liveCount++;
+  const bucket = `vlad/users/${parts[2]}/${kind}`;
+  const cur = liveByEntity.get(bucket) ?? { count: 0, bytes: 0 };
+  cur.count++;
+  cur.bytes += obj.size;
+  liveByEntity.set(bucket, cur);
 }
-console.log("\n=== LIVE (DB-REFERENCED) ===");
-for (const [name, { count, bytes }] of [...liveByPrefix].sort((a, b) => b[1].bytes - a[1].bytes)) {
-  console.log(`  ${name.padEnd(20)} ${String(count).padStart(7)} objs   ${fmt(bytes)}`);
+console.log("\n=== LIVE (under an existing recording or render row) ===");
+for (const [name, { count, bytes }] of [...liveByEntity].sort((a, b) => b[1].bytes - a[1].bytes)) {
+  console.log(`  ${name.padEnd(60)} ${String(count).padStart(7)} objs   ${fmt(bytes)}`);
 }
-console.log(`  ${"TOTAL".padEnd(20)} ${String(referencedCount).padStart(7)} objs   ${fmt(referencedSize)}`);
+console.log(`  ${"TOTAL".padEnd(60)} ${String(liveCount).padStart(7)} objs   ${fmt(liveSize)}`);
 
 // Sample orphans for manual sanity-check.
 console.log("\n=== ORPHAN SAMPLES (5 each) ===");

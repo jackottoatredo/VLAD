@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -6,7 +5,7 @@ import ffmpeg from "fluent-ffmpeg";
 import { chromium, type Page } from "playwright";
 import { type CursorPosition, type RenderAction } from "@/lib/render/actions";
 import { installVirtualTimeClock, type VirtualTimeClock } from "@/lib/render/virtual-time";
-import { uploadToR2, VLAD_NAMESPACE } from "@/lib/storage/r2";
+import { uploadToR2 } from "@/lib/storage/r2";
 import { resolvedFfmpegPath } from "@/lib/render/ffmpeg-bin";
 import { VIRTUAL_PREVIEW_SCALE_FACTOR, PREVIEW_DOWNSCALE_FACTOR } from "@/app/config";
 
@@ -16,8 +15,10 @@ if (resolvedFfmpegPath) {
 
 export type RenderBackgroundOptions = {
   url: string;
-  userId: string;
-  sessionName: string;
+  /** Full R2 prefix where this stage's output lands. Caller is responsible for
+   *  building this from `(userId, ownerKind, ownerId, jobId, section?)` —
+   *  see lib/storage/r2.ts helpers. The renderer just appends `/bg.mp4`. */
+  intermediatesDir: string;
   width: number;
   height: number;
   videoWidth?: number;
@@ -60,9 +61,8 @@ export async function renderBackgroundToMp4(
   const framesDir = path.join(tempDir, "frames");
   await mkdir(framesDir, { recursive: true });
 
-  const fileName = `${options.sessionName}-bg-${Date.now()}-${randomUUID().slice(0, 8)}.mp4`;
-  const outputPath = path.join(tempDir, fileName);
-  const r2Key = `${VLAD_NAMESPACE}/renders/${options.userId}/${options.sessionName}/${fileName}`;
+  const outputPath = path.join(tempDir, "bg.mp4");
+  const r2Key = `${options.intermediatesDir}/bg.mp4`;
 
   const browser = await chromium.launch({
     headless: true,

@@ -21,30 +21,9 @@ const ORPHANS_PATH = "dev/r2-orphans.json";
 const LISTING_PATH = "dev/r2-listing.json";
 
 const ALLOWED_CATEGORIES = new Set([
-  "sessions (no recording row)",
-  "sessions (saved row, but session orig kept)",
-  "recordings/{id}/ legacy mouse+webcam",
-  "recordings/{id}/preview.mp4 (no row)",
-  "renders (not referenced by any render row)",
-  "merges (not referenced by any render row)",
-  "composites (intermediate, never DB-referenced)",
-  "trims (intermediate, never DB-referenced)",
-  "users/ (legacy render path)",
-  "(root) test artifact",
-]);
-
-// VLAD-owned sub-prefixes under the vlad/ namespace. Every legitimate VLAD
-// key now lives at `vlad/<sub>/...` post-migration. Any orphan key not under
-// one of these is rejected — defends against accidental deletion of other-app
-// data sharing this bucket.
-const VLAD_SUBPREFIXES = new Set([
-  "sessions",
-  "recordings",
-  "renders",
-  "merges",
-  "composites",
-  "trims",
-  "users",
+  "recordings/{id}/ no DB row",
+  "renders/{id}/ no DB row",
+  "vlad/ stray (not under users/)",
 ]);
 
 const FORBIDDEN_PREFIXES = ["harvest/", "screenshots/", "images/", "html/", "raw-batches/", "captures/"];
@@ -91,9 +70,8 @@ for (const [cat, keys] of Object.entries(orphans)) {
       console.error(`Refusing to run: key '${key}' is under a forbidden (other-app) prefix.`);
       process.exit(1);
     }
-    const parts = key.split("/");
-    if (parts[0] !== "vlad" || !VLAD_SUBPREFIXES.has(parts[1])) {
-      console.error(`Refusing to run: key '${key}' is not under a VLAD sub-prefix (expected vlad/<sub>/...).`);
+    if (!key.startsWith("vlad/")) {
+      console.error(`Refusing to run: key '${key}' is not under the vlad/ namespace.`);
       process.exit(1);
     }
     allKeys.push({ cat, key });

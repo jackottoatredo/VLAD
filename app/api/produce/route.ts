@@ -6,7 +6,7 @@ import { DEFAULT_FPS, VIDEO_WIDTH, VIDEO_HEIGHT, RENDER_ZOOM } from "@/app/confi
 import { eventsToKeyframes } from "@/lib/render/keyframes";
 import { jobsQueue } from "@/lib/queue/connection";
 import type { ProduceJobPayload } from "@/lib/queue/payloads";
-import { downloadBufferFromR2, getPresignedUrl, VLAD_NAMESPACE } from "@/lib/storage/r2";
+import { downloadBufferFromR2, getPresignedUrl, recordingDir, type RenderSection } from "@/lib/storage/r2";
 import { findCachedRender } from "@/lib/cache/render-cache";
 import { supabase } from "@/lib/db/supabase";
 import {
@@ -99,17 +99,18 @@ export async function POST(request: Request) {
 
   const userId = session.email;
   const url = body.url.trim();
-  // dirName lives under vlad/{renders,composites,trims}/{userId}/, so the
-  // userId prefix would be redundant. Just the recording id keeps every
-  // intermediate for one recording in a single, easily-listed directory.
-  const dirName = flowId;
+  const recordingPrefix = recordingDir(userId, flowId);
 
-  let mouseR2Key = `${VLAD_NAMESPACE}/sessions/${userId}/${flowId}/mouse.json`;
-  let webcamR2Key: string | null = `${VLAD_NAMESPACE}/sessions/${userId}/${flowId}/webcam.webm`;
+  // Default to the recording's own data location. If a saved row exists we
+  // honor whatever it stored (legacy paths during the migration window — DB
+  // is empty post-restructure so this is just defensive).
+  let mouseR2Key = `${recordingPrefix}/mouse.json`;
+  let webcamR2Key: string | null = `${recordingPrefix}/webcam.webm`;
+  let section: RenderSection = "product";
 
   const { data: existingRow } = await supabase
     .from("vlad_recordings")
-    .select("id, user_id, mouse_events_url, webcam_url")
+    .select("id, user_id, type, mouse_events_url, webcam_url")
     .eq("id", flowId)
     .maybeSingle();
 
@@ -123,6 +124,9 @@ export async function POST(request: Request) {
     webcamR2Key = typeof existingRow.webcam_url === "string" && existingRow.webcam_url
       ? existingRow.webcam_url
       : null;
+    if (existingRow.type === "merchant" || existingRow.type === "product") {
+      section = existingRow.type;
+    }
   }
 
   let mouseBuffer: Buffer;
@@ -213,7 +217,7 @@ export async function POST(request: Request) {
     type: "produce",
     userId,
     safeId: flowId,
-    dirName,
+    section,
     url,
     width: mouseData.virtualWidth,
     height: mouseData.virtualHeight,

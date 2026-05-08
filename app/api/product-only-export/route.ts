@@ -237,11 +237,6 @@ export async function POST(request: Request) {
   }
 
   const newJobId = shortJobId();
-  // Product-only-export fans one product recording out to N renders (one per
-  // brand URL), so we nest by urlHash under the recordingId. Layout matches
-  // plain produce at the recordingId level — Hook 1's single-prefix scan
-  // (`vlad/{sub}/{userId}/{recordingId}/`) cleans both flow types uniformly.
-  const dirName = `${productRecordingId}/${urlHash}`;
 
   const { data: stub, error: stubErr } = await supabase
     .from("vlad_renders")
@@ -273,7 +268,12 @@ export async function POST(request: Request) {
       type: "produce",
       userId,
       safeId: productRecordingId,
-      dirName,
+      // Owner is the render row (mergeRenderInsert below), but the cache
+      // safeId remains the source recording so cache lookups can still hit
+      // intermediates produced by other product-only-exports of the same
+      // recording. The worker uses mergeRenderInsert.renderId as the R2
+      // entity prefix for both intermediates and final video.
+      section: "product",
       url: renderUrl,
       width: mouseData.virtualWidth,
       height: mouseData.virtualHeight,

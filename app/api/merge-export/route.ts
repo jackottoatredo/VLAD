@@ -330,7 +330,6 @@ export async function POST(request: Request) {
 
   const userId = session.email;
   const jobId = shortJobId();
-  const outputSessionName = `merge_${jobId}`;
 
   // Naming: brand label + slug.
   let brandBase: string;
@@ -682,7 +681,6 @@ export async function POST(request: Request) {
 
       merchantPayload = {
         url: merchantUrl,
-        sessionName: `merge_${jobId}/merchant`,
         width: merchantRec.mouseData.virtualWidth,
         height: merchantRec.mouseData.virtualHeight,
         keyframes: merchantKeyframes,
@@ -734,7 +732,6 @@ export async function POST(request: Request) {
 
       productPayload = {
         url: productUrl,
-        sessionName: `merge_${jobId}/product`,
         width: productRec.mouseData.virtualWidth,
         height: productRec.mouseData.virtualHeight,
         keyframes: productKeyframes,
@@ -774,7 +771,6 @@ export async function POST(request: Request) {
       userId,
       renderId,
       brand,
-      outputSessionName,
       merchantRecordingId: merchant?.id ?? null,
       productRecordingId: product?.id ?? null,
       merchant: merchantPayload,

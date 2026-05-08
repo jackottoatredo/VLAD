@@ -2,6 +2,7 @@ import {
   S3Client,
   PutObjectCommand,
   GetObjectCommand,
+  CopyObjectCommand,
   DeleteObjectCommand,
   DeleteObjectsCommand,
   ListObjectsV2Command,
@@ -16,6 +17,41 @@ const BUCKET = process.env.S3_BUCKET!;
 // other Redo apps (Shopify scrape data under harvest/, screenshots/, etc.) —
 // VLAD writes everything under `vlad/` so ownership is unambiguous.
 export const VLAD_NAMESPACE = "vlad";
+
+/** Either a per-recording or per-render section type. Plain produce uses the
+ *  recording's own type; product-only-export hardcodes "product"; merge-export
+ *  populates both. */
+export type RenderSection = "merchant" | "product";
+
+/** Root R2 prefix for everything a single user owns. */
+export function userDir(userId: string): string {
+  return `${VLAD_NAMESPACE}/users/${userId}`;
+}
+
+/** Per-recording entity dir (canonical session data + preview). */
+export function recordingDir(userId: string, recordingId: string): string {
+  return `${userDir(userId)}/recordings/${recordingId}`;
+}
+
+/** Per-render entity dir (final video + share assets). */
+export function renderDir(userId: string, renderId: string): string {
+  return `${userDir(userId)}/renders/${renderId}`;
+}
+
+/** Per-job intermediate dir under a recording (plain produce / preview flow). */
+export function recordingJobDir(userId: string, recordingId: string, jobId: string): string {
+  return `${recordingDir(userId, recordingId)}/intermediates/${jobId}`;
+}
+
+/** Per-job intermediate dir under a render (product-only-export, merge-export). */
+export function renderJobDir(userId: string, renderId: string, jobId: string): string {
+  return `${renderDir(userId, renderId)}/intermediates/${jobId}`;
+}
+
+/** Section subdir under a job's intermediate dir (where bg.mp4 + overlay.mov live). */
+export function sectionDir(jobDir: string, section: RenderSection): string {
+  return `${jobDir}/${section}`;
+}
 
 export const r2Client = new S3Client({
   region: process.env.S3_REGION ?? "auto",
@@ -104,6 +140,40 @@ export async function deleteManyFromR2(keys: string[]): Promise<void> {
   } catch {
     /* swallow */
   }
+}
+
+/**
+ * Delete every object under a prefix. Lists all matching keys (paginated)
+ * then bulk-deletes them in batches of 1000. The single most useful primitive
+ * for entity cleanup since the bucket is now organized so each entity owns a
+ * single contiguous prefix.
+ */
+export async function deleteByPrefix(prefix: string): Promise<number> {
+  const keys = await listKeysWithPrefix(prefix);
+  if (keys.length === 0) return 0;
+  const BATCH = 1000;
+  for (let i = 0; i < keys.length; i += BATCH) {
+    await deleteManyFromR2(keys.slice(i, i + BATCH));
+  }
+  return keys.length;
+}
+
+/**
+ * Server-side copy from one R2 key to another. No data leaves R2 — Cloudflare
+ * fans the bytes around internally — so this is cheap. Used by the worker to
+ * promote a final intermediate (trim.mp4 / composite.mp4) to the entity's
+ * canonical video path (renders/{id}/video.mp4 or recordings/{id}/preview.mp4)
+ * after produce completes.
+ */
+export async function copyR2Object(srcKey: string, destKey: string): Promise<void> {
+  await r2Client.send(
+    new CopyObjectCommand({
+      Bucket: BUCKET,
+      Key: destKey,
+      // CopySource encoding: bucket + URL-encoded key, with `/` preserved.
+      CopySource: `/${BUCKET}/${encodeURIComponent(srcKey).replace(/%2F/g, "/")}`,
+    }),
+  );
 }
 
 /**

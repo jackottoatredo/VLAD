@@ -26,7 +26,16 @@ import { downloadRecording } from "@/lib/render/download";
 import { extractPoster } from "@/lib/render/poster";
 import { extractSquarePoster } from "@/lib/render/posterSquare";
 import { extractPreviewGif } from "@/lib/render/gif";
-import { uploadToR2, downloadFromR2, deleteManyFromR2, VLAD_NAMESPACE } from "@/lib/storage/r2";
+import {
+  uploadToR2,
+  downloadFromR2,
+  copyR2Object,
+  recordingDir,
+  recordingJobDir,
+  renderDir,
+  renderJobDir,
+  sectionDir,
+} from "@/lib/storage/r2";
 import { supabase } from "@/lib/db/supabase";
 import { updateRenderCache } from "@/lib/cache/render-cache";
 import { logEvent } from "@/lib/stats/events";
@@ -85,11 +94,15 @@ async function finalizeRenderRow(
     gif_key: string;
   },
 ): Promise<void> {
-  // Capture the predecessor keys BEFORE the update so we can delete them if
-  // this is a re-render. Same row id, new outputs → old files become orphan.
+  // Hook 3 — re-render predecessor cleanup. Final-output paths are now
+  // static under renderDir/{video.mp4,poster.jpg,...} so a re-render
+  // overwrites them in place; the only thing leaking would be the previous
+  // attempt's intermediates/{prevJobId}/ tree. Capture the previous job_id
+  // before update so we can wipe its intermediate dir if the new write
+  // changes job_id.
   const { data: prev } = await supabase
     .from("vlad_renders")
-    .select("video_url, poster_key, poster_square_key, gif_key")
+    .select("user_id, job_id")
     .eq("id", renderId)
     .maybeSingle();
 
@@ -105,26 +118,16 @@ async function finalizeRenderRow(
     throw new Error(`vlad_renders update failed: ${error.message}`);
   }
 
-  if (prev) {
-    const oldKeys = (
-      [
-        [prev.video_url, fields.video_url],
-        [prev.poster_key, fields.poster_key],
-        [prev.poster_square_key, fields.poster_square_key],
-        [prev.gif_key, fields.gif_key],
-      ] as const
-    )
-      .filter(
-        ([oldK, newK]) => typeof oldK === "string" && oldK && oldK !== newK,
-      )
-      .map(([oldK]) => oldK as string);
-    if (oldKeys.length > 0) {
-      try {
-        await deleteManyFromR2(oldKeys);
-      } catch (err) {
-        console.warn(`[worker] predecessor R2 cleanup failed for render ${renderId}:`, err);
-      }
-    }
+  // If a different job_id ran a previous attempt for this same render row,
+  // its intermediates/{prevJobId}/ tree is now orphan. Wipe it. (Same job_id
+  // means it's the run we just finished — leave it for cache reuse.)
+  if (prev?.user_id && prev.job_id) {
+    // We can't directly know the new job_id from here without plumbing it
+    // through, so we conservatively check: did we just write a different
+    // job_id from what was previously stored? finalizeRenderRow doesn't
+    // touch job_id (the route sets it on insert), so prev.job_id == current
+    // job_id → no cleanup needed. This branch is a no-op today; left here
+    // so a future code path that re-assigns job_id has a clean cleanup hook.
   }
 }
 
@@ -281,11 +284,20 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceJo
   if (d.startFromStep >= 3) steps[1].progress = 100;
   report(d.startFromStep - 1);
 
+  // Compute the per-job intermediate dir based on which entity owns the
+  // produce. Product-only-export attaches a render row (mergeRenderInsert) →
+  // intermediates nest under that render. Plain preview produce has no
+  // render row → intermediates nest under the recording (safeId === flowId).
+  const jobId = job.id ?? randomUUID().slice(0, 8);
+  const produceIntermediatesDir = d.mergeRenderInsert
+    ? renderJobDir(d.userId, d.mergeRenderInsert.renderId, jobId)
+    : recordingJobDir(d.userId, d.safeId, jobId);
+
   try {
     const result = await produceSessionVideo({
       url: d.url,
-      userId: d.userId,
-      sessionName: d.dirName,
+      intermediatesDir: produceIntermediatesDir,
+      section: d.section,
       width: d.width,
       height: d.height,
       videoWidth: d.videoWidth,
@@ -363,31 +375,20 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceJo
       },
     );
 
+    // Promote the produce intermediate (trim or composite) to the entity's
+    // canonical video path. Static paths mean re-produces overwrite in place
+    // — no orphan from previous attempts; the `intermediates/{jobId}/`
+    // tree(s) accumulate but get swept by the entity-prefix delete on
+    // recording / render delete.
     if (d.flowId && result.finalR2Key) {
       try {
-        // Capture the previous draft preview so we can delete it if the
-        // worker is producing a fresh final preview (otherwise the prior
-        // recordings/{id}/preview.mp4 — or last produce's finalR2Key —
-        // becomes orphan).
-        const { data: prev } = await supabase
-          .from("vlad_recordings")
-          .select("preview_url")
-          .eq("id", d.flowId)
-          .eq("status", "draft")
-          .maybeSingle();
+        const previewKey = `${recordingDir(d.userId, d.flowId)}/preview.mp4`;
+        await copyR2Object(result.finalR2Key, previewKey);
         await supabase
           .from("vlad_recordings")
-          .update({ preview_url: result.finalR2Key, updated_at: new Date().toISOString() })
+          .update({ preview_url: previewKey, updated_at: new Date().toISOString() })
           .eq("id", d.flowId)
           .eq("status", "draft");
-        const oldPreview = prev?.preview_url;
-        if (typeof oldPreview === "string" && oldPreview && oldPreview !== result.finalR2Key) {
-          try {
-            await deleteManyFromR2([oldPreview]);
-          } catch (err) {
-            console.warn(`[worker] draft preview cleanup failed for ${d.flowId}:`, err);
-          }
-        }
       } catch {
         /* swallow — best-effort */
       }
@@ -395,14 +396,21 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceJo
 
     let renderId: string | undefined;
     if (d.mergeRenderInsert && result.finalR2Key && result.finalPath) {
+      // Promote produce final to renderDir/video.mp4 first so share assets
+      // (poster/gif) land at renderDir/* via path.posix.dirname() inside
+      // generateAndUploadShareAssets — siblings to the canonical video.
+      const renderEntityDir = renderDir(d.userId, d.mergeRenderInsert.renderId);
+      const videoKey = `${renderEntityDir}/video.mp4`;
+      await copyR2Object(result.finalR2Key, videoKey);
+
       const { posterKey, posterSquareKey, gifKey } = await generateAndUploadShareAssets(
         result.finalPath,
-        result.finalR2Key,
+        videoKey,
         path.dirname(result.finalPath),
         result.backgroundR2Key,
       );
       await finalizeRenderRow(d.mergeRenderInsert.renderId, {
-        video_url: result.finalR2Key,
+        video_url: videoKey,
         poster_key: posterKey,
         poster_square_key: posterSquareKey,
         gif_key: gifKey,
@@ -465,7 +473,8 @@ const INTRO_ONLY_STEP_LABELS = [
  * the produce result + the local final path for downstream merging.
  */
 async function renderMergeSection(
-  userId: string,
+  intermediatesDir: string,
+  section: "merchant" | "product",
   recording: MergeRecordingPayload,
   webcamPath: string | null,
   onRenderProgress: (pct: number) => void,
@@ -482,8 +491,8 @@ async function renderMergeSection(
 
   return produceSessionVideo({
     url: recording.url,
-    userId,
-    sessionName: recording.sessionName,
+    intermediatesDir,
+    section,
     width: recording.width,
     height: recording.height,
     videoWidth: recording.width,
@@ -530,7 +539,7 @@ async function renderMergeSection(
  * (the unified overlay needs both for its single pass).
  */
 async function renderMergeSectionBackground(
-  userId: string,
+  sectionIntermediatesDir: string,
   recording: MergeRecordingPayload,
   onProgress: (pct: number) => void,
 ): Promise<{
@@ -548,8 +557,7 @@ async function renderMergeSectionBackground(
 
   const bg = await renderBackgroundToMp4({
     url: recording.url,
-    userId,
-    sessionName: recording.sessionName,
+    intermediatesDir: sectionIntermediatesDir,
     width: recording.width,
     height: recording.height,
     videoWidth: recording.width,
@@ -644,6 +652,13 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
   const hasProduct = !!d.product;
   const dualSection = hasIntro && hasProduct;
 
+  // Per-merge intermediate root. Per-section bg/ov files nest under
+  // {intermediatesDir}/{merchant,product}/, the unified overlay (uov.mov)
+  // and any composite/trim outputs sit at the root. The render's final
+  // video is at renderDir/video.mp4 — outside intermediates/.
+  const mergeIntermediatesDir = renderJobDir(userId, d.renderId, jobId);
+  const renderEntityDir = renderDir(userId, d.renderId);
+
   if (!hasIntro && !hasProduct) {
     throw new Error("Merge job has neither intro nor product section.");
   }
@@ -703,7 +718,6 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
   try {
     let finalLocalPath: string;
     let finalR2Key: string;
-    let finalDirOnR2: string;
     let posterSourceR2Key: string;
 
     if (dualSection) {
@@ -731,14 +745,14 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
       // run intro_bg + (product_bg → unified_ov) in parallel.
 
       const introBg = await renderMergeSectionBackground(
-        userId,
+        sectionDir(mergeIntermediatesDir, "merchant"),
         d.merchant!,
         (pct) => updateStep(0, pct),
       );
       completeStep(0);
 
       const productBg = await renderMergeSectionBackground(
-        userId,
+        sectionDir(mergeIntermediatesDir, "product"),
         d.product!,
         (pct) => updateStep(1, pct),
       );
@@ -782,8 +796,7 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
       );
 
       const unifiedOverlay = await renderUnifiedMergeOverlay({
-        userId,
-        sessionName: `${d.outputSessionName}/uov`,
+        intermediatesDir: mergeIntermediatesDir,
         width: d.merchant!.width,
         height: d.merchant!.height,
         zoom: 1.25,
@@ -908,11 +921,13 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
       });
       completeStep(2);
 
-      finalR2Key = `${VLAD_NAMESPACE}/merges/${userId}/${d.outputSessionName}/${path.basename(mergedPath)}`;
+      // Final delivered video lands at renderDir/video.mp4 — outside
+      // intermediates/. Share assets (poster.jpg, etc.) become path-derived
+      // siblings via path.posix.dirname() in generateAndUploadShareAssets.
+      finalR2Key = `${renderEntityDir}/video.mp4`;
       const fileBuffer = await readFile(mergedPath);
       await uploadToR2(finalR2Key, fileBuffer, "video/mp4");
       finalLocalPath = mergedPath;
-      finalDirOnR2 = path.posix.dirname(finalR2Key);
       posterSourceR2Key = introBg.backgroundR2Key;
     } else {
       // ---- Single-section: full produce (render → compose → trim) ----
@@ -929,7 +944,8 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
           merchantDir,
         );
         soleResult = await renderMergeSection(
-          userId,
+          mergeIntermediatesDir,
+          "merchant",
           d.merchant!,
           merchantRec.webcamPath,
           (pct) => updateStep(0, pct),
@@ -946,7 +962,8 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
           productDir,
         );
         soleResult = await renderMergeSection(
-          userId,
+          mergeIntermediatesDir,
+          "product",
           d.product!,
           productRec.webcamPath,
           (pct) => updateStep(0, pct),
@@ -957,12 +974,13 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
         );
         completeStep(1);
       }
-      finalR2Key = soleResult.finalR2Key;
+      // Promote the produce intermediate (trim or composite) to the render's
+      // canonical video.mp4 location. CopyObject is server-side — cheap.
+      finalR2Key = `${renderEntityDir}/video.mp4`;
+      await copyR2Object(soleResult.finalR2Key, finalR2Key);
       finalLocalPath = soleResult.finalPath;
-      finalDirOnR2 = path.posix.dirname(finalR2Key);
       posterSourceR2Key = soleResult.backgroundR2Key;
     }
-    void finalDirOnR2;
 
     const { posterKey, posterSquareKey, gifKey } = await generateAndUploadShareAssets(
       finalLocalPath,

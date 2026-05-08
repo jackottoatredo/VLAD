@@ -1,10 +1,9 @@
-import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { chromium } from "playwright";
-import { uploadToR2, VLAD_NAMESPACE } from "@/lib/storage/r2";
+import { uploadToR2 } from "@/lib/storage/r2";
 import { FFMPEG_BIN } from "@/lib/render/ffmpeg-bin";
 import type { Webcam, ThrobSpec } from "@/lib/render/spec";
 import {
@@ -428,9 +427,10 @@ const UNIFIED_OVERLAY_INSTALL_SCRIPT = `
 `;
 
 export type UnifiedOverlayInputs = {
-  // Identity / output
-  userId: string;
-  sessionName: string;
+  /** Full R2 prefix where the unified overlay output lands. The renderer
+   *  appends `/uov.mov`. For merge-export this is the job root (no section
+   *  subdir) — uov.mov sits alongside the per-section subdirs. */
+  intermediatesDir: string;
 
   // Output canvas + timing
   width: number; // virtual px (== section render width — both sections must match)
@@ -489,9 +489,8 @@ export async function renderUnifiedMergeOverlay(
   const framesDir = path.join(tempDir, "frames");
   await mkdir(framesDir, { recursive: true });
 
-  const fileName = `${options.sessionName}-uov-${Date.now()}-${randomUUID().slice(0, 8)}.mov`;
-  const outputPath = path.join(tempDir, fileName);
-  const r2Key = `${VLAD_NAMESPACE}/renders/${options.userId}/${options.sessionName}/${fileName}`;
+  const outputPath = path.join(tempDir, "uov.mov");
+  const r2Key = `${options.intermediatesDir}/uov.mov`;
 
   const browser = await chromium.launch({
     headless: true,

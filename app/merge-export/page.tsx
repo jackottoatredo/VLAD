@@ -16,7 +16,7 @@ import {
   JobMissingError,
   type PipelineStep,
 } from './pipeline'
-import GenerateMergeModal, { type MergeFormState } from './GenerateMergeModal'
+import GenerateMergeModal, { type MergeFormState, bodyToFormState } from './GenerateMergeModal'
 
 type Recording = {
   id: string
@@ -74,6 +74,10 @@ export default function MergeExportPage() {
   const [selectedMerchants, setSelectedMerchants] = useState<Set<string>>(new Set())
   const [selectedProduct, setSelectedProduct] = useState<string | null>(null)
   const [showGenerateModal, setShowGenerateModal] = useState(false)
+  // When non-null, GenerateMergeModal opens pre-populated for an edit. On
+  // submit, the old render gets removed and a fresh job is dispatched. Stored
+  // separately from showGenerateModal so the two flows don't collide on close.
+  const [editingRender, setEditingRender] = useState<{ renderId: string; initialState: MergeFormState } | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string; kind: 'recording' | 'render' } | null>(null)
   type PreviewTarget =
     | {
@@ -94,6 +98,7 @@ export default function MergeExportPage() {
         trimEndSec?: number
         renderId: string
         slug?: string | null
+        jobRequest?: JobRequest | null
       }
   const [previewTarget, setPreviewTarget] = useState<PreviewTarget | null>(null)
 
@@ -368,6 +373,31 @@ export default function MergeExportPage() {
     } catch { /* swallow */ }
   }
 
+  function openRenderEdit(renderId: string, jobRequest: JobRequest | null | undefined) {
+    const initialState = bodyToFormState(jobRequest)
+    if (!initialState) return
+    setPreviewTarget(null)
+    setEditingRender({ renderId, initialState })
+  }
+
+  // Edit submit: dispatch new job(s) first via the same path as a fresh
+  // submit, then remove the old render. The DELETE is fire-and-forget — if
+  // it fails the worker has already started so the user sees both rows
+  // briefly; preferable to dropping the old row before the new job is
+  // safely queued.
+  function handleEditSubmit(state: MergeFormState) {
+    if (!editingRender) return
+    const oldId = editingRender.renderId
+    handleGenerate(state)
+    setRenders((prev) => prev.filter((r) => r.id !== oldId))
+    fetch('/api/renders', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: oldId }),
+    }).catch(() => { /* swallow — UI already removed the row */ })
+    setEditingRender(null)
+  }
+
   function handleGenerate(state: MergeFormState) {
     // p1 (intro+product) and the custom flow with both sections enabled share
     // the same merge-export dispatch path. p2 (product-only) and custom with
@@ -561,7 +591,7 @@ export default function MergeExportPage() {
                   function openPreview() {
                     if (r.status !== 'done') return
                     if (isNew) markSeen(r.id)
-                    setPreviewTarget({ kind: 'render', title: label, videoUrl: r.video_url, renderId: r.id, downloadName: label, slug: r.slug })
+                    setPreviewTarget({ kind: 'render', title: label, videoUrl: r.video_url, renderId: r.id, downloadName: label, slug: r.slug, jobRequest: r.job_request })
                   }
 
                   return (
@@ -666,7 +696,9 @@ export default function MergeExportPage() {
           trimStartSec={previewTarget.trimStartSec}
           trimEndSec={previewTarget.trimEndSec}
           slug={previewTarget.slug}
+          jobRequest={previewTarget.jobRequest}
           onClose={() => setPreviewTarget(null)}
+          onEdit={() => openRenderEdit(previewTarget.renderId, previewTarget.jobRequest)}
           onDelete={() => {
             setDeleteTarget({ id: previewTarget.renderId, name: previewTarget.title, kind: 'render' })
             setPreviewTarget(null)
@@ -682,12 +714,15 @@ export default function MergeExportPage() {
         />
       )}
 
-      {showGenerateModal && (
+      {(showGenerateModal || editingRender) && (
         <GenerateMergeModal
           merchants={merchants.map((r) => ({ id: r.id, label: r.name ?? r.id.slice(0, 8) }))}
           products={products.map((r) => ({ id: r.id, label: r.name ?? r.id.slice(0, 8) }))}
-          onClose={() => setShowGenerateModal(false)}
-          onSubmit={handleGenerate}
+          onClose={() => { setShowGenerateModal(false); setEditingRender(null) }}
+          onSubmit={editingRender ? handleEditSubmit : handleGenerate}
+          initialState={editingRender?.initialState}
+          submitLabel={editingRender ? 'Re-render' : undefined}
+          modalTitle={editingRender ? 'Edit & re-render' : undefined}
         />
       )}
     </div>

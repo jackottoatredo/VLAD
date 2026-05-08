@@ -3,8 +3,17 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { REDIS_CONNECTION, QUEUE_NAME } from "@/lib/queue/connection";
-import type { JobPayload, ProduceJobPayload, MergeJobPayload, MergeRecordingPayload } from "@/lib/queue/payloads";
+import { REDIS_CONNECTION, QUEUE_NAME, jobsQueue } from "@/lib/queue/connection";
+import type {
+  JobPayload,
+  ProduceJobPayload,
+  MergeJobPayload,
+  MergeRecordingPayload,
+} from "@/lib/queue/payloads";
+import {
+  processDailyDigestTick,
+  processWeeklyDigestTick,
+} from "@/lib/notifications/processDigest";
 import type { JobProgress, JobStep } from "@/lib/queue/progress";
 import { createReplayAction } from "@/lib/render/actions";
 import { produceSessionVideo, type ProduceResult } from "@/lib/render/produce";
@@ -17,7 +26,16 @@ import { downloadRecording } from "@/lib/render/download";
 import { extractPoster } from "@/lib/render/poster";
 import { extractSquarePoster } from "@/lib/render/posterSquare";
 import { extractPreviewGif } from "@/lib/render/gif";
-import { uploadToR2, downloadFromR2 } from "@/lib/storage/r2";
+import {
+  uploadToR2,
+  downloadFromR2,
+  copyR2Object,
+  recordingDir,
+  recordingJobDir,
+  renderDir,
+  renderJobDir,
+  sectionDir,
+} from "@/lib/storage/r2";
 import { supabase } from "@/lib/db/supabase";
 import { updateRenderCache } from "@/lib/cache/render-cache";
 import { logEvent } from "@/lib/stats/events";
@@ -76,6 +94,18 @@ async function finalizeRenderRow(
     gif_key: string;
   },
 ): Promise<void> {
+  // Hook 3 — re-render predecessor cleanup. Final-output paths are now
+  // static under renderDir/{video.mp4,poster.jpg,...} so a re-render
+  // overwrites them in place; the only thing leaking would be the previous
+  // attempt's intermediates/{prevJobId}/ tree. Capture the previous job_id
+  // before update so we can wipe its intermediate dir if the new write
+  // changes job_id.
+  const { data: prev } = await supabase
+    .from("vlad_renders")
+    .select("user_id, job_id")
+    .eq("id", renderId)
+    .maybeSingle();
+
   const { error } = await supabase
     .from("vlad_renders")
     .update({
@@ -86,6 +116,18 @@ async function finalizeRenderRow(
     .eq("id", renderId);
   if (error) {
     throw new Error(`vlad_renders update failed: ${error.message}`);
+  }
+
+  // If a different job_id ran a previous attempt for this same render row,
+  // its intermediates/{prevJobId}/ tree is now orphan. Wipe it. (Same job_id
+  // means it's the run we just finished — leave it for cache reuse.)
+  if (prev?.user_id && prev.job_id) {
+    // We can't directly know the new job_id from here without plumbing it
+    // through, so we conservatively check: did we just write a different
+    // job_id from what was previously stored? finalizeRenderRow doesn't
+    // touch job_id (the route sets it on insert), so prev.job_id == current
+    // job_id → no cleanup needed. This branch is a no-op today; left here
+    // so a future code path that re-assigns job_id has a clean cleanup hook.
   }
 }
 
@@ -188,7 +230,21 @@ function makeProduceSteps(): JobStep[] {
 async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceJobResult> {
   const d = job.data;
 
+  // Mirror to console (Railway logs) AND BullMQ per-job log (admin UI lookup
+  // on failure). Fire-and-forget on the BullMQ side — Redis hop shouldn't
+  // gate the hot path; the failed-handler awaits its own final log entry.
+  const logStep = (msg: string) => {
+    console.log(`[produce ${job.id}] ${msg}`);
+    void job.log(`${new Date().toISOString()} ${msg}`);
+  };
+
   const startedAt = Date.now();
+  logStep(
+    `start: section=${d.section} flowId=${d.flowId ?? "-"} ` +
+      `mergeRenderId=${d.mergeRenderInsert?.renderId ?? "-"} ` +
+      `startFromStep=${d.startFromStep} preview=${d.preview} ` +
+      `userId=${d.userId}`,
+  );
   if (d.mergeRenderInsert) {
     void logEvent({
       type: "render_started",
@@ -242,11 +298,29 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceJo
   if (d.startFromStep >= 3) steps[1].progress = 100;
   report(d.startFromStep - 1);
 
+  // Compute the per-job intermediate dir based on which entity owns the
+  // produce. Product-only-export attaches a render row (mergeRenderInsert) →
+  // intermediates nest under that render. Plain preview produce has no
+  // render row → intermediates nest under the recording (safeId === flowId).
+  const jobId = job.id ?? randomUUID().slice(0, 8);
+  const produceIntermediatesDir = d.mergeRenderInsert
+    ? renderJobDir(d.userId, d.mergeRenderInsert.renderId, jobId)
+    : recordingJobDir(d.userId, d.safeId, jobId);
+
+  if (d.startFromStep > 1) {
+    logStep(
+      `warm-start step=${d.startFromStep} ` +
+        `bg=${d.existingBackgroundR2Key ?? "-"} ov=${d.existingOverlayR2Key ?? "-"} ` +
+        `composite=${d.existingCompositeR2Key ?? "-"}`,
+    );
+  }
+
   try {
+    logStep(`render: produceSessionVideo intermediates=${produceIntermediatesDir}`);
     const result = await produceSessionVideo({
       url: d.url,
-      userId: d.userId,
-      sessionName: d.dirName,
+      intermediatesDir: produceIntermediatesDir,
+      section: d.section,
       width: d.width,
       height: d.height,
       videoWidth: d.videoWidth,
@@ -324,11 +398,24 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceJo
       },
     );
 
+    // Promote the produce intermediate (trim or composite) to the entity's
+    // canonical video path. Static paths mean re-produces overwrite in place
+    // — no orphan from previous attempts; the `intermediates/{jobId}/`
+    // tree(s) accumulate but get swept by the entity-prefix delete on
+    // recording / render delete.
+    logStep(
+      `produce done: finalR2Key=${result.finalR2Key} ` +
+        `bg=${result.backgroundR2Key} ov=${result.overlayR2Key}`,
+    );
+
     if (d.flowId && result.finalR2Key) {
       try {
+        const previewKey = `${recordingDir(d.userId, d.flowId)}/preview.mp4`;
+        logStep(`promote preview: ${result.finalR2Key} → ${previewKey}`);
+        await copyR2Object(result.finalR2Key, previewKey);
         await supabase
           .from("vlad_recordings")
-          .update({ preview_url: result.finalR2Key, updated_at: new Date().toISOString() })
+          .update({ preview_url: previewKey, updated_at: new Date().toISOString() })
           .eq("id", d.flowId)
           .eq("status", "draft");
       } catch {
@@ -338,14 +425,24 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceJo
 
     let renderId: string | undefined;
     if (d.mergeRenderInsert && result.finalR2Key && result.finalPath) {
+      // Promote produce final to renderDir/video.mp4 first so share assets
+      // (poster/gif) land at renderDir/* via path.posix.dirname() inside
+      // generateAndUploadShareAssets — siblings to the canonical video.
+      const renderEntityDir = renderDir(d.userId, d.mergeRenderInsert.renderId);
+      const videoKey = `${renderEntityDir}/video.mp4`;
+      logStep(`promote render video: ${result.finalR2Key} → ${videoKey}`);
+      await copyR2Object(result.finalR2Key, videoKey);
+
+      logStep("share assets: poster + poster_square + gif");
       const { posterKey, posterSquareKey, gifKey } = await generateAndUploadShareAssets(
         result.finalPath,
-        result.finalR2Key,
+        videoKey,
         path.dirname(result.finalPath),
         result.backgroundR2Key,
       );
+      logStep(`finalize render row: renderId=${d.mergeRenderInsert.renderId}`);
       await finalizeRenderRow(d.mergeRenderInsert.renderId, {
-        video_url: result.finalR2Key,
+        video_url: videoKey,
         poster_key: posterKey,
         poster_square_key: posterSquareKey,
         gif_key: gifKey,
@@ -408,7 +505,8 @@ const INTRO_ONLY_STEP_LABELS = [
  * the produce result + the local final path for downstream merging.
  */
 async function renderMergeSection(
-  userId: string,
+  intermediatesDir: string,
+  section: "merchant" | "product",
   recording: MergeRecordingPayload,
   webcamPath: string | null,
   onRenderProgress: (pct: number) => void,
@@ -425,8 +523,8 @@ async function renderMergeSection(
 
   return produceSessionVideo({
     url: recording.url,
-    userId,
-    sessionName: recording.sessionName,
+    intermediatesDir,
+    section,
     width: recording.width,
     height: recording.height,
     videoWidth: recording.width,
@@ -473,7 +571,7 @@ async function renderMergeSection(
  * (the unified overlay needs both for its single pass).
  */
 async function renderMergeSectionBackground(
-  userId: string,
+  sectionIntermediatesDir: string,
   recording: MergeRecordingPayload,
   onProgress: (pct: number) => void,
 ): Promise<{
@@ -491,8 +589,7 @@ async function renderMergeSectionBackground(
 
   const bg = await renderBackgroundToMp4({
     url: recording.url,
-    userId,
-    sessionName: recording.sessionName,
+    intermediatesDir: sectionIntermediatesDir,
     width: recording.width,
     height: recording.height,
     videoWidth: recording.width,
@@ -587,6 +684,23 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
   const hasProduct = !!d.product;
   const dualSection = hasIntro && hasProduct;
 
+  // See processProduceJob for rationale — same pattern.
+  const logStep = (msg: string) => {
+    console.log(`[merge ${jobId}] ${msg}`);
+    void job.log(`${new Date().toISOString()} ${msg}`);
+  };
+  logStep(
+    `start: renderId=${d.renderId} userId=${userId} ` +
+      `hasIntro=${hasIntro} hasProduct=${hasProduct} dualSection=${dualSection}`,
+  );
+
+  // Per-merge intermediate root. Per-section bg/ov files nest under
+  // {intermediatesDir}/{merchant,product}/, the unified overlay (uov.mov)
+  // and any composite/trim outputs sit at the root. The render's final
+  // video is at renderDir/video.mp4 — outside intermediates/.
+  const mergeIntermediatesDir = renderJobDir(userId, d.renderId, jobId);
+  const renderEntityDir = renderDir(userId, d.renderId);
+
   if (!hasIntro && !hasProduct) {
     throw new Error("Merge job has neither intro nor product section.");
   }
@@ -646,7 +760,6 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
   try {
     let finalLocalPath: string;
     let finalR2Key: string;
-    let finalDirOnR2: string;
     let posterSourceR2Key: string;
 
     if (dualSection) {
@@ -673,19 +786,23 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
       // The bg passes are typically the slowest; if needed, we can later
       // run intro_bg + (product_bg → unified_ov) in parallel.
 
+      logStep("dual: rendering intro background");
       const introBg = await renderMergeSectionBackground(
-        userId,
+        sectionDir(mergeIntermediatesDir, "merchant"),
         d.merchant!,
         (pct) => updateStep(0, pct),
       );
       completeStep(0);
+      logStep(`intro bg done: ${introBg.backgroundR2Key} dur=${introBg.fullDurationMs}ms`);
 
+      logStep("dual: rendering product background");
       const productBg = await renderMergeSectionBackground(
-        userId,
+        sectionDir(mergeIntermediatesDir, "product"),
         d.product!,
         (pct) => updateStep(1, pct),
       );
       completeStep(1);
+      logStep(`product bg done: ${productBg.backgroundR2Key} dur=${productBg.fullDurationMs}ms`);
 
       // Compute output frame count and boundary index from the trim windows.
       const introTrimStartSec = d.merchant!.spec.trim?.startSec ?? 0;
@@ -718,15 +835,14 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
       const morphDurationMs =
         requestedOverlay === "none" ? 0 : d.merge.transition.overlayDurationMs;
 
-      console.log(
-        `[merge ${jobId}] overlay decision: requested=${requestedOverlay} ` +
+      logStep(
+        `overlay decision: requested=${requestedOverlay} ` +
           `intro=${introMode} product=${productMode} ` +
           `→ kind=${overlayTransitionKind} morphDurationMs=${morphDurationMs}`,
       );
 
       const unifiedOverlay = await renderUnifiedMergeOverlay({
-        userId,
-        sessionName: `${d.outputSessionName}-uov`,
+        intermediatesDir: mergeIntermediatesDir,
         width: d.merchant!.width,
         height: d.merchant!.height,
         zoom: 1.25,
@@ -763,8 +879,8 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
           ? "crossfade"
           : "none";
 
-      console.log(
-        `[merge ${jobId}] audio decision: ` +
+      logStep(
+        `audio decision: ` +
           `route-effective=${d.merge.transition.audio} ` +
           `audioDurationMs=${d.merge.transition.audioDurationMs} ` +
           `introHasAudio=${introHasAudio} productHasAudio=${productHasAudio} ` +
@@ -798,8 +914,8 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
           stat(introAudioTailPath).then((s) => s.size).catch(() => -1),
           stat(productAudioHeadPath).then((s) => s.size).catch(() => -1),
         ]);
-        console.log(
-          `[merge ${jobId}] audio borrow extracted: ` +
+        logStep(
+          `audio borrow extracted: ` +
             `introAudioTail (${introTailBytes} bytes) productAudioHead (${productHeadBytes} bytes)`,
         );
       }
@@ -813,6 +929,7 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
         fps,
       );
 
+      logStep("compose: composeLayeredMerge");
       const { mergedPath } = await composeLayeredMerge({
         outputDir: mergeOutputDir,
         outputName: d.brand,
@@ -851,14 +968,18 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
       });
       completeStep(2);
 
-      finalR2Key = `merges/${userId}/${d.outputSessionName}/${path.basename(mergedPath)}`;
+      // Final delivered video lands at renderDir/video.mp4 — outside
+      // intermediates/. Share assets (poster.jpg, etc.) become path-derived
+      // siblings via path.posix.dirname() in generateAndUploadShareAssets.
+      finalR2Key = `${renderEntityDir}/video.mp4`;
+      logStep(`upload final video: ${finalR2Key}`);
       const fileBuffer = await readFile(mergedPath);
       await uploadToR2(finalR2Key, fileBuffer, "video/mp4");
       finalLocalPath = mergedPath;
-      finalDirOnR2 = path.posix.dirname(finalR2Key);
       posterSourceR2Key = introBg.backgroundR2Key;
     } else {
       // ---- Single-section: full produce (render → compose → trim) ----
+      logStep(`single-section: ${hasIntro ? "intro" : "product"}`);
       const setSubTask = (stepIdx: number, subIdx: number, pct: number) => {
         const sub = steps[stepIdx].subTasks?.[subIdx];
         if (sub) sub.progress = pct;
@@ -872,7 +993,8 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
           merchantDir,
         );
         soleResult = await renderMergeSection(
-          userId,
+          mergeIntermediatesDir,
+          "merchant",
           d.merchant!,
           merchantRec.webcamPath,
           (pct) => updateStep(0, pct),
@@ -889,7 +1011,8 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
           productDir,
         );
         soleResult = await renderMergeSection(
-          userId,
+          mergeIntermediatesDir,
+          "product",
           d.product!,
           productRec.webcamPath,
           (pct) => updateStep(0, pct),
@@ -900,13 +1023,16 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
         );
         completeStep(1);
       }
-      finalR2Key = soleResult.finalR2Key;
+      // Promote the produce intermediate (trim or composite) to the render's
+      // canonical video.mp4 location. CopyObject is server-side — cheap.
+      finalR2Key = `${renderEntityDir}/video.mp4`;
+      logStep(`promote single-section final: ${soleResult.finalR2Key} → ${finalR2Key}`);
+      await copyR2Object(soleResult.finalR2Key, finalR2Key);
       finalLocalPath = soleResult.finalPath;
-      finalDirOnR2 = path.posix.dirname(finalR2Key);
       posterSourceR2Key = soleResult.backgroundR2Key;
     }
-    void finalDirOnR2;
 
+    logStep("share assets: poster + poster_square + gif");
     const { posterKey, posterSquareKey, gifKey } = await generateAndUploadShareAssets(
       finalLocalPath,
       finalR2Key,
@@ -914,6 +1040,7 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
       posterSourceR2Key,
     );
 
+    logStep(`finalize render row: renderId=${d.renderId} videoKey=${finalR2Key}`);
     await finalizeRenderRow(d.renderId, {
       video_url: finalR2Key,
       poster_key: posterKey,
@@ -956,6 +1083,12 @@ const worker = new Worker<JobPayload>(
     if (job.data.type === "merge") {
       return processMergeJob(job as Job<MergeJobPayload>);
     }
+    if (job.data.type === "daily_digest_tick") {
+      return processDailyDigestTick();
+    }
+    if (job.data.type === "weekly_digest_tick") {
+      return processWeeklyDigestTick();
+    }
     throw new Error(`Unknown job type: ${(job.data as Record<string, unknown>).type}`);
   },
   {
@@ -966,12 +1099,40 @@ const worker = new Worker<JobPayload>(
   },
 );
 
+// Register recurring digest ticks. upsertJobScheduler is keyed on the
+// scheduler id, so re-registering on every worker boot is idempotent — no
+// duplicate schedules. tz pins the cron evaluation to Mountain Time so the
+// 8am wake-up is local-clock-correct regardless of container TZ.
+void jobsQueue.upsertJobScheduler(
+  "daily-digest-tick",
+  { pattern: "0 8 * * *", tz: "America/Denver" },
+  { name: "daily_digest_tick", data: { type: "daily_digest_tick" } },
+);
+void jobsQueue.upsertJobScheduler(
+  "weekly-digest-tick",
+  { pattern: "0 8 * * 1", tz: "America/Denver" },
+  { name: "weekly_digest_tick", data: { type: "weekly_digest_tick" } },
+);
+
 worker.on("completed", (job) => {
   console.log(`[worker] Job ${job.id} (${job.data.type}) completed`);
 });
 
 worker.on("failed", async (job, err) => {
   console.error(`[worker] Job ${job?.id} (${job?.data.type}) failed:`, err.message);
+  // Persist stack trace into the per-job log so the admin UI can render it.
+  // Awaited (unlike the in-flight logStep calls) — once the failed handler
+  // returns, BullMQ moves the job into the failed set; we want this entry
+  // to land before that transition.
+  if (job) {
+    try {
+      await job.log(
+        `${new Date().toISOString()} FAILED: ${err.message}\n${err.stack ?? "(no stack)"}`,
+      );
+    } catch (logErr) {
+      console.error(`[worker] job.log() failed for ${job.id}:`, logErr);
+    }
+  }
   if (job?.id) {
     try {
       await supabase
@@ -982,7 +1143,7 @@ worker.on("failed", async (job, err) => {
       console.error(`[worker] Failed to mark render row error for job ${job.id}:`, updateErr);
     }
   }
-  if (job) {
+  if (job && (job.data.type === "produce" || job.data.type === "merge")) {
     const renderId =
       job.data.type === "merge"
         ? job.data.renderId

@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
@@ -9,7 +8,7 @@ import { FFMPEG_BIN } from "@/lib/render/ffmpeg-bin";
 import { compositeSessionVideo } from "@/lib/compose/compose";
 import { type RenderAction } from "@/lib/render/actions";
 import type { RenderSpec } from "@/lib/render/spec";
-import { uploadToR2 } from "@/lib/storage/r2";
+import { uploadToR2, sectionDir, type RenderSection } from "@/lib/storage/r2";
 import { computeCursorPositions } from "@/lib/render/cursor-track";
 import type { Keyframe } from "@/lib/render/keyframes";
 
@@ -23,8 +22,13 @@ function loadCursorSource(): Buffer {
 }
 
 export type ProduceOptions = {
-  userId: string;
-  sessionName: string;
+  /** Per-job intermediate root: `vlad/users/{user}/recordings/{recId}/intermediates/{jobId}`
+   *  or `vlad/users/{user}/renders/{renderId}/intermediates/{jobId}`. composite.mp4
+   *  and trim.mp4 land here. */
+  intermediatesDir: string;
+  /** Which section the bg/ov files belong under. Plain produce uses the
+   *  recording's own type; product-only-export hardcodes `"product"`. */
+  section: RenderSection;
   url: string;
   width: number;
   height: number;
@@ -90,8 +94,7 @@ export type ProduceResult = {
 
 async function trimVideoFile(
   composedPath: string,
-  userId: string,
-  sessionName: string,
+  intermediatesDir: string,
   trimStartSec: number | undefined,
   trimEndSec: number | undefined,
 ): Promise<{ trimmedR2Key: string; trimmedPath: string } | null> {
@@ -99,9 +102,8 @@ async function trimVideoFile(
   const hasEnd = trimEndSec != null && trimEndSec > 0;
   if (startSec === 0 && !hasEnd) return null;
 
-  const trimmedName = `${sessionName}-trimmed-${Date.now()}-${randomUUID().slice(0, 8)}.mp4`;
-  const trimmedPath = path.join(path.dirname(composedPath), trimmedName);
-  const r2Key = `trims/${userId}/${sessionName}/${trimmedName}`;
+  const trimmedPath = path.join(path.dirname(composedPath), "trim.mp4");
+  const r2Key = `${intermediatesDir}/trim.mp4`;
 
   // Frame-accurate trim via re-encode (see prior commit history for why
   // -c copy with fast-seek desyncs the webcam audio).
@@ -164,11 +166,12 @@ export async function produceSessionVideo(options: ProduceOptions): Promise<Prod
       options.onRenderProgress?.(avg, 100);
     };
 
+    const sectionIntermediatesDir = sectionDir(options.intermediatesDir, options.section);
+
     const [bgResult, ovResult] = await Promise.all([
       renderBackgroundToMp4({
         url: options.url,
-        userId: options.userId,
-        sessionName: options.sessionName,
+        intermediatesDir: sectionIntermediatesDir,
         width: options.width,
         height: options.height,
         videoWidth: options.videoWidth,
@@ -186,8 +189,7 @@ export async function produceSessionVideo(options: ProduceOptions): Promise<Prod
         },
       }),
       renderOverlayToWebm({
-        userId: options.userId,
-        sessionName: options.sessionName,
+        intermediatesDir: sectionIntermediatesDir,
         width: options.width,
         height: options.height,
         videoWidth: options.videoWidth,
@@ -252,8 +254,7 @@ export async function produceSessionVideo(options: ProduceOptions): Promise<Prod
     }
 
     const composeResult = await compositeSessionVideo({
-      userId: options.userId,
-      sessionName: options.sessionName,
+      intermediatesDir: options.intermediatesDir,
       backgroundVideoPath: backgroundPath,
       overlayVideoPath: overlayPath,
       durationMs: renderDurationMs,
@@ -278,8 +279,7 @@ export async function produceSessionVideo(options: ProduceOptions): Promise<Prod
   const trim = options.spec.trim;
   const trimResult = await trimVideoFile(
     compositeOutputPath,
-    options.userId,
-    options.sessionName,
+    options.intermediatesDir,
     trim?.startSec,
     trim?.endSec,
   );

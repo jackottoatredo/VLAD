@@ -4,6 +4,7 @@ import {
   uploadToR2,
   downloadBufferFromR2,
   getPresignedUrl,
+  recordingDir,
 } from "@/lib/storage/r2";
 import { requireSession } from "@/lib/apiAuth";
 import { logEvent } from "@/lib/stats/events";
@@ -155,17 +156,20 @@ export async function POST(request: Request) {
     });
   }
 
-  // Preserve existing URLs if the row already exists (important for old
-  // saved recordings whose mouse/webcam live at recordings/{id}/ rather than
-  // sessions/{userId}/{flowId}/). For new inserts we use the session path.
+  // Post-restructure: session uploads, the recording's canonical mouse/webcam
+  // data, the auto-baked siblings, the preview, and every produce intermediate
+  // ALL live under one prefix — `vlad/users/{user}/recordings/{flowId}/`. The
+  // flowId becomes the recordingId on save (same UUID), so the path is the
+  // same in pre-save and post-save states. No copy step needed.
+  const recordingPrefix = recordingDir(session.email, flowId);
   let mouseR2Key: string;
   let webcamR2Key: string | null;
   if (existing && existing.mouse_events_url) {
     mouseR2Key = existing.mouse_events_url;
     webcamR2Key = typeof existing.webcam_url === "string" && existing.webcam_url ? existing.webcam_url : null;
   } else {
-    mouseR2Key = `sessions/${session.email}/${flowId}/mouse.json`;
-    const sessionWebcamKey = `sessions/${session.email}/${flowId}/webcam.webm`;
+    mouseR2Key = `${recordingPrefix}/mouse.json`;
+    const sessionWebcamKey = `${recordingPrefix}/webcam.webm`;
     let webcamExists = false;
     try {
       await downloadBufferFromR2(sessionWebcamKey);
@@ -185,7 +189,7 @@ export async function POST(request: Request) {
   if (typeof body.previewVideoR2Key === "string" && body.previewVideoR2Key.trim()) {
     try {
       const previewBuffer = await downloadBufferFromR2(body.previewVideoR2Key.trim());
-      previewKey = `recordings/${flowId}/preview.mp4`;
+      previewKey = `${recordingPrefix}/preview.mp4`;
       await uploadToR2(previewKey, previewBuffer, "video/mp4");
     } catch {
       // Preview wasn't available (common for save-as-draft before render finishes).

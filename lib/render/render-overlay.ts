@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -11,8 +10,9 @@ import type { RenderSpec } from "@/lib/render/spec";
 import { VIRTUAL_PREVIEW_SCALE_FACTOR } from "@/app/config";
 
 export type RenderOverlayOptions = {
-  userId: string;
-  sessionName: string;
+  /** Full R2 prefix where this stage's output lands. The renderer appends
+   *  `/overlay.mov`. Build via lib/storage/r2.ts helpers. */
+  intermediatesDir: string;
   width: number;
   height: number;
   videoWidth?: number;
@@ -63,9 +63,8 @@ export async function renderOverlayToWebm(
   const framesDir = path.join(tempDir, "frames");
   await mkdir(framesDir, { recursive: true });
 
-  const fileName = `${options.sessionName}-ov-${Date.now()}-${randomUUID().slice(0, 8)}.mov`;
-  const outputPath = path.join(tempDir, fileName);
-  const r2Key = `renders/${options.userId}/${options.sessionName}/${fileName}`;
+  const outputPath = path.join(tempDir, "overlay.mov");
+  const r2Key = `${options.intermediatesDir}/overlay.mov`;
 
   const totalFrames = Math.max(1, Math.round((options.durationMs / 1000) * options.fps));
 

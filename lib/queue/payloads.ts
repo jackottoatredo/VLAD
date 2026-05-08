@@ -1,5 +1,6 @@
 import type { Keyframe } from "@/lib/render/keyframes";
 import type { RenderSpec, MergeRenderSpec } from "@/lib/render/spec";
+import type { RenderSection } from "@/lib/storage/r2";
 
 /**
  * Job payload for a single-video produce (render+composite → mux → trim).
@@ -10,8 +11,14 @@ export type ProduceJobPayload = {
 
   // Identity
   userId: string;
+  /** vlad_recordings.id (or pre-save flowId) — owner of this produce. The
+   *  worker uses it both as the cache safeId AND as the R2 entity-prefix
+   *  segment for plain previews (`recordings/{safeId}/`). */
   safeId: string;
-  dirName: string;
+  /** Which section subdir holds bg/ov outputs under intermediates. Plain
+   *  produce uses the recording's own type; product-only-export hardcodes
+   *  "product". */
+  section: RenderSection;
 
   // Target
   url: string;
@@ -78,8 +85,6 @@ export type ProduceJobPayload = {
 export type MergeRecordingPayload = {
   /** Full URL to render (includes query params) */
   url: string;
-  /** Session name used for output directory */
-  sessionName: string;
   width: number;
   height: number;
   keyframes: Keyframe[];
@@ -106,11 +111,11 @@ export type MergeJobPayload = {
   type: "merge";
 
   userId: string;
-  /** Pre-stubbed vlad_renders.id — worker UPDATEs this row on completion. */
+  /** Pre-stubbed vlad_renders.id — worker UPDATEs this row on completion.
+   *  Also drives the R2 entity prefix: vlad/users/{userId}/renders/{renderId}/. */
   renderId: string;
   /** Render display label (also used as the merged-mp4 filename stem). */
   brand: string;
-  outputSessionName: string;
 
   // DB record IDs (for diagnostics / cache lookups). Null when section disabled.
   merchantRecordingId: string | null;
@@ -123,4 +128,16 @@ export type MergeJobPayload = {
   merge: MergeRenderSpec;
 };
 
-export type JobPayload = ProduceJobPayload | MergeJobPayload;
+/** Recurring tick at 8am MT every day. Worker handler fans out per-rep
+ *  digests for everyone who has notify_daily_digest enabled. */
+export type DailyDigestTickPayload = { type: "daily_digest_tick" };
+
+/** Recurring tick at 8am MT every Monday. Same shape as daily but a 7-day
+ *  window. */
+export type WeeklyDigestTickPayload = { type: "weekly_digest_tick" };
+
+export type JobPayload =
+  | ProduceJobPayload
+  | MergeJobPayload
+  | DailyDigestTickPayload
+  | WeeklyDigestTickPayload;

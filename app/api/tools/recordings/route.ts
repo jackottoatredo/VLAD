@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/db/supabase";
 import { requireSession } from "@/lib/apiAuth";
+import { jobsQueue } from "@/lib/queue/connection";
 
 export const runtime = "nodejs";
 
@@ -14,6 +15,21 @@ export type AdminRecordingRow = {
   trimStartSec: number | null;
   trimEndSec: number | null;
   createdAt: string;
+  // Render-only. "done" or "error". Recordings (intro/product) omit this —
+  // they have no worker-driven status the admin needs to see.
+  status?: "done" | "error";
+  // Render-only. BullMQ job id. Powers the per-job log lookup at
+  // /api/renders/[id]/log when status === "error".
+  jobId?: string | null;
+  // Render-only. True iff the BullMQ job's `:logs` list still has entries
+  // in Redis — successful jobs are evicted by removeOnComplete (age=1h /
+  // count=100), failed jobs by removeOnFail (age=7d). The UI shows a "view
+  // log" affordance only when this is true.
+  logsAvailable?: boolean;
+  // Render-only. The original POST body that produced this render — drives
+  // the info popover and the admin-side edit-and-rerender flow. Null on
+  // legacy rows that predate the column.
+  jobRequest?: { endpoint: string; body: unknown } | null;
 };
 
 type ParsedFilter = {
@@ -78,7 +94,7 @@ function parseFilter(raw: string | null): ParsedFilter {
 const RECORDINGS_FIELDS =
   "id, user_id, type, name, product_name, merchant_id, preview_url, metadata, created_at, vlad_users(first_name, last_name)";
 const RENDERS_FIELDS =
-  "id, user_id, brand, brand_name, video_url, slug, created_at, vlad_users(first_name, last_name)";
+  "id, user_id, brand, brand_name, video_url, slug, status, job_id, job_request, created_at, vlad_users(first_name, last_name)";
 
 type RecordingDbRow = {
   id: string;
@@ -100,6 +116,9 @@ type RenderDbRow = {
   brand_name: string | null;
   video_url: string | null;
   slug: string | null;
+  status: "done" | "error" | string | null;
+  job_id: string | null;
+  job_request: { endpoint: string; body: unknown } | null;
   created_at: string;
   vlad_users: { first_name: string; last_name: string } | null;
 };
@@ -133,6 +152,10 @@ function recordingToRow(r: RecordingDbRow): AdminRecordingRow {
 }
 
 function renderToRow(r: RenderDbRow): AdminRecordingRow {
+  // Coerce any unexpected status strings down to "done" — historically the
+  // column has only carried "done" or "error", so anything else (including
+  // null on legacy rows) is treated as "done".
+  const status: "done" | "error" = r.status === "error" ? "error" : "done";
   return {
     id: r.id,
     kind: "render",
@@ -143,6 +166,9 @@ function renderToRow(r: RenderDbRow): AdminRecordingRow {
     trimStartSec: null,
     trimEndSec: null,
     createdAt: r.created_at,
+    status,
+    jobId: r.job_id,
+    jobRequest: r.job_request,
   };
 }
 
@@ -187,10 +213,13 @@ export async function GET(request: Request) {
   }
 
   if (wantRenders) {
+    // Surface both successful and failed renders so admins can drill into
+    // failures via the per-job log endpoint. The UI distinguishes them by
+    // the status field returned per row.
     let q = supabase
       .from("vlad_renders")
       .select(RENDERS_FIELDS)
-      .eq("status", "done")
+      .in("status", ["done", "error"])
       .order("created_at", { ascending: false });
 
     if (filter.presenter) q = q.ilike("user_id", `%${filter.presenter}%`);
@@ -204,6 +233,39 @@ export async function GET(request: Request) {
     const { data, error } = await q.limit(200);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     for (const r of (data ?? []) as unknown as RenderDbRow[]) renders.push(renderToRow(r));
+
+    // Per-render log availability. We check the <jobKey>:logs list length
+    // (not the job hash itself) because that's the exact key getJobLogs
+    // reads — keeps "logsAvailable" honest about what the modal will
+    // actually render. Pipelined into one Redis round-trip; with the 200
+    // row cap above this stays a single sub-millisecond op even on a
+    // remote Redis.
+    const renderJobIds = renders
+      .map((r) => r.jobId)
+      .filter((id): id is string => typeof id === "string" && id.length > 0);
+    if (renderJobIds.length > 0) {
+      try {
+        const client = await jobsQueue.client;
+        const pipeline = client.pipeline();
+        for (const jobId of renderJobIds) {
+          pipeline.llen(jobsQueue.toKey(`${jobId}:logs`));
+        }
+        const results = await pipeline.exec();
+        const availability = new Map<string, boolean>();
+        results?.forEach((res, i) => {
+          // ioredis pipeline result tuple: [error, value]
+          const len = res && !res[0] ? Number(res[1] ?? 0) : 0;
+          availability.set(renderJobIds[i], len > 0);
+        });
+        for (const r of renders) {
+          if (r.jobId) r.logsAvailable = availability.get(r.jobId) === true;
+        }
+      } catch (err) {
+        // Redis hiccup shouldn't break the page — fall back to "no logs"
+        // for this request; the UI will show "—" everywhere.
+        console.warn("[admin/recordings] log availability check failed:", err);
+      }
+    }
   }
 
   const rows = [...recordings, ...renders].sort((a, b) =>

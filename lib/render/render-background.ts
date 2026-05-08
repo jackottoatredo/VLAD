@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -16,8 +15,10 @@ if (resolvedFfmpegPath) {
 
 export type RenderBackgroundOptions = {
   url: string;
-  userId: string;
-  sessionName: string;
+  /** Full R2 prefix where this stage's output lands. Caller is responsible for
+   *  building this from `(userId, ownerKind, ownerId, jobId, section?)` —
+   *  see lib/storage/r2.ts helpers. The renderer just appends `/bg.mp4`. */
+  intermediatesDir: string;
   width: number;
   height: number;
   videoWidth?: number;
@@ -60,9 +61,8 @@ export async function renderBackgroundToMp4(
   const framesDir = path.join(tempDir, "frames");
   await mkdir(framesDir, { recursive: true });
 
-  const fileName = `${options.sessionName}-bg-${Date.now()}-${randomUUID().slice(0, 8)}.mp4`;
-  const outputPath = path.join(tempDir, fileName);
-  const r2Key = `renders/${options.userId}/${options.sessionName}/${fileName}`;
+  const outputPath = path.join(tempDir, "bg.mp4");
+  const r2Key = `${options.intermediatesDir}/bg.mp4`;
 
   const browser = await chromium.launch({
     headless: true,
@@ -85,6 +85,26 @@ export async function renderBackgroundToMp4(
     await page.goto(options.url, {
       waitUntil: "networkidle",
       timeout: 30_000,
+    });
+
+    // Enzuzo cookie banner is injected by Cloudflare across the site and the
+    // banner script flips inline display:none → visible after load, so we need
+    // a stylesheet rule with !important to keep it suppressed during capture.
+    await page.addStyleTag({
+      content: `
+        #ez-cookie-notification,
+        [id^="enzuzo-"],
+        [class*="enzuzo-"] {
+          display: none !important;
+          visibility: hidden !important;
+          opacity: 0 !important;
+          pointer-events: none !important;
+        }
+        html.enzuzo-overflow-hidden,
+        body.enzuzo-overflow-hidden {
+          overflow: auto !important;
+        }
+      `,
     });
 
     // Settle phase — wiggle the mouse near the starting cursor position so

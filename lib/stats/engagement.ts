@@ -6,6 +6,10 @@ import { parseUaFamily } from "@/lib/stats/uaFamily";
 import { parseDeviceType } from "@/lib/stats/deviceType";
 import { parseReferrer, type ReferrerKind } from "@/lib/stats/referrer";
 import { upsertVisitor } from "@/lib/stats/visitors";
+import { notifyRenderEvent } from "@/lib/notifications/renderNotification";
+import { TRACKED_EVENT_TYPES } from "@/lib/notifications/stats";
+
+const NOTIFY_ON_TYPES: ReadonlySet<string> = new Set(TRACKED_EVENT_TYPES);
 
 export type EngagementType =
   | "bot_visit"
@@ -116,8 +120,23 @@ export async function logEngagementEvent(args: LogEngagementArgs): Promise<void>
         "row=",
         row,
       );
-    } else if (process.env.NODE_ENV !== "production") {
+      return;
+    }
+    if (process.env.NODE_ENV !== "production") {
       console.log(`[engagement] logged ${args.type}/${args.slug}`);
+    }
+
+    // Fire-and-forget rep notification for any tracked event type. The
+    // notifier de-bounces by maintaining one DM per render and editing it
+    // in place — no dedup needed here. Never surface failures — Slack
+    // hiccups must not affect engagement logging.
+    if (NOTIFY_ON_TYPES.has(args.type)) {
+      void notifyRenderEvent({
+        type: args.type,
+        slug: args.slug,
+        ipHash,
+        isBot,
+      }).catch((err) => console.error(`[notifyRenderEvent] failed for ${args.slug}:`, err));
     }
   } catch (err) {
     console.error(`[engagement] insert threw for ${args.type}/${args.slug}:`, err);

@@ -3,7 +3,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
-type Option = { value: string; label: string; disabled?: boolean }
+// Optional subtitle renders as a smaller second line under the label in
+// the menu. The trigger only shows the label even when subtitle is set.
+type Option = { value: string; label: string; subtitle?: string; disabled?: boolean }
 
 type Props = {
   options: Option[]
@@ -122,7 +124,7 @@ export default function Select({
                   type="button"
                   disabled={o.disabled}
                   onClick={() => select(o.value)}
-                  className={`flex w-full items-center px-3 py-1.5 text-left ${ITEM_TEXT[size]} transition-colors ${
+                  className={`flex w-full flex-col items-start px-3 py-1.5 text-left ${ITEM_TEXT[size]} transition-colors ${
                     o.disabled
                       ? 'cursor-not-allowed text-muted opacity-50'
                       : active
@@ -130,7 +132,12 @@ export default function Select({
                         : 'text-muted hover:bg-background hover:text-foreground'
                   }`}
                 >
-                  {o.label}
+                  <span className="block w-full truncate">{o.label}</span>
+                  {o.subtitle && (
+                    <span className="block w-full truncate text-[0.7rem] text-muted">
+                      {o.subtitle}
+                    </span>
+                  )}
                 </button>
               )
             })}

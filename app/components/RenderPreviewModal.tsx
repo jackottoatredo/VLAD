@@ -1,8 +1,11 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
 import { SHARE_BASE_URL } from '@/app/config'
 import Modal from './Modal'
+
+type JobRequestInfo = { endpoint: string; body: unknown }
 
 type Props = {
   title: string
@@ -13,8 +16,12 @@ type Props = {
   trimEndSec?: number
   /** When present, enables the share-link / GIF actions on the Share tab. */
   slug?: string | null
+  /** Original render job payload — surfaced via the info popover so the rep can see what settings produced this output. */
+  jobRequest?: JobRequestInfo | null
   onClose: () => void
   onDelete?: () => void
+  /** Opens the rendering flow pre-populated with this render's settings so the user can re-render after changes. */
+  onEdit?: () => void
 }
 
 type Tab = 'preview' | 'share'
@@ -27,6 +34,70 @@ function formatTime(sec: number) {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
+type SettingsRow = { label: string; value: string }
+
+// Endpoint values come from the merge-export page; anything else is unknown
+// historical data, so fall back to the raw string.
+function endpointLabel(endpoint: string): string {
+  if (endpoint === '/api/merge-export') return 'Merge export'
+  if (endpoint === '/api/product-only-export') return 'Product-only export'
+  return endpoint
+}
+
+// Defensive — body shape varies by endpoint and may be from an older schema.
+// Read each field with `in` checks and only push rows we recognize.
+function describeJobBody(body: unknown): SettingsRow[] {
+  if (!body || typeof body !== 'object') return []
+  const b = body as Record<string, unknown>
+  const rows: SettingsRow[] = []
+
+  const describeSection = (
+    label: string,
+    section: unknown,
+  ) => {
+    if (!section || typeof section !== 'object') return
+    const s = section as Record<string, unknown>
+    const mode = s.modeSource === 'custom' && typeof s.customMode === 'string' && s.customMode
+      ? `custom: ${s.customMode}`
+      : (typeof s.modeSource === 'string' ? s.modeSource : null)
+    const pos = s.positionSource === 'custom' && typeof s.customPosition === 'string' && s.customPosition
+      ? `custom: ${s.customPosition}`
+      : (typeof s.positionSource === 'string' ? s.positionSource : null)
+    if (mode) rows.push({ label: `${label} mode`, value: mode })
+    if (pos) rows.push({ label: `${label} position`, value: pos })
+  }
+
+  if (b.introEnabled !== false) describeSection('Intro', b.introSettings)
+  if (b.productEnabled !== false) describeSection('Product', b.productSettings)
+
+  const tr = b.transition
+  if (tr && typeof tr === 'object') {
+    const t = tr as Record<string, unknown>
+    const fmtTransition = (kind: unknown, dur: unknown): string | null => {
+      if (typeof kind !== 'string') return null
+      if (kind === 'none') return 'none'
+      return typeof dur === 'number' ? `${kind} (${Math.round(dur)}ms)` : kind
+    }
+    const audio = fmtTransition(t.audio, t.audioDurationMs)
+    const video = fmtTransition(t.video, t.videoDurationMs)
+    const overlay = fmtTransition(t.overlay, t.overlayDurationMs)
+    const mouse = fmtTransition(t.mouse, t.mouseDurationMs)
+    if (audio) rows.push({ label: 'Audio transition', value: audio })
+    if (video) rows.push({ label: 'Video transition', value: video })
+    if (overlay) rows.push({ label: 'Overlay transition', value: overlay })
+    if (mouse) rows.push({ label: 'Mouse transition', value: mouse })
+  }
+
+  const brand = b.merchantBrand
+  if (brand && typeof brand === 'object') {
+    const m = brand as Record<string, unknown>
+    if (typeof m.brandName === 'string' && m.brandName) rows.push({ label: 'Brand', value: m.brandName })
+    if (typeof m.websiteUrl === 'string' && m.websiteUrl) rows.push({ label: 'Website', value: m.websiteUrl })
+  }
+
+  return rows
+}
+
 export default function RenderPreviewModal({
   title,
   videoUrl,
@@ -34,14 +105,24 @@ export default function RenderPreviewModal({
   trimStartSec,
   trimEndSec,
   slug,
+  jobRequest,
   onClose,
   onDelete,
+  onEdit,
 }: Props) {
   const [tab, setTab] = useState<Tab>('preview')
+  const [showInfo, setShowInfo] = useState(false)
+  const infoRef = useRef<HTMLDivElement | null>(null)
   // Tracks which Copy URL just fired so the corresponding card flashes
   // 'Copied ✓' for 2s. Downloads and Open Link don't flash — the browser /
   // new tab is the confirmation.
   const [copiedId, setCopiedId] = useState<CopyId | null>(null)
+  // The owner's book_button_mode + cached meeting name — drives the
+  // booking-link status footer under the Share page card. Loaded once on
+  // mount; null until the fetch resolves (or when there's no slug since
+  // the share tab is disabled in that case).
+  const [bookingMode, setBookingMode] = useState<'website_form' | 'hidden' | 'hubspot' | null>(null)
+  const [bookingMeetingName, setBookingMeetingName] = useState<string | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
@@ -59,6 +140,47 @@ export default function RenderPreviewModal({
   const clipDuration = effectiveEnd > clipStart ? effectiveEnd - clipStart : 0
   const relativeTime = Math.max(0, Math.min(clipDuration, currentTime - clipStart))
   const progress = clipDuration > 0 ? relativeTime / clipDuration : 0
+
+  // Dismiss the info popover on outside click or Escape. The listener is
+  // only attached while open so the modal's other interactions aren't
+  // affected. mousedown (not click) so the popover closes before the
+  // underlying button receives focus.
+  useEffect(() => {
+    if (!showInfo) return
+    function onDocMouseDown(e: MouseEvent) {
+      if (!infoRef.current) return
+      if (!infoRef.current.contains(e.target as Node)) setShowInfo(false)
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setShowInfo(false)
+    }
+    document.addEventListener('mousedown', onDocMouseDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDocMouseDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [showInfo])
+
+  // Resolve the owner's booking-link mode once. Modal is only opened by
+  // logged-in users (the rep), so the GET reflects their own setting.
+  // Errors are swallowed — failure to fetch hides the warning, which is a
+  // safe default. Skip when sharing is disabled (no slug).
+  useEffect(() => {
+    if (!slug) return
+    let cancelled = false
+    void fetch('/api/users/me/hubspot-meeting', { cache: 'no-store' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body: { mode?: 'website_form' | 'hidden' | 'hubspot'; meetingName?: string | null } | null) => {
+        if (cancelled || !body?.mode) return
+        setBookingMode(body.mode)
+        setBookingMeetingName(body.meetingName ?? null)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [slug])
 
   // The video element is unmounted when the user switches to the Share tab,
   // so the listeners must reattach when they return. Re-running on `tab`
@@ -149,7 +271,8 @@ export default function RenderPreviewModal({
 
   function openSharePage() {
     if (!sharePagePath) return
-    window.open(sharePagePath, '_blank', 'noopener,noreferrer')
+    const base = SHARE_BASE_URL ?? window.location.origin
+    window.open(`${base}${sharePagePath}`, '_blank', 'noopener,noreferrer')
   }
 
   // The Clipboard API doesn't accept image/gif or video/mp4 (deliberate
@@ -220,6 +343,13 @@ export default function RenderPreviewModal({
       console.error('Failed to copy embed:', err)
     }
   }
+
+  const settingsRows = describeJobBody(jobRequest?.body)
+  const endpointName = jobRequest ? endpointLabel(jobRequest.endpoint) : null
+  const trimRow = hasTrim
+    ? `${formatTime(clipStart)} – ${clipEndRaw > 0 ? formatTime(clipEndRaw) : 'end'}`
+    : null
+  const hasAnySettings = !!endpointName || !!trimRow || !!slug || settingsRows.length > 0
 
   const tabs = (
     <div className="inline-flex items-center gap-1 rounded-lg border border-border bg-background p-1">
@@ -305,6 +435,13 @@ export default function RenderPreviewModal({
                   { label: 'Open link', onAction: openSharePage },
                   { label: copiedId === 'share' ? 'Copied ✓' : 'Copy URL', active: copiedId === 'share', onAction: () => copyAbsolute(sharePagePath, 'share') },
                 ]}
+                footer={
+                  <BookingLinkStatus
+                    mode={bookingMode}
+                    meetingName={bookingMeetingName}
+                    onNavigate={onClose}
+                  />
+                }
               />
               <ShareCard
                 icon={
@@ -350,10 +487,74 @@ export default function RenderPreviewModal({
         <p className="min-w-0 flex-1 truncate text-base font-normal text-foreground" title={title}>
           {title}
         </p>
+        <div className="relative flex shrink-0 items-center" ref={infoRef}>
+          <button
+            type="button"
+            onClick={() => setShowInfo((s) => !s)}
+            className={`flex items-center transition-colors ${showInfo ? 'text-foreground' : 'text-muted hover:text-foreground'}`}
+            aria-label="Video settings"
+            aria-expanded={showInfo}
+            title="Video settings"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="16" x2="12" y2="12" />
+              <line x1="12" y1="8" x2="12.01" y2="8" />
+            </svg>
+          </button>
+          {showInfo && (
+            <div className="absolute right-0 bottom-full z-20 mb-2 w-72 rounded-lg border border-border bg-surface p-3 text-left shadow-lg">
+              <p className="text-[0.65rem] font-semibold uppercase tracking-wider text-muted">Video settings</p>
+              {hasAnySettings ? (
+                <dl className="mt-2 space-y-1.5 text-xs">
+                  {endpointName && (
+                    <div className="flex justify-between gap-3">
+                      <dt className="shrink-0 text-muted">Type</dt>
+                      <dd className="min-w-0 truncate text-foreground" title={endpointName}>{endpointName}</dd>
+                    </div>
+                  )}
+                  {trimRow && (
+                    <div className="flex justify-between gap-3">
+                      <dt className="shrink-0 text-muted">Trim</dt>
+                      <dd className="tabular-nums text-foreground">{trimRow}</dd>
+                    </div>
+                  )}
+                  {slug && (
+                    <div className="flex justify-between gap-3">
+                      <dt className="shrink-0 text-muted">Slug</dt>
+                      <dd className="min-w-0 truncate text-foreground" title={slug}>{slug}</dd>
+                    </div>
+                  )}
+                  {settingsRows.map((r) => (
+                    <div key={r.label} className="flex justify-between gap-3">
+                      <dt className="shrink-0 text-muted">{r.label}</dt>
+                      <dd className="min-w-0 truncate text-foreground" title={r.value}>{r.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : (
+                <p className="mt-2 text-xs text-muted">No settings recorded for this render.</p>
+              )}
+            </div>
+          )}
+        </div>
+        {tab === 'preview' && onEdit && (
+          <button
+            onClick={onEdit}
+            className="flex shrink-0 items-center text-muted transition-colors hover:text-foreground"
+            title="Edit settings & re-render"
+            aria-label="Edit settings & re-render"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 20h9" />
+              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+            </svg>
+          </button>
+        )}
         {tab === 'preview' && onDelete && (
           <button
             onClick={onDelete}
-            className="shrink-0 text-muted transition-colors hover:text-red-500"
+            className="flex shrink-0 items-center text-muted transition-colors hover:text-red-500"
             title="Delete"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
@@ -376,11 +577,14 @@ function ShareCard({
   name,
   description,
   actions,
+  footer,
 }: {
   icon: React.ReactNode
   name: string
   description: string
   actions: CardAction[]
+  /** Rendered below the action buttons. Used by the Share-page card to surface the booking-link warning. */
+  footer?: React.ReactNode
 }) {
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col items-center rounded-lg border border-border bg-background px-[10%] pb-[10%] pt-[5%] text-center">
@@ -405,6 +609,61 @@ function ShareCard({
           </button>
         ))}
       </div>
+      {footer}
     </div>
+  )
+}
+
+// Status line for the rep's booking-link configuration. Always renders;
+// amber when no rep-specific link is configured (default website form or
+// hidden), muted when a HubSpot link is set. The whole row is a Next Link
+// to /tools/settings — clicking closes the modal first via onNavigate.
+function BookingLinkStatus({
+  mode,
+  meetingName,
+  onNavigate,
+}: {
+  mode: 'website_form' | 'hidden' | 'hubspot' | null
+  meetingName: string | null
+  onNavigate: () => void
+}) {
+  // Pre-resolve label state so the row never collapses while the GET is
+  // in flight — pessimistic copy keeps the warning color until proven
+  // otherwise. (Nothing is shown to viewers; this is rep-only UI.)
+  const label =
+    mode === 'hubspot'
+      ? meetingName ?? 'HubSpot meeting link'
+      : mode === 'hidden'
+        ? 'Hidden'
+        : 'Generic website form'
+  const isWarning = mode !== 'hubspot'
+  const colorCls = isWarning
+    ? 'text-amber-600 dark:text-amber-400'
+    : 'text-muted'
+  return (
+    <Link
+      href="/tools/settings"
+      onClick={onNavigate}
+      className={`mt-2 flex w-full items-center justify-center gap-1 text-[0.7rem] leading-tight hover:underline ${colorCls}`}
+      title="Edit booking link in Settings"
+    >
+      <span className="shrink-0">Booking link:</span>
+      <span className="min-w-0 truncate">{label}</span>
+      <svg
+        width="11"
+        height="11"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+        className="shrink-0"
+      >
+        <path d="M12 20h9" />
+        <path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4Z" />
+      </svg>
+    </Link>
   )
 }

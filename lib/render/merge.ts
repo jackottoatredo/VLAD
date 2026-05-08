@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { FFMPEG_BIN } from "@/lib/render/ffmpeg-bin";
 import { renderCursorFrames } from "@/lib/render/cursor-layer";
+import { probeVideoDurationSec } from "@/lib/render/probeDuration";
 
 export type LayeredMergeTransition = {
   /** 'crossfade' overlaps audio for `audioDurationMs` at the boundary. */
@@ -177,9 +178,22 @@ export async function composeLayeredMerge(
 
   // Background merge (xfade or concat).
   if (videoCross) {
+    // xfade's offset must be a finite number. When introTrimEnd is 0 the
+    // trimmed length is "to end of stream" — Infinity to FFmpeg's trim
+    // filter, but we need a concrete duration here. Probe the intro bg.
+    let resolvedIntroTrimmedSec = introTrimmedSec;
+    if (!Number.isFinite(resolvedIntroTrimmedSec)) {
+      const fullSec = await probeVideoDurationSec(options.intro.backgroundVideoPath);
+      if (fullSec == null || !Number.isFinite(fullSec)) {
+        throw new Error(
+          `cannot resolve intro background duration for xfade offset (path=${options.intro.backgroundVideoPath})`,
+        );
+      }
+      resolvedIntroTrimmedSec = fullSec - introTrimStart;
+    }
     parts.push(`[bg0]tpad=stop_mode=clone:stop_duration=${halfVideoSec.toFixed(3)}[bg0pad]`);
     parts.push(`[bg1]tpad=start_mode=clone:start_duration=${halfVideoSec.toFixed(3)}[bg1pad]`);
-    const xfadeOffsetSec = Math.max(0, introTrimmedSec - halfVideoSec);
+    const xfadeOffsetSec = Math.max(0, resolvedIntroTrimmedSec - halfVideoSec);
     parts.push(
       `[bg0pad][bg1pad]xfade=transition=fade:duration=${videoSec.toFixed(3)}:offset=${xfadeOffsetSec.toFixed(3)}[bgmerged]`,
     );

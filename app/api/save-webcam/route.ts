@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/apiAuth";
-import { uploadToR2 } from "@/lib/storage/r2";
+import { uploadToR2, recordingDir } from "@/lib/storage/r2";
 import { bakeAmplitudeForWebcam } from "@/lib/audio/amplitude";
 import { bakeWebcamFramesForUpload } from "@/lib/audio/webcam-frames";
 
@@ -33,7 +33,7 @@ export async function POST(request: Request) {
   }
 
   const buffer = Buffer.from(await video.arrayBuffer());
-  const r2Key = `sessions/${session.email}/${flowId}/webcam.webm`;
+  const r2Key = `${recordingDir(session.email, flowId)}/webcam.webm`;
 
   await uploadToR2(r2Key, buffer, "video/webm");
 

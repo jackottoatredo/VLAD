@@ -117,7 +117,7 @@ export default function RecordingPreviewModal({
   }
 
   return (
-    <Modal title={title} onClose={onClose} size="lg">
+    <Modal title={title} onClose={onClose} size="lg" narrowMargin>
       <div className="aspect-video w-full overflow-hidden rounded-lg bg-background">
         {streamUrl ? (
           hasTrim ? (

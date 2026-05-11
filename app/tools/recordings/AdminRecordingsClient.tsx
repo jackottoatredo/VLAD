@@ -40,6 +40,9 @@ const KIND_PILL_CLASS: Record<AdminRecordingRow['kind'], string> = {
 const ERROR_PILL_CLASS = 'border-red-500/50 text-red-600 dark:text-red-400'
 
 const DEBOUNCE_MS = 200
+const MAX_VISIBLE_ROWS = 50
+// Roughly six two-line rows (presenter name + email) at text-sm/py-2.
+const SCROLL_MAX_HEIGHT = 320
 
 function formatDate(iso: string): string {
   const t = new Date(iso).getTime()
@@ -296,9 +299,12 @@ export default function AdminRecordingsClient() {
           className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted shadow-inner outline-none focus:border-muted"
         />
 
-        <div className="overflow-hidden rounded-md border border-border">
+        <div
+          className="overflow-y-auto rounded-md border border-border"
+          style={{ maxHeight: SCROLL_MAX_HEIGHT }}
+        >
           <table className="w-full text-left text-sm">
-            <thead className="bg-surface text-xs uppercase text-muted">
+            <thead className="sticky top-0 z-10 bg-surface text-xs uppercase text-muted">
               <tr>
                 <th className="px-3 py-2 font-medium">Presenter</th>
                 <th className="px-3 py-2 font-medium">Type</th>
@@ -308,7 +314,7 @@ export default function AdminRecordingsClient() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => {
+              {rows.slice(0, MAX_VISIBLE_ROWS).map((r) => {
                 const isFailedRender = r.kind === 'render' && r.status === 'error'
                 // Row click defaults to "the most useful thing" — open preview
                 // when available, else the log, else nothing. Explicit icons

@@ -65,6 +65,17 @@ export function InfoCircleIcon(props: IconProps) {
   )
 }
 
+// Simple arc spinner — callers apply `animate-spin` via className. Placeholder
+// glyph that will be swapped for a custom mark; keep the API (currentColor +
+// stroke) so callers don't have to change.
+export function SpinnerIcon(props: IconProps) {
+  return (
+    <StrokeIcon {...props}>
+      <path d="M21 12a9 9 0 11-6.219-8.56" />
+    </StrokeIcon>
+  )
+}
+
 export function RetryIcon(props: IconProps) {
   return (
     <StrokeIcon {...props}>

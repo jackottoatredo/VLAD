@@ -1,7 +1,7 @@
 'use client'
 
 import { usePathname } from 'next/navigation'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import SideMenu from './SideMenu'
 
 const HIDE_MENU_PATHS = [
@@ -57,7 +57,10 @@ export default function LayoutChrome({ children }: { children: React.ReactNode }
           row. Without it, the item's default min-width: auto causes content
           like wide tables to push the entire document wider than the
           viewport, defeating overflow-x-auto inside any descendant card. */}
-      <div className={`flex min-h-screen min-w-0 flex-1 flex-col ${pushContent ? 'pl-56' : ''}`}>
+      <div
+        className={`flex min-h-screen min-w-0 flex-1 flex-col ${pushContent ? 'pl-56' : ''}`}
+        style={{ '--sidebar-width': pushContent ? '14rem' : '0px' } as CSSProperties}
+      >
         {children}
       </div>
     </>

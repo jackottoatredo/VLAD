@@ -25,6 +25,7 @@ import {
   DownloadIcon,
   EyeIcon,
   LinkIcon,
+  SpinnerIcon,
 } from '@/app/components/icons'
 import {
   EMPTY_FILTER_OPTIONS,
@@ -1009,6 +1010,24 @@ export default function AdminEngagementClient() {
     filters.include.length > 0 || filters.exclude.length > 0
   const filterOptions = data?.filterOptions ?? EMPTY_FILTER_OPTIONS
 
+  if (fetchState.status === 'loading') {
+    return (
+      <Page>
+        <div className="flex items-center justify-center py-20">
+          <SpinnerIcon className="animate-spin text-muted" width={32} height={32} />
+        </div>
+      </Page>
+    )
+  }
+
+  if (fetchState.status === 'error') {
+    return (
+      <Page>
+        <p className="text-sm text-red-500">{fetchState.message}</p>
+      </Page>
+    )
+  }
+
   return (
     <Page>
       <AdminSettingsButton active={filtersActive} onClick={() => setFiltersOpen(true)} />
@@ -1041,15 +1060,9 @@ export default function AdminEngagementClient() {
               />
             }
           />
-          {fetchState.status === 'error' ? (
-            <p className="text-sm text-red-500">{fetchState.message}</p>
-          ) : fetchState.status === 'loading' ? (
-            <p className="text-sm text-muted">Loading…</p>
-          ) : (
-            <TopSharesTable
-              rows={selectTopShares(fetchState.data.topShares, leaderboardWindow)}
-            />
-          )}
+          <TopSharesTable
+            rows={selectTopShares(fetchState.data.topShares, leaderboardWindow)}
+          />
           <p className="mt-2 text-xs text-muted">
             Click a column header to sort. Slug links to the share page in a new
             tab. <span className="font-medium">Visits</span> counts page renders
@@ -1077,31 +1090,25 @@ export default function AdminEngagementClient() {
                 />
               }
             />
-            {fetchState.status === 'error' ? (
-              <p className="text-sm text-red-500">{fetchState.message}</p>
-            ) : fetchState.status === 'loading' ? (
-              <p className="text-sm text-muted">Loading…</p>
-            ) : (
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-                  <BarChart
-                    data={visitsChartData}
-                    margin={{ top: 10, right: 10, left: -10, bottom: 0 }}
-                  >
-                    <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" />
-                    <XAxis dataKey="date" stroke="var(--muted)" fontSize={11} />
-                    <YAxis stroke="var(--muted)" fontSize={11} allowDecimals={false} />
-                    <Tooltip contentStyle={TOOLTIP_STYLE} />
-                    <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Bar dataKey="desktop" stackId="visits" fill={COLOR_DESKTOP} name="Desktop" />
-                    <Bar dataKey="mobile" stackId="visits" fill={COLOR_MOBILE} name="Mobile" />
-                    <Bar dataKey="tablet" stackId="visits" fill={COLOR_TABLET} name="Tablet" />
-                    <Bar dataKey="other" stackId="visits" fill={COLOR_OTHER} name="Other" />
-                    <Bar dataKey="bot" stackId="visits" fill={COLOR_BOT} name="Bot" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            )}
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                <BarChart
+                  data={visitsChartData}
+                  margin={{ top: 10, right: 10, left: -10, bottom: 0 }}
+                >
+                  <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" />
+                  <XAxis dataKey="date" stroke="var(--muted)" fontSize={11} />
+                  <YAxis stroke="var(--muted)" fontSize={11} allowDecimals={false} />
+                  <Tooltip contentStyle={TOOLTIP_STYLE} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Bar dataKey="desktop" stackId="visits" fill={COLOR_DESKTOP} name="Desktop" />
+                  <Bar dataKey="mobile" stackId="visits" fill={COLOR_MOBILE} name="Mobile" />
+                  <Bar dataKey="tablet" stackId="visits" fill={COLOR_TABLET} name="Tablet" />
+                  <Bar dataKey="other" stackId="visits" fill={COLOR_OTHER} name="Other" />
+                  <Bar dataKey="bot" stackId="visits" fill={COLOR_BOT} name="Bot" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           </Card>
           <Card className="flex flex-col">
             <CardHeader
@@ -1114,13 +1121,7 @@ export default function AdminEngagementClient() {
                 />
               }
             />
-            {fetchState.status === 'error' ? (
-              <p className="text-sm text-red-500">{fetchState.message}</p>
-            ) : fetchState.status === 'loading' ? (
-              <p className="text-sm text-muted">Loading…</p>
-            ) : (
-              <EventCountsQuad counts={selectCounts(fetchState.data.eventCounts, countsWindow)} />
-            )}
+            <EventCountsQuad counts={selectCounts(fetchState.data.eventCounts, countsWindow)} />
           </Card>
         </div>
 
@@ -1137,15 +1138,9 @@ export default function AdminEngagementClient() {
               />
             }
           />
-          {fetchState.status === 'error' ? (
-            <p className="text-sm text-red-500">{fetchState.message}</p>
-          ) : fetchState.status === 'loading' ? (
-            <p className="text-sm text-muted">Loading…</p>
-          ) : (
-            <ConversionFunnel
-              counts={selectFunnel(fetchState.data.funnel, funnelWindow)}
-            />
-          )}
+          <ConversionFunnel
+            counts={selectFunnel(fetchState.data.funnel, funnelWindow)}
+          />
         </Card>
 
         {/* Row 4: Watch dropoff bucketed by video length. Per-bin, 5 grouped
@@ -1163,15 +1158,9 @@ export default function AdminEngagementClient() {
               />
             }
           />
-          {fetchState.status === 'error' ? (
-            <p className="text-sm text-red-500">{fetchState.message}</p>
-          ) : fetchState.status === 'loading' ? (
-            <p className="text-sm text-muted">Loading…</p>
-          ) : (
-            <WatchDropoffChart
-              bins={selectLengthBins(fetchState.data.lengthBinDropoff, dropoffWindow)}
-            />
-          )}
+          <WatchDropoffChart
+            bins={selectLengthBins(fetchState.data.lengthBinDropoff, dropoffWindow)}
+          />
           <p className="mt-2 text-xs text-muted">
             Each bar shows % of plays in that length bin reaching the stage.
             Play is the baseline (100%). Excludes events from before
@@ -1202,16 +1191,10 @@ export default function AdminEngagementClient() {
               </div>
             }
           />
-          {fetchState.status === 'error' ? (
-            <p className="text-sm text-red-500">{fetchState.message}</p>
-          ) : fetchState.status === 'loading' ? (
-            <p className="text-sm text-muted">Loading…</p>
-          ) : (
-            <PauseHotspotsChart
-              dropoff={selectPauseDropoff(fetchState.data.pauseDropoff, pauseWindow)}
-              mode={pauseMode}
-            />
-          )}
+          <PauseHotspotsChart
+            dropoff={selectPauseDropoff(fetchState.data.pauseDropoff, pauseWindow)}
+            mode={pauseMode}
+          />
           <p className="mt-2 text-xs text-muted">
             Each bar counts pause events in that bucket. Spikes reveal content
             moments where viewers stop to think (or bail). Normalized view
@@ -1241,11 +1224,7 @@ export default function AdminEngagementClient() {
               </div>
             }
           />
-          {fetchState.status === 'error' ? (
-            <p className="text-sm text-red-500">{fetchState.message}</p>
-          ) : fetchState.status === 'loading' ? (
-            <p className="text-sm text-muted">Loading…</p>
-          ) : mapView === 'us' ? (
+          {mapView === 'us' ? (
             <UsVisitMap
               cities={selectCityVisits(fetchState.data.cityVisits, mapWindow)}
             />
@@ -1277,20 +1256,14 @@ export default function AdminEngagementClient() {
                 />
               }
             />
-            {fetchState.status === 'error' ? (
-              <p className="text-sm text-red-500">{fetchState.message}</p>
-            ) : fetchState.status === 'loading' ? (
-              <p className="text-sm text-muted">Loading…</p>
-            ) : (
-              <SharedDonut
-                entries={
-                  selectShared(fetchState.data.sharedBreakdown, unfurlWindow).unfurlBots
-                }
-                labelFn={unfurlLabel}
-                colorFn={unfurlColor}
-                emptyText="No unfurl bot visits in this window."
-              />
-            )}
+            <SharedDonut
+              entries={
+                selectShared(fetchState.data.sharedBreakdown, unfurlWindow).unfurlBots
+              }
+              labelFn={unfurlLabel}
+              colorFn={unfurlColor}
+              emptyText="No unfurl bot visits in this window."
+            />
           </Card>
           <Card className="flex flex-col">
             <CardHeader
@@ -1303,20 +1276,14 @@ export default function AdminEngagementClient() {
                 />
               }
             />
-            {fetchState.status === 'error' ? (
-              <p className="text-sm text-red-500">{fetchState.message}</p>
-            ) : fetchState.status === 'loading' ? (
-              <p className="text-sm text-muted">Loading…</p>
-            ) : (
-              <SharedDonut
-                entries={
-                  selectShared(fetchState.data.sharedBreakdown, referrerWindow).referrers
-                }
-                labelFn={referrerLabel}
-                colorFn={referrerColor}
-                emptyText="No human visits in this window."
-              />
-            )}
+            <SharedDonut
+              entries={
+                selectShared(fetchState.data.sharedBreakdown, referrerWindow).referrers
+              }
+              labelFn={referrerLabel}
+              colorFn={referrerColor}
+              emptyText="No human visits in this window."
+            />
           </Card>
         </div>
       </div>

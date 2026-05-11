@@ -31,6 +31,7 @@ import {
 import type { UsageResponse } from '@/app/api/tools/usage/route'
 import { Card, CardHeader, StatBox } from '@/app/tools/_components/Card'
 import { SegmentedControl } from '@/app/tools/_components/SegmentedControl'
+import { SpinnerIcon } from '@/app/components/icons'
 import { TOOLTIP_STYLE, PALETTE, pickStableColor } from '@/app/tools/_components/chartTheme'
 import { sliceLast } from '@/app/tools/_components/series'
 
@@ -370,6 +371,20 @@ export default function AdminUsageClient() {
     filters.include.length > 0 || filters.exclude.length > 0
   const filterOptions = data?.filterOptions ?? EMPTY_FILTER_OPTIONS
 
+  if (!data) {
+    return (
+      <Page>
+        {error ? (
+          <p className="text-sm text-red-500">{error}</p>
+        ) : (
+          <div className="flex items-center justify-center py-20">
+            <SpinnerIcon className="animate-spin text-muted" width={32} height={32} />
+          </div>
+        )}
+      </Page>
+    )
+  }
+
   return (
     <Page>
       <AdminSettingsButton active={filtersActive} onClick={() => setFiltersOpen(true)} />
@@ -389,21 +404,6 @@ export default function AdminUsageClient() {
           </h1>
           <h3 className="mt-1 text-muted">How VLAD is being used internally.</h3>
         </div>
-
-        {error && (
-          <Card>
-            <p className="text-sm text-red-500">{error}</p>
-          </Card>
-        )}
-
-        {loading && !data && (
-          <Card>
-            <p className="text-sm text-muted">Loading…</p>
-          </Card>
-        )}
-
-        {data && (
-          <>
             {/* Card 1a + 1b: Active-users bar chart (with its own window control)
                 next to a square user-counts quad — separating the two means
                 the window control isn't visually attached to the rolling
@@ -692,8 +692,6 @@ export default function AdminUsageClient() {
                 )}
               </Card>
             </div>
-          </>
-        )}
       </div>
 
       {dauDetail && (

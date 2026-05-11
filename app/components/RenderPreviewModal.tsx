@@ -379,7 +379,7 @@ export default function RenderPreviewModal({
   )
 
   return (
-    <Modal onClose={onClose} size="lg" title={tabs}>
+    <Modal onClose={onClose} size="lg" title={tabs} narrowMargin>
       {tab === 'preview' ? (
         <div className="aspect-video w-full overflow-hidden rounded-lg bg-background">
           {streamUrl ? (

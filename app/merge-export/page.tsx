@@ -8,7 +8,7 @@ import RenderPreviewModal from '@/app/components/RenderPreviewModal'
 import {
   ArrowRightLongIcon,
   ExternalLinkIcon,
-  InfoDotIcon,
+  InfoCircleIcon,
   RetryIcon,
   TrashIcon,
 } from '@/app/components/icons'
@@ -444,21 +444,31 @@ export default function MergeExportPage() {
             {/* Column A — Merchant Recordings */}
             <div className="flex flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-md">
               <div className="flex items-center justify-between border-b border-border px-4 py-3">
-                <h2 className="text-xs font-semibold uppercase tracking-wider text-foreground">
-                  Merchant Intros
-                </h2>
-                <div className="relative">
-                  <button
-                    type="button"
-                    aria-label="About merchant intros"
-                    className="peer flex h-5 w-5 items-center justify-center rounded-full border border-border text-muted transition-colors hover:border-muted hover:text-foreground"
-                  >
-                    <InfoDotIcon width={10} height={10} />
-                  </button>
-                  <div className="pointer-events-none absolute right-0 top-full z-50 mt-2 w-56 rounded-md border border-border bg-surface px-3 py-2 text-xs text-muted shadow-lg opacity-0 transition-opacity duration-100 peer-hover:opacity-100">
-                    Create an intro personalized to your target merchant.
+                <div className="flex items-center gap-2">
+                  <h2 className="text-lg font-semibold text-foreground">
+                    Merchant Intros
+                  </h2>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      aria-label="About merchant intros"
+                      className="peer flex items-center justify-center text-muted transition-colors hover:text-foreground"
+                    >
+                      <InfoCircleIcon width={16} height={16} />
+                    </button>
+                    <div className="pointer-events-none absolute left-0 top-full z-50 mt-2 w-56 rounded-md border border-border bg-surface px-3 py-2 text-xs text-muted shadow-lg opacity-0 transition-opacity duration-100 peer-hover:opacity-100">
+                      Create an intro personalized to your target merchant.
+                    </div>
                   </div>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => router.push('/merchant-flow')}
+                  className="group flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:opacity-80"
+                >
+                  Record
+                  <ArrowRightLongIcon className="h-3.5 w-5 transition-transform duration-200 group-hover:translate-x-1" />
+                </button>
               </div>
               <div className="flex-1 overflow-y-auto">
                 {merchants.map((r) => (
@@ -502,36 +512,36 @@ export default function MergeExportPage() {
                   <p className="px-4 py-3 text-xs text-muted opacity-70">you do not have any merchant intros yet</p>
                 )}
               </div>
-              <div className="border-t border-border p-3">
-                <button
-                  type="button"
-                  onClick={() => router.push('/merchant-flow')}
-                  className="group relative flex w-full items-center justify-center rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:opacity-80"
-                >
-                  Record
-                  <ArrowRightLongIcon className="absolute right-3 h-4 w-6 transition-transform duration-200 group-hover:translate-x-1" />
-                </button>
-              </div>
             </div>
 
             {/* Column B — Product Recordings */}
             <div className="flex flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-md">
               <div className="flex items-center justify-between border-b border-border px-4 py-3">
-                <h2 className="text-xs font-semibold uppercase tracking-wider text-foreground">
-                  Product Recordings
-                </h2>
-                <div className="relative">
-                  <button
-                    type="button"
-                    aria-label="About product recordings"
-                    className="peer flex h-5 w-5 items-center justify-center rounded-full border border-border text-muted transition-colors hover:border-muted hover:text-foreground"
-                  >
-                    <InfoDotIcon width={10} height={10} />
-                  </button>
-                  <div className="pointer-events-none absolute right-0 top-full z-50 mt-2 w-56 rounded-md border border-border bg-surface px-3 py-2 text-xs text-muted shadow-lg opacity-0 transition-opacity duration-100 peer-hover:opacity-100">
-                    Create a reusable product demo and preview merchant customizations.
+                <div className="flex items-center gap-2">
+                  <h2 className="text-lg font-semibold text-foreground">
+                    Product Recordings
+                  </h2>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      aria-label="About product recordings"
+                      className="peer flex items-center justify-center text-muted transition-colors hover:text-foreground"
+                    >
+                      <InfoCircleIcon width={16} height={16} />
+                    </button>
+                    <div className="pointer-events-none absolute left-0 top-full z-50 mt-2 w-56 rounded-md border border-border bg-surface px-3 py-2 text-xs text-muted shadow-lg opacity-0 transition-opacity duration-100 peer-hover:opacity-100">
+                      Create a reusable product demo and preview merchant customizations.
+                    </div>
                   </div>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => router.push('/product-flow')}
+                  className="group flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:opacity-80"
+                >
+                  Record
+                  <ArrowRightLongIcon className="h-3.5 w-5 transition-transform duration-200 group-hover:translate-x-1" />
+                </button>
               </div>
               <div className="flex-1 overflow-y-auto">
                 {products.map((r) => (
@@ -575,36 +585,36 @@ export default function MergeExportPage() {
                   <p className="px-4 py-3 text-xs text-muted opacity-70">you do not have any product recordings yet</p>
                 )}
               </div>
-              <div className="border-t border-border p-3">
-                <button
-                  type="button"
-                  onClick={() => router.push('/product-flow')}
-                  className="group relative flex w-full items-center justify-center rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:opacity-80"
-                >
-                  Record
-                  <ArrowRightLongIcon className="absolute right-3 h-4 w-6 transition-transform duration-200 group-hover:translate-x-1" />
-                </button>
-              </div>
             </div>
 
             {/* Column C — Renders */}
             <div className="flex flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-md">
               <div className="flex items-center justify-between border-b border-border px-4 py-3">
-                <h2 className="text-xs font-semibold uppercase tracking-wider text-foreground">
-                  Rendering Tasks
-                </h2>
-                <div className="relative">
-                  <button
-                    type="button"
-                    aria-label="About rendering tasks"
-                    className="peer flex h-5 w-5 items-center justify-center rounded-full border border-border text-muted transition-colors hover:border-muted hover:text-foreground"
-                  >
-                    <InfoDotIcon width={10} height={10} />
-                  </button>
-                  <div className="pointer-events-none absolute right-0 top-full z-50 mt-2 w-56 rounded-md border border-border bg-surface px-3 py-2 text-xs text-muted shadow-lg opacity-0 transition-opacity duration-100 peer-hover:opacity-100">
-                    Join recordings into final rendered videos ready to share.
+                <div className="flex items-center gap-2">
+                  <h2 className="text-lg font-semibold text-foreground">
+                    Rendering Tasks
+                  </h2>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      aria-label="About rendering tasks"
+                      className="peer flex items-center justify-center text-muted transition-colors hover:text-foreground"
+                    >
+                      <InfoCircleIcon width={16} height={16} />
+                    </button>
+                    <div className="pointer-events-none absolute left-0 top-full z-50 mt-2 w-56 rounded-md border border-border bg-surface px-3 py-2 text-xs text-muted shadow-lg opacity-0 transition-opacity duration-100 peer-hover:opacity-100">
+                      Join recordings into final rendered videos ready to share.
+                    </div>
                   </div>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setShowGenerateModal(true)}
+                  className="group flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:opacity-80"
+                >
+                  Render
+                  <ArrowRightLongIcon className="h-3.5 w-5 transition-transform duration-200 group-hover:translate-x-1" />
+                </button>
               </div>
               <div className="flex-1 overflow-y-auto">
                 {renders.length === 0 && (
@@ -702,16 +712,6 @@ export default function MergeExportPage() {
                     </div>
                   )
                 })}
-              </div>
-              <div className="border-t border-border p-3">
-                <button
-                  type="button"
-                  onClick={() => setShowGenerateModal(true)}
-                  className="group relative flex w-full items-center justify-center rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:opacity-80"
-                >
-                  Render
-                  <ArrowRightLongIcon className="absolute right-3 h-4 w-6 transition-transform duration-200 group-hover:translate-x-1" />
-                </button>
               </div>
             </div>
         </div>

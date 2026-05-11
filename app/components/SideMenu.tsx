@@ -4,8 +4,10 @@ import { usePathname } from 'next/navigation'
 import { signIn, signOut, useSession } from 'next-auth/react'
 import { useNavigationGuard } from '@/app/contexts/NavigationGuardContext'
 import { APP_ENV } from '@/app/config'
+import { MenuIcon } from './icons'
 
 type NavItem = { href: string; label: string }
+type Props = { collapsed: boolean; narrow: boolean; onToggle: () => void }
 
 function isActive(pathname: string | null, href: string) {
   if (!pathname) return false
@@ -13,7 +15,7 @@ function isActive(pathname: string | null, href: string) {
   return pathname.startsWith(`${href}/`)
 }
 
-export default function SideMenu() {
+export default function SideMenu({ collapsed, narrow, onToggle }: Props) {
   const pathname = usePathname()
   const { data: session } = useSession()
   const { tryNavigate } = useNavigationGuard()
@@ -25,12 +27,17 @@ export default function SideMenu() {
   const itemIdle = 'text-muted hover:bg-background hover:text-foreground'
   const itemActive = 'bg-background font-medium text-foreground'
 
+  function handleNavClick(href: string) {
+    tryNavigate(href)
+    if (narrow) onToggle()
+  }
+
   function navItem({ href, label }: NavItem) {
     return (
       <button
         key={href}
         type="button"
-        onClick={() => tryNavigate(href)}
+        onClick={() => handleNavClick(href)}
         className={`${itemBase} ${isActive(pathname, href) ? itemActive : itemIdle}`}
       >
         {label}
@@ -38,20 +45,42 @@ export default function SideMenu() {
     )
   }
 
+  const titleRow = (
+    <div className="flex items-center gap-2">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="rounded-md p-1.5 text-muted hover:bg-background hover:text-foreground"
+        aria-label={collapsed ? 'Open menu' : 'Close menu'}
+      >
+        <MenuIcon />
+      </button>
+      <button
+        type="button"
+        onClick={() => handleNavClick('/dashboard')}
+        className="text-xl font-bold tracking-tight text-foreground"
+      >
+        VLAD
+        {APP_ENV !== 'prod' && (
+          <span className="ml-1 text-sm italic font-normal text-muted">{APP_ENV}</span>
+        )}
+      </button>
+    </div>
+  )
+
+  if (collapsed) {
+    return (
+      <div className="fixed left-3 top-2 z-40">
+        {titleRow}
+      </div>
+    )
+  }
+
   return (
     <aside className="fixed inset-y-0 left-0 z-40 flex w-56 flex-col border-r border-border bg-surface">
       {/* Section 1 — Title */}
-      <div className="border-b border-border px-6 py-6">
-        <button
-          type="button"
-          onClick={() => tryNavigate('/dashboard')}
-          className="text-xl font-bold tracking-tight text-foreground"
-        >
-          VLAD
-          {APP_ENV !== 'prod' && (
-            <span className="ml-1 text-sm italic font-normal text-muted">{APP_ENV}</span>
-          )}
-        </button>
+      <div className="border-b border-border px-3 py-2">
+        {titleRow}
       </div>
 
       {/* Section 2 — Links */}

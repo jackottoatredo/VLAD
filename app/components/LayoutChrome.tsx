@@ -1,6 +1,7 @@
 'use client'
 
 import { usePathname } from 'next/navigation'
+import { useEffect, useRef, useState } from 'react'
 import SideMenu from './SideMenu'
 
 const HIDE_MENU_PATHS = [
@@ -20,15 +21,43 @@ function shouldHide(pathname: string | null) {
 export default function LayoutChrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const hide = shouldHide(pathname)
+  const [collapsed, setCollapsed] = useState(false)
+  const [narrow, setNarrow] = useState(false)
+  // Only re-apply auto state when the viewport crosses the portrait boundary,
+  // so a manual toggle isn't immediately overwritten by a no-op resize event.
+  const lastPortraitRef = useRef<boolean | null>(null)
+
+  useEffect(() => {
+    function check() {
+      const portrait = window.innerWidth < window.innerHeight
+      setNarrow(portrait)
+      if (lastPortraitRef.current !== portrait) {
+        lastPortraitRef.current = portrait
+        setCollapsed(portrait)
+      }
+    }
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
+
+  // In narrow mode the expanded menu overlays content instead of pushing it.
+  const pushContent = !hide && !collapsed && !narrow
 
   return (
     <>
-      {!hide && <SideMenu />}
+      {!hide && (
+        <SideMenu
+          collapsed={collapsed}
+          narrow={narrow}
+          onToggle={() => setCollapsed((c) => !c)}
+        />
+      )}
       {/* min-w-0 is critical: this div is the flex item inside <body>'s flex
           row. Without it, the item's default min-width: auto causes content
           like wide tables to push the entire document wider than the
           viewport, defeating overflow-x-auto inside any descendant card. */}
-      <div className={`flex min-h-screen min-w-0 flex-1 flex-col ${hide ? '' : 'pl-56'}`}>
+      <div className={`flex min-h-screen min-w-0 flex-1 flex-col ${pushContent ? 'pl-56' : ''}`}>
         {children}
       </div>
     </>

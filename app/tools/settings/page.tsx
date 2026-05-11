@@ -6,6 +6,7 @@ import PageLarge from '@/app/components/PageLarge'
 import HubSpotMeetingSetting from './HubSpotMeetingSetting'
 import AdminUserBookingControl from './AdminUserBookingControl'
 import NotificationSettings from './NotificationSettings'
+import ThemeSetting from './ThemeSetting'
 
 type UserRow = {
   book_button_mode: 'website_form' | 'hidden' | 'hubspot' | null
@@ -59,6 +60,14 @@ export default async function SettingsPage() {
             Slack DMs when leads engage with your shares. All off by default.
           </p>
           <NotificationSettings />
+        </section>
+
+        <section className="space-y-3 border-t border-border pt-6">
+          <h2 className="text-lg font-medium text-foreground">Theme</h2>
+          <p className="text-sm text-muted">
+            Choose how the app looks on this device.
+          </p>
+          <ThemeSetting />
         </section>
       </main>
     </PageLarge>

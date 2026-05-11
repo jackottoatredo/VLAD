@@ -5,8 +5,6 @@ import { NavigationGuardProvider } from "./contexts/NavigationGuardContext";
 import LayoutChrome from "./components/LayoutChrome";
 import AuthProvider from "./components/AuthProvider";
 import ThemeProvider from "./components/ThemeProvider";
-import ThemeToggle from "./components/ThemeToggle";
-import Footer from "./components/Footer";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -39,11 +37,9 @@ export default function RootLayout({
         <ThemeProvider>
           <AuthProvider>
             <NavigationGuardProvider>
-              <ThemeToggle />
               <UserContextProvider>
                 <LayoutChrome>
                   {children}
-                  <Footer />
                 </LayoutChrome>
               </UserContextProvider>
             </NavigationGuardProvider>

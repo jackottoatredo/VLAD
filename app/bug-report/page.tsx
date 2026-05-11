@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import PageLarge from '@/app/components/PageLarge'
 
 export default function BugReportPage() {
   const [text, setText] = useState('')
@@ -34,8 +35,8 @@ export default function BugReportPage() {
   }
 
   return (
-    <div className="flex min-h-screen w-full items-center justify-center bg-background px-4 font-sans">
-      <main className="w-full max-w-2xl space-y-6 rounded-2xl border border-border bg-surface p-8 shadow-md">
+    <PageLarge maxWidth="800px">
+      <main className="flex h-full w-full flex-col space-y-6 rounded-2xl border border-border bg-surface p-8 shadow-md">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight text-foreground">
             Report a bug
@@ -79,6 +80,6 @@ export default function BugReportPage() {
           </button>
         </div>
       </main>
-    </div>
+    </PageLarge>
   )
 }

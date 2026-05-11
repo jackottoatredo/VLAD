@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/authOptions'
 import { supabase } from '@/lib/db/supabase'
+import PageLarge from '@/app/components/PageLarge'
 import HubSpotMeetingSetting from './HubSpotMeetingSetting'
 import AdminUserBookingControl from './AdminUserBookingControl'
 import NotificationSettings from './NotificationSettings'
@@ -26,13 +27,11 @@ export default async function SettingsPage() {
   const initialSelectedId = row?.hubspot_meeting_id ?? null
 
   return (
-    <div className="flex min-h-screen w-full items-center justify-center bg-background px-4 font-sans">
-      <main className="w-full max-w-xl space-y-8 rounded-2xl border border-border bg-surface p-8 shadow-md">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight text-foreground">
-            Settings &amp; Notifications
-          </h1>
-        </div>
+    <PageLarge maxWidth="800px">
+      <main className="flex h-full w-full flex-col gap-6 overflow-hidden rounded-2xl border border-border bg-surface p-8 shadow-md">
+        <h1 className="text-3xl font-semibold tracking-tight text-foreground">
+          Settings &amp; Notifications
+        </h1>
 
         <section className="space-y-3">
           <h2 className="text-lg font-medium text-foreground">Booking link</h2>
@@ -62,6 +61,6 @@ export default async function SettingsPage() {
           <NotificationSettings />
         </section>
       </main>
-    </div>
+    </PageLarge>
   )
 }

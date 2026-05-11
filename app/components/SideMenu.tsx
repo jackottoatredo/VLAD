@@ -41,7 +41,7 @@ export default function SideMenu() {
   return (
     <aside className="fixed inset-y-0 left-0 z-40 flex w-56 flex-col border-r border-border bg-surface">
       {/* Section 1 — Title */}
-      <div className="px-6 py-6">
+      <div className="border-b border-border px-6 py-6">
         <button
           type="button"
           onClick={() => tryNavigate('/dashboard')}
@@ -55,18 +55,25 @@ export default function SideMenu() {
       </div>
 
       {/* Section 2 — Links */}
-      <nav className="flex-1 overflow-y-auto px-3 pb-3">
+      <nav className="flex-1 overflow-y-auto px-3 py-3">
         <div className="space-y-0.5">
           {navItem({ href: '/dashboard', label: 'Dashboard' })}
-          {isSignedIn && navItem({ href: '/tools/engagement', label: 'Engagement Stats' })}
+          {isSignedIn && navItem({ href: '/tools/engagement', label: 'Engagement' })}
           {isSignedIn && navItem({ href: '/tools/settings', label: 'Settings' })}
-          {isSignedIn && isAdmin && navItem({ href: '/tools/recordings', label: 'Manage Recordings' })}
-          {isSignedIn && isAdmin && navItem({ href: '/tools/usage', label: 'Usage Stats' })}
           {navItem({ href: '/docs', label: 'Docs' })}
-          {navItem({ href: '/bug-report', label: 'Bug Report' })}
+          {navItem({ href: '/quick-links', label: 'Links' })}
           {navItem({ href: '/feature-request', label: 'Feature Request' })}
-          {navItem({ href: '/quick-links', label: 'Quick Links' })}
+          {navItem({ href: '/bug-report', label: 'Bug Report' })}
         </div>
+        {isSignedIn && isAdmin && (
+          <div className="mt-3 space-y-0.5 border-t border-border pt-3">
+            <div className="px-3 pb-1 text-[0.65625rem] uppercase tracking-wider text-muted">
+              Admin
+            </div>
+            {navItem({ href: '/tools/recordings', label: 'Manage Recordings' })}
+            {navItem({ href: '/tools/usage', label: 'Usage' })}
+          </div>
+        )}
       </nav>
 
       {/* Section 3 — Account */}

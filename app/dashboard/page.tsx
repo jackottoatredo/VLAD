@@ -5,8 +5,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import DeleteModal from '@/app/components/DeleteModal'
 import RecordingPreviewModal from '@/app/components/RecordingPreviewModal'
 import RenderPreviewModal from '@/app/components/RenderPreviewModal'
+import PageLarge from '@/app/components/PageLarge'
+import { useContentIsPortrait } from '@/app/hooks/useContentIsPortrait'
 import {
-  ArrowRightLongIcon,
   ExternalLinkIcon,
   InfoCircleIcon,
   RetryIcon,
@@ -63,6 +64,9 @@ function initialStepsForEndpoint(endpoint: string | null | undefined): PipelineS
 
 export default function MergeExportPage() {
   const router = useRouter()
+  // When the content area is taller than wide, stack the columns vertically
+  // instead of side-by-side.
+  const isPortrait = useContentIsPortrait()
   const [merchants, setMerchants] = useState<Recording[]>([])
   const [products, setProducts] = useState<Recording[]>([])
   const [renders, setRenders] = useState<Render[]>([])
@@ -438,14 +442,14 @@ export default function MergeExportPage() {
   }
 
   return (
-    <div className="flex min-h-screen w-full items-center justify-center bg-background font-sans" style={{ padding: '0 150px' }}>
-      <div className="relative w-full" style={{ aspectRatio: '15/8' }}>
-        <div className="absolute inset-0 flex gap-[10px]">
+    <PageLarge>
+      <div className="relative h-full w-full">
+        <div className={`absolute inset-0 flex gap-[10px] ${isPortrait ? 'flex-col' : 'flex-row'}`}>
             {/* Column A — Merchant Recordings */}
-            <div className="flex flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-md">
+            <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-md">
               <div className="flex items-center justify-between border-b border-border px-4 py-3">
                 <div className="flex items-center gap-2">
-                  <h2 className="text-lg font-semibold text-foreground">
+                  <h2 className="text-base font-semibold text-foreground">
                     Merchant Intros
                   </h2>
                   <div className="relative">
@@ -464,10 +468,9 @@ export default function MergeExportPage() {
                 <button
                   type="button"
                   onClick={() => router.push('/merchant-flow')}
-                  className="group flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:opacity-80"
+                  className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:opacity-80"
                 >
                   Record
-                  <ArrowRightLongIcon className="h-3.5 w-5 transition-transform duration-200 group-hover:translate-x-1" />
                 </button>
               </div>
               <div className="flex-1 overflow-y-auto">
@@ -515,10 +518,10 @@ export default function MergeExportPage() {
             </div>
 
             {/* Column B — Product Recordings */}
-            <div className="flex flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-md">
+            <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-md">
               <div className="flex items-center justify-between border-b border-border px-4 py-3">
                 <div className="flex items-center gap-2">
-                  <h2 className="text-lg font-semibold text-foreground">
+                  <h2 className="text-base font-semibold text-foreground">
                     Product Recordings
                   </h2>
                   <div className="relative">
@@ -537,10 +540,9 @@ export default function MergeExportPage() {
                 <button
                   type="button"
                   onClick={() => router.push('/product-flow')}
-                  className="group flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:opacity-80"
+                  className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:opacity-80"
                 >
                   Record
-                  <ArrowRightLongIcon className="h-3.5 w-5 transition-transform duration-200 group-hover:translate-x-1" />
                 </button>
               </div>
               <div className="flex-1 overflow-y-auto">
@@ -588,10 +590,10 @@ export default function MergeExportPage() {
             </div>
 
             {/* Column C — Renders */}
-            <div className="flex flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-md">
+            <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-md">
               <div className="flex items-center justify-between border-b border-border px-4 py-3">
                 <div className="flex items-center gap-2">
-                  <h2 className="text-lg font-semibold text-foreground">
+                  <h2 className="text-base font-semibold text-foreground">
                     Rendering Tasks
                   </h2>
                   <div className="relative">
@@ -610,10 +612,9 @@ export default function MergeExportPage() {
                 <button
                   type="button"
                   onClick={() => setShowGenerateModal(true)}
-                  className="group flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:opacity-80"
+                  className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:opacity-80"
                 >
                   Render
-                  <ArrowRightLongIcon className="h-3.5 w-5 transition-transform duration-200 group-hover:translate-x-1" />
                 </button>
               </div>
               <div className="flex-1 overflow-y-auto">
@@ -766,6 +767,6 @@ export default function MergeExportPage() {
           modalTitle={editingRender ? 'Edit & re-render' : undefined}
         />
       )}
-    </div>
+    </PageLarge>
   )
 }

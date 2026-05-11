@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Modal from '@/app/components/Modal'
+import ScrollablePage from '@/app/components/ScrollablePage'
+import { useContentIsPortrait } from '@/app/hooks/useContentIsPortrait'
 import type { AdminUser } from '@/app/api/tools/users/route'
 import { AdminFiltersModal } from '@/app/tools/_components/AdminFiltersModal'
 import { AdminSettingsButton } from '@/app/tools/_components/AdminSettingsButton'
@@ -127,6 +129,7 @@ function PieLegend({
 }
 
 export default function AdminUsageClient() {
+  const isPortrait = useContentIsPortrait()
   const [data, setData] = useState<UsageResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -368,7 +371,7 @@ export default function AdminUsageClient() {
   const filterOptions = data?.filterOptions ?? EMPTY_FILTER_OPTIONS
 
   return (
-    <div className="flex min-h-screen w-full justify-center bg-background px-4 py-10 font-sans">
+    <ScrollablePage>
       <AdminSettingsButton active={filtersActive} onClick={() => setFiltersOpen(true)} />
       {filtersOpen && (
         <AdminFiltersModal
@@ -379,14 +382,12 @@ export default function AdminUsageClient() {
           onClose={() => setFiltersOpen(false)}
         />
       )}
-      <div className="w-full max-w-5xl space-y-6">
-        <div className="grid grid-cols-3 items-start">
-          <div className="col-start-1">
-            <h1 className="text-3xl font-semibold tracking-tight text-foreground">
-              Usage Statistics
-            </h1>
-            <h3 className="mt-1 text-muted">How VLAD is being used internally.</h3>
-          </div>
+      <div className="w-full space-y-6">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight text-foreground">
+            Usage Statistics
+          </h1>
+          <h3 className="mt-1 text-muted">How VLAD is being used internally.</h3>
         </div>
 
         {error && (
@@ -407,8 +408,8 @@ export default function AdminUsageClient() {
                 next to a square user-counts quad — separating the two means
                 the window control isn't visually attached to the rolling
                 DAU/WAU/MAU/all-time stats, which are window-independent. */}
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-              <Card className="md:col-span-2">
+            <div className={`grid grid-cols-1 gap-6 ${isPortrait ? '' : 'md:grid-cols-3'}`}>
+              <Card className={isPortrait ? '' : 'md:col-span-2'}>
                 <CardHeader
                   title="Active users"
                   controls={
@@ -461,8 +462,8 @@ export default function AdminUsageClient() {
             {/* Card 2a + 2b: stacked daily content bar chart on the left,
                 all-time content totals on the right. Same split-card pattern
                 as Active users / User counts. */}
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-              <Card className="md:col-span-2">
+            <div className={`grid grid-cols-1 gap-6 ${isPortrait ? '' : 'md:grid-cols-3'}`}>
+              <Card className={isPortrait ? '' : 'md:col-span-2'}>
                 <CardHeader
                   title="Content created"
                   controls={
@@ -600,8 +601,8 @@ export default function AdminUsageClient() {
             </Card>
 
             {/* Card 4a + 4b: leaderboard with a render-by-product pie next to it */}
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-              <Card className="md:col-span-2">
+            <div className={`grid grid-cols-1 gap-6 ${isPortrait ? '' : 'md:grid-cols-3'}`}>
+              <Card className={isPortrait ? '' : 'md:col-span-2'}>
                 <CardHeader
                   title="Top presenters by renders"
                   controls={
@@ -715,7 +716,7 @@ export default function AdminUsageClient() {
           </div>
         </Modal>
       )}
-    </div>
+    </ScrollablePage>
   )
 }
 

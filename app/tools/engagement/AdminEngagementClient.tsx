@@ -14,6 +14,8 @@ import {
   Pie,
   Cell,
 } from 'recharts'
+import ScrollablePage from '@/app/components/ScrollablePage'
+import { useContentIsPortrait } from '@/app/hooks/useContentIsPortrait'
 import { Card, CardHeader } from '@/app/tools/_components/Card'
 import { UsVisitMap, WorldVisitMap } from './VisitMap'
 import { AdminFiltersModal } from '@/app/tools/_components/AdminFiltersModal'
@@ -291,14 +293,15 @@ function formatPct(v: number | null): string {
   return `${Math.round(v * 100)}%`
 }
 
-// Compact variant of the shared StatBox: smaller, centered, single-line
-// label so the longest engagement label ("Unique Page Visitors") fits
-// without wrapping inside the col-1 grid cell.
+// Compact variant of the shared StatBox: smaller, centered. Labels wrap to
+// multiple lines as the card narrows — previously forced single-line via
+// whitespace-nowrap, but that locked a ~150px min-content on the stat box
+// that propagated up to the Card and prevented the page from shrinking.
 function CompactStatBox({ label, value }: { label: string; value: number | string }) {
   return (
     <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-background p-4">
       <span className="text-2xl font-semibold text-foreground tabular-nums">{value}</span>
-      <span className="mt-1 whitespace-nowrap text-center text-[10px] font-medium uppercase tracking-tight text-muted">
+      <span className="mt-1 text-center text-[10px] font-medium uppercase tracking-tight text-muted">
         {label}
       </span>
     </div>
@@ -612,9 +615,22 @@ function TopSharesTable({ rows }: { rows: TopShareEntry[] }) {
     },
   ]
 
+  // Sticky-column classes. The slug column always sticks to the left so
+  // viewers can identify rows after horizontal scrolling. bg-surface matches
+  // the surrounding row (so it visually disappears but still covers cells
+  // scrolling past underneath); the right border draws the separator line
+  // between the pinned column and the rest of the table. z-10 keeps it
+  // above other cells during scroll.
+  function pinClass(key: TopSharesSortKey): string {
+    if (key === 'slug') {
+      return 'sticky left-0 z-10 bg-surface border-r border-border'
+    }
+    return ''
+  }
+
   return (
-    <div className="overflow-x-auto rounded-md border border-border">
-      <table className="w-full text-left text-sm">
+    <div className="min-w-0 overflow-x-auto rounded-md border border-border">
+      <table className="w-full min-w-[800px] text-left text-sm">
         <thead className="bg-surface text-xs uppercase text-muted">
           <tr>
             {cols.map((c) => {
@@ -626,6 +642,7 @@ function TopSharesTable({ rows }: { rows: TopShareEntry[] }) {
                     'cursor-pointer select-none px-3 py-2 font-medium transition-colors hover:text-foreground',
                     c.align === 'right' ? 'text-right' : 'text-left',
                     active ? 'text-foreground' : '',
+                    pinClass(c.key),
                   ].join(' ')}
                   onClick={() => clickHeader(c.key)}
                   aria-sort={active ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
@@ -654,6 +671,7 @@ function TopSharesTable({ rows }: { rows: TopShareEntry[] }) {
                   className={[
                     'px-3 py-2 tabular-nums',
                     c.align === 'right' ? 'text-right' : 'text-left',
+                    pinClass(c.key),
                   ].join(' ')}
                 >
                   {c.render(r)}
@@ -880,6 +898,7 @@ type FetchState =
   | { status: 'ready'; data: EngagementResponse }
 
 export default function AdminEngagementClient() {
+  const isPortrait = useContentIsPortrait()
   const [fetchState, setFetchState] = useState<FetchState>({ status: 'loading' })
   const data = fetchState.status === 'ready' ? fetchState.data : null
 
@@ -991,7 +1010,7 @@ export default function AdminEngagementClient() {
   const filterOptions = data?.filterOptions ?? EMPTY_FILTER_OPTIONS
 
   return (
-    <div className="flex min-h-screen w-full justify-center bg-background px-4 py-10 font-sans">
+    <ScrollablePage>
       <AdminSettingsButton active={filtersActive} onClick={() => setFiltersOpen(true)} />
       {filtersOpen && (
         <AdminFiltersModal
@@ -1002,14 +1021,12 @@ export default function AdminEngagementClient() {
           onClose={() => setFiltersOpen(false)}
         />
       )}
-      <div className="w-full max-w-5xl space-y-6">
-        <div className="grid grid-cols-3 items-start">
-          <div className="col-start-1">
-            <h1 className="text-3xl font-semibold tracking-tight text-foreground">
-              Engagement Statistics
-            </h1>
-            <h3 className="mt-1 text-muted">How shared previews are landing.</h3>
-          </div>
+      <div className="w-full space-y-6">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight text-foreground">
+            Engagement Statistics
+          </h1>
+          <h3 className="mt-1 text-muted">How shared previews are landing.</h3>
         </div>
 
         {/* Row 1: Top shares leaderboard. Per-slug performance ranking. */}
@@ -1048,8 +1065,8 @@ export default function AdminEngagementClient() {
 
         {/* Row 2: Visits over time (time-series) + Event counts (stat quad).
             Mirrors the Active users / User counts pairing on /tools/usage. */}
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-          <Card className="md:col-span-2">
+        <div className={`grid grid-cols-1 gap-6 ${isPortrait ? '' : 'md:grid-cols-3'}`}>
+          <Card className={isPortrait ? '' : 'md:col-span-2'}>
             <CardHeader
               title="Visits over time"
               controls={
@@ -1168,7 +1185,7 @@ export default function AdminEngagementClient() {
           <CardHeader
             title="Pause hotspots"
             controls={
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <SegmentedControl
                   options={[
                     { value: 'normalized', label: '% of video' },
@@ -1210,7 +1227,7 @@ export default function AdminEngagementClient() {
           <CardHeader
             title="Visit map"
             controls={
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <SegmentedControl
                   options={MAP_VIEW_OPTIONS}
                   value={mapView}
@@ -1248,7 +1265,7 @@ export default function AdminEngagementClient() {
 
         {/* Row 7: Where shared — bot platforms vs. human referrers. Two
             halves of the same question; placed side-by-side at equal weight. */}
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+        <div className={`grid grid-cols-1 gap-6 ${isPortrait ? '' : 'md:grid-cols-2'}`}>
           <Card className="flex flex-col">
             <CardHeader
               title="Unfurl bot visits"
@@ -1303,6 +1320,6 @@ export default function AdminEngagementClient() {
           </Card>
         </div>
       </div>
-    </div>
+    </ScrollablePage>
   )
 }

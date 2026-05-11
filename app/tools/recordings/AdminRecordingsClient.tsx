@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import PageLarge from '@/app/components/PageLarge'
 import RecordingPreviewModal from '@/app/components/RecordingPreviewModal'
 import RenderPreviewModal from '@/app/components/RenderPreviewModal'
 import RenderLogModal from '@/app/components/RenderLogModal'
@@ -273,8 +274,8 @@ export default function AdminRecordingsClient() {
   }
 
   return (
-    <div className="flex min-h-screen w-full justify-center bg-background px-4 py-10 font-sans">
-      <main className="w-full max-w-4xl space-y-6 rounded-2xl border border-border bg-surface p-8 shadow-md">
+    <PageLarge maxWidth="800px">
+      <main className="flex h-full w-full flex-col space-y-6 overflow-hidden rounded-2xl border border-border bg-surface p-8 shadow-md">
         <div className="flex items-start justify-between">
           <div>
             <h1 className="text-3xl font-semibold tracking-tight text-foreground">
@@ -454,6 +455,6 @@ export default function AdminRecordingsClient() {
           <button onClick={() => setEditError(null)} className="ml-3 text-xs underline">dismiss</button>
         </div>
       )}
-    </div>
+    </PageLarge>
   )
 }

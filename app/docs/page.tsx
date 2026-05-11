@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import Infographic from '@/app/components/Infographic'
+import ScrollablePage from '@/app/components/ScrollablePage'
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -12,10 +13,8 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 
 export default function docsPage() {
   return (
-    <div className="flex min-h-screen w-full justify-center bg-background px-4 py-10 font-sans">
-      <div className="w-full max-w-2xl space-y-6">
-        <h1 className="text-3xl font-semibold tracking-tight text-foreground">docs</h1>
-
+    <ScrollablePage maxWidth="800px">
+      <div className="w-full space-y-6">
         <Section title="Overview">
          <p>
             VLAD helps you create personalized video demos at scale through background replacement,
@@ -33,7 +32,7 @@ export default function docsPage() {
             <video
               src="/content-replacement.mov"
               controls
-              className="mx-auto w-3/4 rounded-lg"
+              className="mx-auto w-full max-w-[50vh] rounded-lg"
             />
             <figcaption className="text-center text-sm italic text-muted">
               VLAD replaces background video with merchant-specific content
@@ -45,7 +44,7 @@ export default function docsPage() {
             For further personalization you can record an introduction that makes your lead feel special 🧡.
           </p>
           <figure className="space-y-2">
-            <Infographic className="mx-auto w-3/4 max-w-md text-foreground" />
+            <Infographic className="mx-auto w-full max-w-[50vh] text-foreground" />
             <figcaption className="text-center text-sm italic text-muted">
               Short personal intros + merchant agnostic base recordings shorten recording time and multiply outreach volume.
             </figcaption>
@@ -67,7 +66,7 @@ export default function docsPage() {
             <img
               src="/recording-tools.png"
               alt="Recording Studio"
-              className="mx-auto w-3/4 rounded-lg"
+              className="mx-auto w-full max-w-[50vh] rounded-lg"
             />
             <figcaption className="text-center text-sm italic text-muted">
               Recording Studio
@@ -94,7 +93,7 @@ export default function docsPage() {
             <img
               src="/merchant-search.png"
               alt="Merchant Search"
-              className="mx-auto w-3/4 rounded-lg"
+              className="mx-auto w-full max-w-[50vh] rounded-lg"
             />
             <figcaption className="text-center text-sm italic text-muted">
               Search for your merchant, if you don&apos;t find it click &quot;+&quot;
@@ -107,6 +106,6 @@ export default function docsPage() {
           </p>
         </Section>
       </div>
-    </div>
+    </ScrollablePage>
   )
 }

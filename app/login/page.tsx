@@ -15,7 +15,7 @@ const ERROR_MESSAGES: Record<string, string> = {
 
 function LoginCard() {
   const searchParams = useSearchParams()
-  const callbackUrl = searchParams.get('callbackUrl') ?? '/'
+  const callbackUrl = searchParams.get('callbackUrl') ?? '/dashboard'
   const errorCode = searchParams.get('error')
   const errorMessage = errorCode
     ? ERROR_MESSAGES[errorCode] ?? ERROR_MESSAGES.Default

@@ -10,10 +10,9 @@ import { useNavigationGuard } from "@/app/contexts/NavigationGuardContext";
 import { APP_ENV, PROD_URL, BETA_URL } from "@/app/config";
 
 const links = [
-  { href: "/", label: "Home" },
+  { href: "/dashboard", label: "Dashboard" },
   { href: "/product-flow", label: "Record a Product" },
   { href: "/merchant-flow", label: "Record an Intro" },
-  { href: "/merge-export", label: "Merge & Export" },
 ];
 
 export default function HamburgerMenu() {

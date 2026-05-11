@@ -6,8 +6,8 @@ import RecordingPreviewModal from '@/app/components/RecordingPreviewModal'
 import RenderPreviewModal from '@/app/components/RenderPreviewModal'
 import RenderLogModal from '@/app/components/RenderLogModal'
 import DeleteModal from '@/app/components/DeleteModal'
-import GenerateMergeModal, { type MergeFormState, bodyToFormState } from '@/app/merge-export/GenerateMergeModal'
-import { startMergeJob, startProductOnlyJob } from '@/app/merge-export/pipeline'
+import GenerateMergeModal, { type MergeFormState, bodyToFormState } from '@/app/dashboard/GenerateMergeModal'
+import { startMergeJob, startProductOnlyJob } from '@/app/dashboard/pipeline'
 import type { AdminRecordingRow } from '@/app/api/tools/recordings/route'
 import {
   ExternalLinkIcon,

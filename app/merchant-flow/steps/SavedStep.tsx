@@ -1,55 +1,24 @@
 'use client'
 
-import Link from 'next/link'
+import { useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { useMerchantFlow } from '@/app/contexts/MerchantFlowContext'
-import { ArrowRightLongIcon } from '@/app/components/icons'
 
 export default function SavedStep() {
   const flow = useMerchantFlow()
+  const router = useRouter()
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      flow.reset()
+      router.push('/dashboard')
+    }, 1000)
+    return () => clearTimeout(t)
+  }, [flow, router])
 
   return (
-    <div className="flex h-full w-full items-center justify-center bg-background" style={{ padding: 100 }}>
-      <div className="w-full max-w-2xl space-y-6 rounded-2xl border border-border bg-surface p-8 shadow-md">
-        <div>
-          <h2 className="text-2xl font-semibold tracking-tight text-foreground">
-            Recording Saved
-          </h2>
-          <p className="mt-1 text-sm text-muted">
-            Saved as <em>{flow.merchantId}</em>
-          </p>
-        </div>
-        <div className="grid grid-cols-3 gap-4">
-          <button
-            onClick={flow.reset}
-            className="flex flex-col gap-2 rounded-xl border border-border bg-background p-5 text-left transition hover:border-muted hover:shadow-sm"
-          >
-            <h3 className="font-medium text-foreground">Record Another Intro</h3>
-            <p className="text-xs text-muted">Start a new merchant customization flow.</p>
-          </button>
-          <Link
-            href="/merge-export"
-            onClick={() => flow.reset()}
-            className="group col-span-2 flex items-stretch gap-4 rounded-xl border border-border bg-background p-5 text-left transition hover:border-muted"
-          >
-            <div className="flex w-1/2 flex-col gap-2">
-              <h3 className="font-medium text-foreground">Merge & Export</h3>
-              <p className="text-xs text-muted">Merge recordings and export final videos.</p>
-            </div>
-            <div className="flex w-1/2 items-center justify-end pr-2">
-              <ArrowRightLongIcon className="h-10 w-[3.75rem] transition-transform duration-200 group-hover:translate-x-1" />
-            </div>
-          </Link>
-        </div>
-        <div className="flex items-center pt-2 text-xs">
-          <Link
-            href="/"
-            onClick={() => flow.reset()}
-            className="text-muted transition hover:text-foreground"
-          >
-            {'← return to Main Menu'}
-          </Link>
-        </div>
-      </div>
+    <div className="flex h-full w-full items-center justify-center bg-background">
+      <p className="text-sm text-muted">Saved successfully</p>
     </div>
   )
 }

@@ -2,6 +2,7 @@
 
 import MediaPlayer, { type MediaPlayerProps } from '@/app/components/MediaPlayer'
 import VideoTrimmer from '@/app/components/VideoTrimmer'
+import { PlayFilledIcon, SkipBackIcon, SkipForwardIcon } from '@/app/components/icons'
 
 type MediaEditorProps = MediaPlayerProps & {
   fps?: number
@@ -82,27 +83,19 @@ export default function MediaEditor({
           disabled
           className="flex h-7 w-7 items-center justify-center rounded text-muted opacity-60 cursor-not-allowed"
         >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-            <rect x="1" y="2" width="2" height="10" />
-            <path d="M12 2 L5 7 L12 12 Z" />
-          </svg>
+          <SkipBackIcon />
         </button>
         <button
           disabled
           className="flex h-8 w-8 items-center justify-center text-muted opacity-60 cursor-not-allowed"
         >
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-            <path d="M2 0 L12 6 L2 12 Z" />
-          </svg>
+          <PlayFilledIcon width={12} height={12} />
         </button>
         <button
           disabled
           className="flex h-7 w-7 items-center justify-center rounded text-muted opacity-60 cursor-not-allowed"
         >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-            <path d="M2 2 L9 7 L2 12 Z" />
-            <rect x="11" y="2" width="2" height="10" />
-          </svg>
+          <SkipForwardIcon />
         </button>
       </div>
     </div>

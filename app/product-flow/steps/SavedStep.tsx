@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useProductFlow } from '@/app/contexts/ProductFlowContext'
+import { ArrowRightLongIcon } from '@/app/components/icons'
 
 export default function SavedStep() {
   const flow = useProductFlow()
@@ -35,19 +36,7 @@ export default function SavedStep() {
               <p className="text-xs text-muted">Create an intro personalized to your target merchant.</p>
             </div>
             <div className="flex w-1/2 items-center justify-end pr-2">
-              <svg
-                viewBox="0 0 36 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={1.5}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="h-10 w-[3.75rem] transition-transform duration-200 group-hover:translate-x-1"
-                aria-hidden
-              >
-                <path d="M2 12h28" />
-                <path d="M25 5l7 7-7 7" />
-              </svg>
+              <ArrowRightLongIcon className="h-10 w-[3.75rem] transition-transform duration-200 group-hover:translate-x-1" />
             </div>
           </Link>
         </div>

@@ -4,6 +4,17 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { SHARE_BASE_URL } from '@/app/config'
 import Modal from './Modal'
+import {
+  EditIcon,
+  GridIcon,
+  InfoCircleIcon,
+  LinkIcon,
+  PauseFilledIcon,
+  PhotoIcon,
+  PlayFilledIcon,
+  TrashIcon,
+  VideoScreenIcon,
+} from './icons'
 
 type JobRequestInfo = { endpoint: string; body: unknown }
 
@@ -387,9 +398,9 @@ export default function RenderPreviewModal({
                     aria-label={isPlaying ? 'Pause' : 'Play'}
                   >
                     {isPlaying ? (
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+                      <PauseFilledIcon width={20} height={20} />
                     ) : (
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7L8 5z"/></svg>
+                      <PlayFilledIcon width={20} height={20} />
                     )}
                   </button>
                   <div
@@ -424,9 +435,7 @@ export default function RenderPreviewModal({
           ) : (
             <div className="grid h-full grid-cols-2 grid-rows-2 gap-2">
               <ShareCard
-                icon={
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-                }
+                icon={<LinkIcon width={20} height={20} />}
                 name="Share page"
                 description="View video on the web with engagement statistics collected. OpenGraph metadata support rich preview in WhatsApp, iMessage, LinkedIn, Slack and more"
                 actions={[
@@ -442,9 +451,7 @@ export default function RenderPreviewModal({
                 }
               />
               <ShareCard
-                icon={
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
-                }
+                icon={<VideoScreenIcon width={20} height={20} />}
                 name="Video"
                 description="MP4 for direct sharing or upload. No engagement tracking."
                 actions={[
@@ -453,9 +460,7 @@ export default function RenderPreviewModal({
                 ]}
               />
               <ShareCard
-                icon={
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/></svg>
-                }
+                icon={<GridIcon width={20} height={20} />}
                 name="GIF"
                 description="Animated Preview - Best option for sharing in gmail. Copy Embed pastes the GIF with the share link already attached."
                 actions={[
@@ -465,9 +470,7 @@ export default function RenderPreviewModal({
                 ]}
               />
               <ShareCard
-                icon={
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-                }
+                icon={<PhotoIcon width={20} height={20} />}
                 name="Thumbnail"
                 description="Static Cover Image - GIF alternative. Copy Embed pastes the thumbnail with the share link already attached."
                 actions={[
@@ -494,11 +497,7 @@ export default function RenderPreviewModal({
             aria-expanded={showInfo}
             title="Video settings"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="10" />
-              <line x1="12" y1="16" x2="12" y2="12" />
-              <line x1="12" y1="8" x2="12.01" y2="8" />
-            </svg>
+            <InfoCircleIcon width={16} height={16} />
           </button>
           {showInfo && (
             <div className="absolute right-0 bottom-full z-20 mb-2 w-72 rounded-lg border border-border bg-surface p-3 text-left shadow-lg">
@@ -543,10 +542,7 @@ export default function RenderPreviewModal({
             title="Edit settings & re-render"
             aria-label="Edit settings & re-render"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 20h9" />
-              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-            </svg>
+            <EditIcon width={16} height={16} />
           </button>
         )}
         {tab === 'preview' && onDelete && (
@@ -555,7 +551,7 @@ export default function RenderPreviewModal({
             className="flex shrink-0 items-center text-muted transition-colors hover:text-red-500"
             title="Delete"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+            <TrashIcon width={16} height={16} />
           </button>
         )}
       </div>
@@ -647,21 +643,7 @@ function BookingLinkStatus({
     >
       <span className="shrink-0">Booking link:</span>
       <span className="min-w-0 truncate">{label}</span>
-      <svg
-        width="11"
-        height="11"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-        className="shrink-0"
-      >
-        <path d="M12 20h9" />
-        <path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4Z" />
-      </svg>
+      <EditIcon width={11} height={11} className="shrink-0" />
     </Link>
   )
 }

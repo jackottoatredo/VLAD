@@ -9,6 +9,11 @@ import DeleteModal from '@/app/components/DeleteModal'
 import GenerateMergeModal, { type MergeFormState, bodyToFormState } from '@/app/merge-export/GenerateMergeModal'
 import { startMergeJob, startProductOnlyJob } from '@/app/merge-export/pipeline'
 import type { AdminRecordingRow } from '@/app/api/tools/recordings/route'
+import {
+  ExternalLinkIcon,
+  FileIcon,
+  TrashIcon,
+} from '@/app/components/icons'
 
 type RecordingOption = { id: string; label: string }
 type ApiRecording = { id: string; type: 'merchant' | 'product'; name: string | null; product_name: string | null; merchant_id: string | null }
@@ -348,40 +353,19 @@ export default function AdminRecordingsClient() {
                           available={canLog}
                           title="View log"
                           onClick={() => setLogTarget(r)}
-                          icon={
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-                              <polyline points="14 2 14 8 20 8" />
-                              <line x1="9" y1="13" x2="15" y2="13" />
-                              <line x1="9" y1="17" x2="15" y2="17" />
-                            </svg>
-                          }
+                          icon={<FileIcon width={14} height={14} />}
                         />
                         <ActionSlot
                           available={canOpen}
                           title="Open preview"
                           onClick={() => setPreviewTarget(r)}
-                          icon={
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" />
-                              <polyline points="15 3 21 3 21 9" />
-                              <line x1="10" y1="14" x2="21" y2="3" />
-                            </svg>
-                          }
+                          icon={<ExternalLinkIcon width={14} height={14} />}
                         />
                         <ActionSlot
                           available
                           title="Delete"
                           onClick={() => setDeleteTarget(r)}
-                          icon={
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <polyline points="3 6 5 6 21 6" />
-                              <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
-                              <path d="M10 11v6" />
-                              <path d="M14 11v6" />
-                              <path d="M9 6V4a2 2 0 012-2h2a2 2 0 012 2v2" />
-                            </svg>
-                          }
+                          icon={<TrashIcon width={14} height={14} />}
                         />
                       </div>
                     </td>

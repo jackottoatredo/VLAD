@@ -2,6 +2,13 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Modal from './Modal'
+import {
+  DownloadIcon,
+  EditIcon,
+  PauseFilledIcon,
+  PlayFilledIcon,
+  TrashIcon,
+} from './icons'
 
 type Props = {
   title: string
@@ -128,9 +135,9 @@ export default function RecordingPreviewModal({
                   aria-label={isPlaying ? 'Pause' : 'Play'}
                 >
                   {isPlaying ? (
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+                    <PauseFilledIcon width={20} height={20} />
                   ) : (
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7L8 5z"/></svg>
+                    <PlayFilledIcon width={20} height={20} />
                   )}
                 </button>
                 <div
@@ -163,7 +170,7 @@ export default function RecordingPreviewModal({
             className="text-muted transition-colors hover:text-foreground"
             title="Open in editor"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
+            <EditIcon width={16} height={16} />
           </button>
         )}
         {downloadUrl && (
@@ -173,7 +180,7 @@ export default function RecordingPreviewModal({
             className="text-muted transition-colors hover:text-foreground"
             title="Download video"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            <DownloadIcon width={16} height={16} />
           </a>
         )}
         {onDelete && (
@@ -182,7 +189,7 @@ export default function RecordingPreviewModal({
             className="text-muted transition-colors hover:text-red-500"
             title="Delete"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+            <TrashIcon width={16} height={16} />
           </button>
         )}
       </div>

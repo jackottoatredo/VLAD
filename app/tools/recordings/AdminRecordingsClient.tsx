@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import Link from 'next/link'
 import RecordingPreviewModal from '@/app/components/RecordingPreviewModal'
 import RenderPreviewModal from '@/app/components/RenderPreviewModal'
 import RenderLogModal from '@/app/components/RenderLogModal'
@@ -285,9 +284,6 @@ export default function AdminRecordingsClient() {
               Browse every user&apos;s intros, product recordings, and renders.
             </h3>
           </div>
-          <Link href="/tools" className="text-sm text-muted hover:text-foreground">
-            ← Tools
-          </Link>
         </div>
 
         <input

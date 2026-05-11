@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react'
-import Link from 'next/link'
 import Infographic from '@/app/components/Infographic'
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -15,12 +14,7 @@ export default function docsPage() {
   return (
     <div className="flex min-h-screen w-full justify-center bg-background px-4 py-10 font-sans">
       <div className="w-full max-w-2xl space-y-6">
-        <div className="flex items-center justify-between">
-          <h1 className="text-3xl font-semibold tracking-tight text-foreground">docs</h1>
-          <Link href="/" className="text-sm text-muted hover:text-foreground">
-            ← Home
-          </Link>
-        </div>
+        <h1 className="text-3xl font-semibold tracking-tight text-foreground">docs</h1>
 
         <Section title="Overview">
          <p>

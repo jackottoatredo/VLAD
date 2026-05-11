@@ -1,4 +1,3 @@
-import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/authOptions'
@@ -62,12 +61,6 @@ export default async function SettingsPage() {
           </p>
           <NotificationSettings />
         </section>
-
-        <div className="flex justify-start text-xs text-foreground">
-          <Link href="/tools" className="text-muted hover:text-foreground">
-            ← Tools
-          </Link>
-        </div>
       </main>
     </div>
   )

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { UserContextProvider } from "./contexts/UserContext";
 import { NavigationGuardProvider } from "./contexts/NavigationGuardContext";
-import HamburgerMenu from "./components/HamburgerMenu";
+import LayoutChrome from "./components/LayoutChrome";
 import AuthProvider from "./components/AuthProvider";
 import ThemeProvider from "./components/ThemeProvider";
 import ThemeToggle from "./components/ThemeToggle";
@@ -35,14 +35,17 @@ export default function RootLayout({
       suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-screen flex flex-col bg-background text-foreground">
+      <body className="min-h-screen flex bg-background text-foreground">
         <ThemeProvider>
           <AuthProvider>
             <NavigationGuardProvider>
-              <HamburgerMenu />
               <ThemeToggle />
-              <UserContextProvider>{children}</UserContextProvider>
-              <Footer />
+              <UserContextProvider>
+                <LayoutChrome>
+                  {children}
+                  <Footer />
+                </LayoutChrome>
+              </UserContextProvider>
             </NavigationGuardProvider>
           </AuthProvider>
         </ThemeProvider>

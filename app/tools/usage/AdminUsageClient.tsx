@@ -1,6 +1,5 @@
 'use client'
 
-import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import Modal from '@/app/components/Modal'
 import type { AdminUser } from '@/app/api/tools/users/route'
@@ -388,12 +387,6 @@ export default function AdminUsageClient() {
             </h1>
             <h3 className="mt-1 text-muted">How VLAD is being used internally.</h3>
           </div>
-          <Link
-            href="/tools"
-            className="col-start-3 mt-1 justify-self-end text-sm text-muted hover:text-foreground"
-          >
-            ← Tools
-          </Link>
         </div>
 
         {error && (

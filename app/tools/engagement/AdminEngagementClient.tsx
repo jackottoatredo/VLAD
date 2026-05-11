@@ -1,6 +1,5 @@
 'use client'
 
-import Link from 'next/link'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ResponsiveContainer,
@@ -1011,12 +1010,6 @@ export default function AdminEngagementClient() {
             </h1>
             <h3 className="mt-1 text-muted">How shared previews are landing.</h3>
           </div>
-          <Link
-            href="/tools"
-            className="col-start-3 mt-1 justify-self-end text-sm text-muted hover:text-foreground"
-          >
-            ← Tools
-          </Link>
         </div>
 
         {/* Row 1: Top shares leaderboard. Per-slug performance ranking. */}

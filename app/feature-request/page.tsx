@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import PageLarge from '@/app/components/PageLarge'
+import Page from '@/app/components/Page'
 
 export default function FeatureRequestPage() {
   const [text, setText] = useState('')
@@ -35,7 +35,7 @@ export default function FeatureRequestPage() {
   }
 
   return (
-    <PageLarge maxWidth="800px">
+    <Page maxWidth="800px">
       <main className="flex h-full w-full flex-col space-y-6 rounded-2xl border border-border bg-surface p-8 shadow-md">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight text-foreground">
@@ -80,6 +80,6 @@ export default function FeatureRequestPage() {
           </button>
         </div>
       </main>
-    </PageLarge>
+    </Page>
   )
 }

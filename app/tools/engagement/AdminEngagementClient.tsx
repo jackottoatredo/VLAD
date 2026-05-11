@@ -14,7 +14,7 @@ import {
   Pie,
   Cell,
 } from 'recharts'
-import ScrollablePage from '@/app/components/ScrollablePage'
+import Page from '@/app/components/Page'
 import { useContentIsPortrait } from '@/app/hooks/useContentIsPortrait'
 import { Card, CardHeader } from '@/app/tools/_components/Card'
 import { UsVisitMap, WorldVisitMap } from './VisitMap'
@@ -1010,7 +1010,7 @@ export default function AdminEngagementClient() {
   const filterOptions = data?.filterOptions ?? EMPTY_FILTER_OPTIONS
 
   return (
-    <ScrollablePage>
+    <Page>
       <AdminSettingsButton active={filtersActive} onClick={() => setFiltersOpen(true)} />
       {filtersOpen && (
         <AdminFiltersModal
@@ -1320,6 +1320,6 @@ export default function AdminEngagementClient() {
           </Card>
         </div>
       </div>
-    </ScrollablePage>
+    </Page>
   )
 }

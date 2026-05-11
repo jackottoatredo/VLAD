@@ -1,7 +1,7 @@
 'use client'
 
 import { APP_ENV, PROD_URL, BETA_URL } from '@/app/config'
-import PageLarge from '@/app/components/PageLarge'
+import Page from '@/app/components/Page'
 
 type Link = { href: string; title: string; description: string; external?: boolean }
 
@@ -43,7 +43,7 @@ export default function QuickLinksPage() {
   }
 
   return (
-    <PageLarge maxWidth="800px">
+    <Page maxWidth="800px">
       <main className="flex h-full w-full flex-col space-y-6 rounded-2xl border border-border bg-surface p-8 shadow-md">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight text-foreground">
@@ -69,6 +69,6 @@ export default function QuickLinksPage() {
           ))}
         </div>
       </main>
-    </PageLarge>
+    </Page>
   )
 }

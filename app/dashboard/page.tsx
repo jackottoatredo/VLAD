@@ -5,7 +5,6 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import DeleteModal from '@/app/components/DeleteModal'
 import RecordingPreviewModal from '@/app/components/RecordingPreviewModal'
 import RenderPreviewModal from '@/app/components/RenderPreviewModal'
-import PageLarge from '@/app/components/PageLarge'
 import { useContentIsPortrait } from '@/app/hooks/useContentIsPortrait'
 import {
   ExternalLinkIcon,
@@ -442,7 +441,7 @@ export default function MergeExportPage() {
   }
 
   return (
-    <PageLarge>
+    <div className="flex h-screen w-full overflow-hidden bg-background p-[5vh] font-sans">
       <div className="relative h-full w-full">
         <div className={`absolute inset-0 flex gap-[10px] ${isPortrait ? 'flex-col' : 'flex-row'}`}>
             {/* Column A — Merchant Recordings */}
@@ -767,6 +766,6 @@ export default function MergeExportPage() {
           modalTitle={editingRender ? 'Edit & re-render' : undefined}
         />
       )}
-    </PageLarge>
+    </div>
   )
 }

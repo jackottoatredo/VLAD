@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Modal from '@/app/components/Modal'
-import ScrollablePage from '@/app/components/ScrollablePage'
+import Page from '@/app/components/Page'
 import { useContentIsPortrait } from '@/app/hooks/useContentIsPortrait'
 import type { AdminUser } from '@/app/api/tools/users/route'
 import { AdminFiltersModal } from '@/app/tools/_components/AdminFiltersModal'
@@ -371,7 +371,7 @@ export default function AdminUsageClient() {
   const filterOptions = data?.filterOptions ?? EMPTY_FILTER_OPTIONS
 
   return (
-    <ScrollablePage>
+    <Page>
       <AdminSettingsButton active={filtersActive} onClick={() => setFiltersOpen(true)} />
       {filtersOpen && (
         <AdminFiltersModal
@@ -716,7 +716,7 @@ export default function AdminUsageClient() {
           </div>
         </Modal>
       )}
-    </ScrollablePage>
+    </Page>
   )
 }
 

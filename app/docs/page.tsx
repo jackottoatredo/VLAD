@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import Infographic from '@/app/components/Infographic'
-import ScrollablePage from '@/app/components/ScrollablePage'
+import Page from '@/app/components/Page'
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -13,7 +13,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 
 export default function docsPage() {
   return (
-    <ScrollablePage maxWidth="800px">
+    <Page maxWidth="800px">
       <div className="w-full space-y-6">
         <Section title="Overview">
          <p>
@@ -106,6 +106,6 @@ export default function docsPage() {
           </p>
         </Section>
       </div>
-    </ScrollablePage>
+    </Page>
   )
 }

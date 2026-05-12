@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect } from 'react'
-import PageLayout, { type NavButton } from '@/app/components/PageLayout'
+import PageLayout from '@/app/components/PageLayout'
 import Markdown from '@/app/components/Markdown'
 import RecordingFrame from '@/app/record/RecordingFrame'
 import WebcamOverlay from '@/app/record/WebcamOverlay'
@@ -11,16 +11,13 @@ import RecordConfirmOverlay from '@/app/components/RecordConfirmOverlay'
 import { useUser } from '@/app/contexts/UserContext'
 import { useProductFlow } from '@/app/contexts/ProductFlowContext'
 import { productRecord } from '@/app/copy/instructions'
-import { EAGER_PREVIEW_RENDERING, PREVIEW_BRANDS, TARGET_URL } from '@/app/config'
 import { PRODUCTS } from '@/lib/products'
 
 type Props = {
   recording: ReturnType<typeof import('@/app/hooks/useRecording').useRecording>
-  navBack?: NavButton | null
-  navForward?: NavButton | null
 }
 
-export default function RecordStep({ recording, navBack, navForward }: Props) {
+export default function RecordStep({ recording }: Props) {
   const { presenter } = useUser()
   const flow = useProductFlow()
   const { product, webcamSettings, setProduct, setWebcamSettings } = flow
@@ -70,63 +67,8 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
     recording.resetPending()
   }
 
-  function handleContinue() {
-    if (!presenter || !product) return
-    // Already-committed flow: nothing to upload, just advance.
-    if (hasCommitted && recording.uploadStatus === 'idle') {
-      flow.setStep(1)
-      return
-    }
-    // Navigate immediately — the RecordStep unmounts and the modal goes with
-    // it. Upload + eager preview enqueue run in the background; PostprocessStep
-    // will pick up jobIds as the chain resolves.
-    flow.clearResults()
-    flow.setStep(1)
-
-    void (async () => {
-      const flowId = await recording.commit()
-      if (!flowId) return
-      if (!EAGER_PREVIEW_RENDERING) return
-
-      const brandlessUrl = `${TARGET_URL}?product=${encodeURIComponent(product)}`
-      const common = {
-        flowId,
-        presenter, product,
-        webcamMode: webcamSettings.webcamMode,
-        webcamVertical: webcamSettings.webcamVertical,
-        webcamHorizontal: webcamSettings.webcamHorizontal,
-        preview: true as const,
-      }
-
-      const postRender = (url: string, priority: number) =>
-        fetch('/api/produce', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...common, url, priority }),
-        })
-          .then((r) => r.json() as Promise<{ jobId?: string; videoUrl?: string; videoR2Key?: string; error?: string }>)
-          .catch(() => ({} as { jobId?: string; videoUrl?: string; videoR2Key?: string; error?: string }))
-
-      const [brandless, ...branded] = await Promise.all([
-        postRender(brandlessUrl, 1),
-        ...PREVIEW_BRANDS.map((b) => postRender(`${brandlessUrl}&brand=${encodeURIComponent(b)}`, 2)),
-      ])
-
-      if (brandless.videoUrl) flow.setPostprocessVideoUrl(brandless.videoUrl, brandless.videoR2Key)
-      else if (brandless.jobId) flow.setPostprocessJobId(brandless.jobId)
-
-      PREVIEW_BRANDS.forEach((brand, i) => {
-        const res = branded[i]
-        if (res?.videoUrl) flow.setBrandVideoUrl(brand, res.videoUrl)
-        else if (res?.jobId) flow.setBrandJobId(brand, res.jobId)
-      })
-    })()
-  }
-
   return (
     <PageLayout
-      navBack={navBack}
-      navForward={navForward}
       instructions={<Markdown>{productRecord}</Markdown>}
       settings={
         <div className="flex flex-col gap-3">
@@ -165,7 +107,7 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
         </div>
       }
     >
-      <div className="relative flex flex-1 items-center justify-center overflow-hidden rounded-2xl border border-border bg-surface p-[10px] shadow-md">
+      <div className="relative flex flex-1 items-center justify-center overflow-hidden rounded-2xl border border-border bg-surface p-[10px] shadow-md [container-type:size]">
         <RecordingFrame
           iframeRef={recording.iframeRef}
           product={product}
@@ -178,7 +120,7 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
         <RecordConfirmOverlay
           uploadStatus={overlayStatus}
           onRecordAgain={handleRecordAgain}
-          onContinue={handleContinue}
+          durationMs={recording.pendingDurationMs}
         />
       </div>
     </PageLayout>

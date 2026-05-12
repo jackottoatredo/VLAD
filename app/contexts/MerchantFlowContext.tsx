@@ -12,7 +12,7 @@ import {
 } from "react";
 import { type WebcamSettings, DEFAULT_WEBCAM_SETTINGS } from "@/types/webcam";
 
-export type MerchantFlowStep = 0 | 1 | 2; // Record, Postprocess, Saved
+export type MerchantFlowStep = 0 | 1 | 2; // Record, Postprocess, Save
 export type PersistedStatus = "unsaved" | "draft" | "saved";
 export type FlowOrigin = "new" | "reopened";
 
@@ -233,6 +233,8 @@ export function MerchantFlowContextProvider({ children }: { children: ReactNode 
     setState((prev) => ({
       ...initialState(),
       merchantId: prev.merchantId,
+      brandName: prev.brandName,
+      websiteUrl: prev.websiteUrl,
       webcamSettings: prev.webcamSettings,
     }));
   }, []);

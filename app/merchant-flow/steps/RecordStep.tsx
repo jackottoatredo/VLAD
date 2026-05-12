@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import PageLayout, { type NavButton } from '@/app/components/PageLayout'
+import PageLayout from '@/app/components/PageLayout'
 import Markdown from '@/app/components/Markdown'
 import RecordingFrame from '@/app/record/RecordingFrame'
 import WebcamOverlay from '@/app/record/WebcamOverlay'
@@ -15,11 +15,9 @@ import { merchantRecord } from '@/app/copy/instructions'
 
 type Props = {
   recording: ReturnType<typeof import('@/app/hooks/useRecording').useRecording>
-  navBack?: NavButton | null
-  navForward?: NavButton | null
 }
 
-export default function RecordStep({ recording, navBack, navForward }: Props) {
+export default function RecordStep({ recording }: Props) {
   const { presenter } = useUser()
   const flow = useMerchantFlow()
   const { merchantId, brandName, websiteUrl, webcamSettings, setMerchant, setWebcamSettings } = flow
@@ -50,50 +48,11 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
     recording.resetPending()
   }
 
-  function handleContinue() {
-    if (!presenter || !merchantId) return
-    if (hasCommitted && recording.uploadStatus === 'idle') {
-      flow.setStep(1)
-      return
-    }
-    // Navigate immediately — modal unmounts with the RecordStep. Upload and
-    // the produce enqueue run in the background; PostprocessStep picks up the
-    // jobId via context when it arrives.
-    flow.clearResults()
-    flow.setStep(1)
-
-    void (async () => {
-      const flowId = await recording.commit()
-      if (!flowId) return
-      const targetUrl = websiteUrl
-        ? `${MERCHANT_TARGET_URL}?brand=${encodeURIComponent(websiteUrl)}`
-        : MERCHANT_TARGET_URL
-      const res = await fetch('/api/produce', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          flowId,
-          presenter, merchantId, url: targetUrl,
-          webcamMode: webcamSettings.webcamMode,
-          webcamVertical: webcamSettings.webcamVertical,
-          webcamHorizontal: webcamSettings.webcamHorizontal,
-          preview: true,
-        }),
-      })
-        .then((r) => r.json() as Promise<{ jobId?: string; videoUrl?: string; videoR2Key?: string; error?: string }>)
-        .catch(() => ({} as { jobId?: string; videoUrl?: string; videoR2Key?: string; error?: string }))
-      if (res.videoUrl) flow.setPostprocessVideoUrl(res.videoUrl, res.videoR2Key)
-      else if (res.jobId) flow.setPostprocessJobId(res.jobId)
-    })()
-  }
-
   const [showPicker, setShowPicker] = useState(false)
 
   return (
     <>
       <PageLayout
-        navBack={navBack}
-        navForward={navForward}
         instructions={<Markdown>{merchantRecord}</Markdown>}
         settings={
           <div className="flex flex-col gap-3">
@@ -124,7 +83,7 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
           </div>
         }
       >
-        <div className="relative flex flex-1 items-center justify-center overflow-hidden rounded-2xl border border-border bg-surface p-[10px] shadow-md">
+        <div className="relative flex flex-1 items-center justify-center overflow-hidden rounded-2xl border border-border bg-surface p-[10px] shadow-md [container-type:size]">
           <RecordingFrame
             iframeRef={recording.iframeRef}
             product={websiteUrl}
@@ -139,7 +98,7 @@ export default function RecordStep({ recording, navBack, navForward }: Props) {
           <RecordConfirmOverlay
             uploadStatus={overlayStatus}
             onRecordAgain={handleRecordAgain}
-            onContinue={handleContinue}
+            durationMs={recording.pendingDurationMs}
           />
         </div>
       </PageLayout>

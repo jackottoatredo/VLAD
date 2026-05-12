@@ -1,14 +1,19 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import Link from 'next/link'
+import Page from '@/app/components/Page'
 import RecordingPreviewModal from '@/app/components/RecordingPreviewModal'
 import RenderPreviewModal from '@/app/components/RenderPreviewModal'
 import RenderLogModal from '@/app/components/RenderLogModal'
 import DeleteModal from '@/app/components/DeleteModal'
-import GenerateMergeModal, { type MergeFormState, bodyToFormState } from '@/app/merge-export/GenerateMergeModal'
-import { startMergeJob, startProductOnlyJob } from '@/app/merge-export/pipeline'
+import GenerateMergeModal, { type MergeFormState, bodyToFormState } from '@/app/dashboard/GenerateMergeModal'
+import { startMergeJob, startProductOnlyJob } from '@/app/dashboard/pipeline'
 import type { AdminRecordingRow } from '@/app/api/tools/recordings/route'
+import {
+  ExternalLinkIcon,
+  FileIcon,
+  TrashIcon,
+} from '@/app/components/icons'
 
 type RecordingOption = { id: string; label: string }
 type ApiRecording = { id: string; type: 'merchant' | 'product'; name: string | null; product_name: string | null; merchant_id: string | null }
@@ -35,6 +40,9 @@ const KIND_PILL_CLASS: Record<AdminRecordingRow['kind'], string> = {
 const ERROR_PILL_CLASS = 'border-red-500/50 text-red-600 dark:text-red-400'
 
 const DEBOUNCE_MS = 200
+const MAX_VISIBLE_ROWS = 50
+// Roughly six two-line rows (presenter name + email) at text-sm/py-2.
+const SCROLL_MAX_HEIGHT = 320
 
 function formatDate(iso: string): string {
   const t = new Date(iso).getTime()
@@ -269,8 +277,8 @@ export default function AdminRecordingsClient() {
   }
 
   return (
-    <div className="flex min-h-screen w-full justify-center bg-background px-4 py-10 font-sans">
-      <main className="w-full max-w-4xl space-y-6 rounded-2xl border border-border bg-surface p-8 shadow-md">
+    <Page maxWidth="800px">
+      <main className="flex h-full w-full flex-col space-y-6 overflow-hidden rounded-2xl border border-border bg-surface p-8 shadow-md">
         <div className="flex items-start justify-between">
           <div>
             <h1 className="text-3xl font-semibold tracking-tight text-foreground">
@@ -280,9 +288,6 @@ export default function AdminRecordingsClient() {
               Browse every user&apos;s intros, product recordings, and renders.
             </h3>
           </div>
-          <Link href="/tools" className="text-sm text-muted hover:text-foreground">
-            ← Tools
-          </Link>
         </div>
 
         <input
@@ -294,9 +299,12 @@ export default function AdminRecordingsClient() {
           className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted shadow-inner outline-none focus:border-muted"
         />
 
-        <div className="overflow-hidden rounded-md border border-border">
+        <div
+          className="overflow-y-auto rounded-md border border-border"
+          style={{ maxHeight: SCROLL_MAX_HEIGHT }}
+        >
           <table className="w-full text-left text-sm">
-            <thead className="bg-surface text-xs uppercase text-muted">
+            <thead className="sticky top-0 z-10 bg-surface text-xs uppercase text-muted">
               <tr>
                 <th className="px-3 py-2 font-medium">Presenter</th>
                 <th className="px-3 py-2 font-medium">Type</th>
@@ -306,7 +314,7 @@ export default function AdminRecordingsClient() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => {
+              {rows.slice(0, MAX_VISIBLE_ROWS).map((r) => {
                 const isFailedRender = r.kind === 'render' && r.status === 'error'
                 // Row click defaults to "the most useful thing" — open preview
                 // when available, else the log, else nothing. Explicit icons
@@ -348,40 +356,19 @@ export default function AdminRecordingsClient() {
                           available={canLog}
                           title="View log"
                           onClick={() => setLogTarget(r)}
-                          icon={
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-                              <polyline points="14 2 14 8 20 8" />
-                              <line x1="9" y1="13" x2="15" y2="13" />
-                              <line x1="9" y1="17" x2="15" y2="17" />
-                            </svg>
-                          }
+                          icon={<FileIcon width={14} height={14} />}
                         />
                         <ActionSlot
                           available={canOpen}
                           title="Open preview"
                           onClick={() => setPreviewTarget(r)}
-                          icon={
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" />
-                              <polyline points="15 3 21 3 21 9" />
-                              <line x1="10" y1="14" x2="21" y2="3" />
-                            </svg>
-                          }
+                          icon={<ExternalLinkIcon width={14} height={14} />}
                         />
                         <ActionSlot
                           available
                           title="Delete"
                           onClick={() => setDeleteTarget(r)}
-                          icon={
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <polyline points="3 6 5 6 21 6" />
-                              <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
-                              <path d="M10 11v6" />
-                              <path d="M14 11v6" />
-                              <path d="M9 6V4a2 2 0 012-2h2a2 2 0 012 2v2" />
-                            </svg>
-                          }
+                          icon={<TrashIcon width={14} height={14} />}
                         />
                       </div>
                     </td>
@@ -474,6 +461,6 @@ export default function AdminRecordingsClient() {
           <button onClick={() => setEditError(null)} className="ml-3 text-xs underline">dismiss</button>
         </div>
       )}
-    </div>
+    </Page>
   )
 }

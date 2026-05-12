@@ -46,6 +46,7 @@ export function useRecording({ webcamMode, onCommitted }: UseRecordingOpts) {
   // 'uploading' → stop() called, mouse.json + webcam.webm being POSTed to R2
   // 'ready'     → uploads done, awaiting user confirmation (Record Again vs Continue)
   const [uploadStatus, setUploadStatus] = useState<"idle" | "uploading" | "ready">("idle");
+  const [pendingDurationMs, setPendingDurationMs] = useState<number | null>(null);
   const countdownTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   // Snapshot refs for async save
@@ -186,6 +187,7 @@ export function useRecording({ webcamMode, onCommitted }: UseRecordingOpts) {
     // overlay visible during the 3s countdown. Also discard any prior take — its
     // mouse events + webcam blob haven't been uploaded yet, so they die here.
     setUploadStatus("idle");
+    setPendingDurationMs(null);
     pendingRef.current = null;
     setRecordingKey((k) => k + 1); // refresh iframe immediately
     setCountdown(3);
@@ -230,6 +232,7 @@ export function useRecording({ webcamMode, onCommitted }: UseRecordingOpts) {
       events: eventsRef.current,
       webcamBlob,
     };
+    setPendingDurationMs(durationMs);
     setUploadStatus("ready");
   }, [clearCountdown]);
 
@@ -266,6 +269,7 @@ export function useRecording({ webcamMode, onCommitted }: UseRecordingOpts) {
 
       await Promise.all([mousePromise, webcamPromise]);
       pendingRef.current = null;
+      setPendingDurationMs(null);
       setUploadStatus("idle");
       onCommitted?.(pending.flowId);
       return pending.flowId;
@@ -283,6 +287,7 @@ export function useRecording({ webcamMode, onCommitted }: UseRecordingOpts) {
    */
   const resetPending = useCallback(() => {
     pendingRef.current = null;
+    setPendingDurationMs(null);
     setUploadStatus("idle");
     setRecordingKey((k) => k + 1);
   }, []);
@@ -294,6 +299,7 @@ export function useRecording({ webcamMode, onCommitted }: UseRecordingOpts) {
     countdown,
     recordingKey,
     uploadStatus,
+    pendingDurationMs,
     webcamError,
     ensureWebcam,
     start,

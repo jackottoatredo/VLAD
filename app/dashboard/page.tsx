@@ -5,8 +5,13 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import DeleteModal from '@/app/components/DeleteModal'
 import RecordingPreviewModal from '@/app/components/RecordingPreviewModal'
 import RenderPreviewModal from '@/app/components/RenderPreviewModal'
-import Markdown from '@/app/components/Markdown'
-import { mergeExport as mergeExportInstructions } from '@/app/copy/instructions'
+import { useContentIsPortrait } from '@/app/hooks/useContentIsPortrait'
+import {
+  ExternalLinkIcon,
+  InfoCircleIcon,
+  RetryIcon,
+  TrashIcon,
+} from '@/app/components/icons'
 import {
   initialMergeSteps,
   initialProductOnlySteps,
@@ -58,6 +63,9 @@ function initialStepsForEndpoint(endpoint: string | null | undefined): PipelineS
 
 export default function MergeExportPage() {
   const router = useRouter()
+  // When the content area is taller than wide, stack the columns vertically
+  // instead of side-by-side.
+  const isPortrait = useContentIsPortrait()
   const [merchants, setMerchants] = useState<Recording[]>([])
   const [products, setProducts] = useState<Recording[]>([])
   const [renders, setRenders] = useState<Render[]>([])
@@ -433,31 +441,35 @@ export default function MergeExportPage() {
   }
 
   return (
-    <div className="flex min-h-screen w-full items-center justify-center bg-background font-sans" style={{ padding: '0 150px' }}>
-      <div className="relative w-full" style={{ aspectRatio: '15/8' }}>
-        <div className="absolute inset-0 flex gap-[10px]">
-            {/* Instructions */}
-            <div className="flex min-h-0 w-1/4 flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-md">
-              <p className="shrink-0 flex min-h-11 items-center border-b border-border px-4 text-xs font-semibold uppercase tracking-wider text-muted">
-                Instructions
-              </p>
-              <div className="flex-1 overflow-y-auto p-4">
-                <Markdown>{mergeExportInstructions}</Markdown>
-              </div>
-            </div>
-
+    <div className="flex h-screen w-full overflow-hidden bg-background p-[5vh] font-sans">
+      <div className="relative h-full w-full">
+        <div className={`absolute inset-0 flex gap-[10px] ${isPortrait ? 'flex-col' : 'flex-row'}`}>
             {/* Column A — Merchant Recordings */}
-            <div className="flex w-1/4 flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-md">
+            <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-md">
               <div className="flex items-center justify-between border-b border-border px-4 py-3">
-                <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">
-                  Merchant Intros
-                </h2>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-base font-semibold text-foreground">
+                    Merchant Intros
+                  </h2>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      aria-label="About merchant intros"
+                      className="peer flex items-center justify-center text-muted transition-colors hover:text-foreground"
+                    >
+                      <InfoCircleIcon width={16} height={16} />
+                    </button>
+                    <div className="pointer-events-none absolute left-0 top-full z-50 mt-2 w-56 rounded-md border border-border bg-surface px-3 py-2 text-xs text-muted shadow-lg opacity-0 transition-opacity duration-100 peer-hover:opacity-100">
+                      Create an intro personalized to your target merchant.
+                    </div>
+                  </div>
+                </div>
                 <button
                   type="button"
                   onClick={() => router.push('/merchant-flow')}
-                  className="flex h-5 w-5 items-center justify-center rounded border border-border text-muted transition-colors hover:border-muted hover:text-foreground"
+                  className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:opacity-80"
                 >
-                  <span className="text-sm leading-none">+</span>
+                  Record
                 </button>
               </div>
               <div className="flex-1 overflow-y-auto">
@@ -469,7 +481,7 @@ export default function MergeExportPage() {
                     className={`group flex h-10 w-full cursor-pointer items-center justify-between border-b border-border px-4 text-sm transition-colors ${
                       selectedMerchants.has(r.id)
                         ? 'bg-background text-foreground'
-                        : 'text-muted hover:bg-background hover:text-foreground'
+                        : 'text-foreground hover:bg-background'
                     }`}
                   >
                     <span className="min-w-0 flex-1 truncate">{r.name ?? r.merchant_id ?? r.id.slice(0, 8)}</span>
@@ -482,7 +494,7 @@ export default function MergeExportPage() {
                         className="text-muted hover:text-foreground"
                         title="Preview"
                       >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                        <ExternalLinkIcon width={14} height={14} />
                       </button>
                       <button
                         onClick={(e) => {
@@ -493,29 +505,43 @@ export default function MergeExportPage() {
                         className="text-muted hover:text-red-500"
                         title="Delete (shift+click to skip confirmation)"
                       >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                        <TrashIcon width={14} height={14} />
                       </button>
                     </span>
                   </div>
                 ))}
                 {merchants.length === 0 && (
-                  <p className="px-4 py-3 text-xs text-muted opacity-70">No merchant recordings yet.</p>
+                  <p className="px-4 py-3 text-xs text-muted opacity-70">you do not have any merchant intros yet</p>
                 )}
               </div>
             </div>
 
             {/* Column B — Product Recordings */}
-            <div className="flex w-1/4 flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-md">
+            <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-md">
               <div className="flex items-center justify-between border-b border-border px-4 py-3">
-                <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">
-                  Product Recordings
-                </h2>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-base font-semibold text-foreground">
+                    Product Recordings
+                  </h2>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      aria-label="About product recordings"
+                      className="peer flex items-center justify-center text-muted transition-colors hover:text-foreground"
+                    >
+                      <InfoCircleIcon width={16} height={16} />
+                    </button>
+                    <div className="pointer-events-none absolute left-0 top-full z-50 mt-2 w-56 rounded-md border border-border bg-surface px-3 py-2 text-xs text-muted shadow-lg opacity-0 transition-opacity duration-100 peer-hover:opacity-100">
+                      Create a reusable product demo and preview merchant customizations.
+                    </div>
+                  </div>
+                </div>
                 <button
                   type="button"
                   onClick={() => router.push('/product-flow')}
-                  className="flex h-5 w-5 items-center justify-center rounded border border-border text-muted transition-colors hover:border-muted hover:text-foreground"
+                  className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:opacity-80"
                 >
-                  <span className="text-sm leading-none">+</span>
+                  Record
                 </button>
               </div>
               <div className="flex-1 overflow-y-auto">
@@ -527,7 +553,7 @@ export default function MergeExportPage() {
                     className={`group flex h-10 w-full cursor-pointer items-center justify-between border-b border-border px-4 text-sm transition-colors ${
                       selectedProduct === r.id
                         ? 'bg-background text-foreground'
-                        : 'text-muted hover:bg-background hover:text-foreground'
+                        : 'text-foreground hover:bg-background'
                     }`}
                   >
                     <span className="min-w-0 flex-1 truncate">{r.name ?? r.product_name ?? r.id.slice(0, 8)}</span>
@@ -540,7 +566,7 @@ export default function MergeExportPage() {
                         className="text-muted hover:text-foreground"
                         title="Preview"
                       >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                        <ExternalLinkIcon width={14} height={14} />
                       </button>
                       <button
                         onClick={(e) => {
@@ -551,33 +577,48 @@ export default function MergeExportPage() {
                         className="text-muted hover:text-red-500"
                         title="Delete (shift+click to skip confirmation)"
                       >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                        <TrashIcon width={14} height={14} />
                       </button>
                     </span>
                   </div>
                 ))}
                 {products.length === 0 && (
-                  <p className="px-4 py-3 text-xs text-muted opacity-70">No product recordings yet.</p>
+                  <p className="px-4 py-3 text-xs text-muted opacity-70">you do not have any product recordings yet</p>
                 )}
               </div>
             </div>
 
             {/* Column C — Renders */}
-            <div className="flex w-1/4 flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-md">
+            <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-md">
               <div className="flex items-center justify-between border-b border-border px-4 py-3">
-                <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">
-                  Rendering Tasks
-                </h2>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-base font-semibold text-foreground">
+                    Rendering Tasks
+                  </h2>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      aria-label="About rendering tasks"
+                      className="peer flex items-center justify-center text-muted transition-colors hover:text-foreground"
+                    >
+                      <InfoCircleIcon width={16} height={16} />
+                    </button>
+                    <div className="pointer-events-none absolute left-0 top-full z-50 mt-2 w-56 rounded-md border border-border bg-surface px-3 py-2 text-xs text-muted shadow-lg opacity-0 transition-opacity duration-100 peer-hover:opacity-100">
+                      Join recordings into final rendered videos ready to share.
+                    </div>
+                  </div>
+                </div>
                 <button
+                  type="button"
                   onClick={() => setShowGenerateModal(true)}
-                  className="flex h-5 w-5 items-center justify-center rounded border border-border text-muted transition-colors hover:border-muted hover:text-foreground"
+                  className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:opacity-80"
                 >
-                  <span className="text-sm leading-none">+</span>
+                  Render
                 </button>
               </div>
               <div className="flex-1 overflow-y-auto">
                 {renders.length === 0 && (
-                  <p className="px-4 py-3 text-xs text-muted opacity-70">No exports yet.</p>
+                  <p className="px-4 py-3 text-xs text-muted opacity-70">you do not have any rendering tasks yet</p>
                 )}
                 {renders.map((r) => {
                   const label = r.brand ?? r.id.slice(0, 8)
@@ -602,7 +643,7 @@ export default function MergeExportPage() {
                     >
                       <span className="flex min-w-0 flex-1 items-center gap-2">
                         {isNew && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-foreground" />}
-                        <p className="min-w-0 truncate text-sm text-muted">{label}</p>
+                        <p className="min-w-0 truncate text-sm text-foreground">{label}</p>
                       </span>
 
                       {r.status === 'error' ? (
@@ -613,7 +654,7 @@ export default function MergeExportPage() {
                             className="text-muted hover:text-foreground"
                             title="Retry"
                           >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                            <RetryIcon width={14} height={14} />
                           </button>
                           <button
                             onClick={(e) => {
@@ -624,7 +665,7 @@ export default function MergeExportPage() {
                             className="text-muted hover:text-red-500"
                             title="Delete (shift+click to skip confirmation)"
                           >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                            <TrashIcon width={14} height={14} />
                           </button>
                         </span>
                       ) : isInProgress && currentStep ? (
@@ -639,7 +680,7 @@ export default function MergeExportPage() {
                               onClick={(e) => { e.stopPropagation(); openPreview() }}
                               className="text-muted hover:text-foreground"
                             >
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                              <ExternalLinkIcon width={14} height={14} />
                             </button>
                             <button
                               onClick={(e) => {
@@ -650,7 +691,7 @@ export default function MergeExportPage() {
                               className="text-muted hover:text-red-500"
                               title="Delete (shift+click to skip confirmation)"
                             >
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                              <TrashIcon width={14} height={14} />
                             </button>
                           </span>
                         </>

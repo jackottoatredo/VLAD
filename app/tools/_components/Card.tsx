@@ -2,9 +2,9 @@ import type { ReactNode } from 'react'
 
 export function CardHeader({ title, controls }: { title: string; controls?: ReactNode }) {
   return (
-    <div className="mb-4 flex items-center justify-between gap-4">
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
       <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">{title}</h2>
-      {controls && <div className="flex items-center gap-3">{controls}</div>}
+      {controls && <div className="flex flex-wrap items-center gap-3">{controls}</div>}
     </div>
   )
 }
@@ -12,7 +12,7 @@ export function CardHeader({ title, controls }: { title: string; controls?: Reac
 export function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
   return (
     <section
-      className={`rounded-2xl border border-border bg-surface p-6 shadow-md ${className}`}
+      className={`min-w-0 rounded-2xl border border-border bg-surface p-6 shadow-md ${className}`}
     >
       {children}
     </section>

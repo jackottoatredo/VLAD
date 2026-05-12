@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import Modal from './Modal'
 import ScrapePromptModal from './ScrapePromptModal'
 import { SCRAPE_STATUS_LABEL, type MerchantSearchRow, type ScrapeStatus } from '@/types/merchant'
+import { EditIcon } from './icons'
 
 export type PickedMerchant = {
   id: string
@@ -142,10 +143,7 @@ export default function MerchantPickerModal({ onSelect, onClose }: Props) {
                       className="inline-flex h-6 w-6 items-center justify-center rounded text-muted transition-colors hover:bg-surface hover:text-foreground"
                       title="Edit in scrape tool"
                     >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M12 20h9" />
-                        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-                      </svg>
+                      <EditIcon width={14} height={14} />
                     </a>
                   </td>
                 </tr>

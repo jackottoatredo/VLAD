@@ -12,7 +12,7 @@ import {
 } from "react";
 import { type WebcamSettings, DEFAULT_WEBCAM_SETTINGS } from "@/types/webcam";
 
-export type ProductFlowStep = 0 | 1 | 2 | 3; // Record, Postprocess, Preview, Saved
+export type ProductFlowStep = 0 | 1 | 2 | 3; // Record, Postprocess, Preview, Save
 export type PersistedStatus = "unsaved" | "draft" | "saved";
 export type FlowOrigin = "new" | "reopened";
 

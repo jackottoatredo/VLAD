@@ -1,8 +1,9 @@
 'use client'
 
-import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import Modal from '@/app/components/Modal'
+import Page from '@/app/components/Page'
+import { useContentIsPortrait } from '@/app/hooks/useContentIsPortrait'
 import type { AdminUser } from '@/app/api/tools/users/route'
 import { AdminFiltersModal } from '@/app/tools/_components/AdminFiltersModal'
 import { AdminSettingsButton } from '@/app/tools/_components/AdminSettingsButton'
@@ -30,6 +31,7 @@ import {
 import type { UsageResponse } from '@/app/api/tools/usage/route'
 import { Card, CardHeader, StatBox } from '@/app/tools/_components/Card'
 import { SegmentedControl } from '@/app/tools/_components/SegmentedControl'
+import { SpinnerIcon } from '@/app/components/icons'
 import { TOOLTIP_STYLE, PALETTE, pickStableColor } from '@/app/tools/_components/chartTheme'
 import { sliceLast } from '@/app/tools/_components/series'
 
@@ -128,6 +130,7 @@ function PieLegend({
 }
 
 export default function AdminUsageClient() {
+  const isPortrait = useContentIsPortrait()
   const [data, setData] = useState<UsageResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -368,8 +371,22 @@ export default function AdminUsageClient() {
     filters.include.length > 0 || filters.exclude.length > 0
   const filterOptions = data?.filterOptions ?? EMPTY_FILTER_OPTIONS
 
+  if (!data) {
+    return (
+      <Page>
+        {error ? (
+          <p className="text-sm text-red-500">{error}</p>
+        ) : (
+          <div className="flex items-center justify-center py-20">
+            <SpinnerIcon className="animate-spin text-muted" width={32} height={32} />
+          </div>
+        )}
+      </Page>
+    )
+  }
+
   return (
-    <div className="flex min-h-screen w-full justify-center bg-background px-4 py-10 font-sans">
+    <Page>
       <AdminSettingsButton active={filtersActive} onClick={() => setFiltersOpen(true)} />
       {filtersOpen && (
         <AdminFiltersModal
@@ -380,42 +397,19 @@ export default function AdminUsageClient() {
           onClose={() => setFiltersOpen(false)}
         />
       )}
-      <div className="w-full max-w-5xl space-y-6">
-        <div className="grid grid-cols-3 items-start">
-          <div className="col-start-1">
-            <h1 className="text-3xl font-semibold tracking-tight text-foreground">
-              Usage Statistics
-            </h1>
-            <h3 className="mt-1 text-muted">How VLAD is being used internally.</h3>
-          </div>
-          <Link
-            href="/tools"
-            className="col-start-3 mt-1 justify-self-end text-sm text-muted hover:text-foreground"
-          >
-            ← Tools
-          </Link>
+      <div className="w-full space-y-6">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight text-foreground">
+            Usage Statistics
+          </h1>
+          <h3 className="mt-1 text-muted">How VLAD is being used internally.</h3>
         </div>
-
-        {error && (
-          <Card>
-            <p className="text-sm text-red-500">{error}</p>
-          </Card>
-        )}
-
-        {loading && !data && (
-          <Card>
-            <p className="text-sm text-muted">Loading…</p>
-          </Card>
-        )}
-
-        {data && (
-          <>
             {/* Card 1a + 1b: Active-users bar chart (with its own window control)
                 next to a square user-counts quad — separating the two means
                 the window control isn't visually attached to the rolling
                 DAU/WAU/MAU/all-time stats, which are window-independent. */}
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-              <Card className="md:col-span-2">
+            <div className={`grid grid-cols-1 gap-6 ${isPortrait ? '' : 'md:grid-cols-3'}`}>
+              <Card className={isPortrait ? '' : 'md:col-span-2'}>
                 <CardHeader
                   title="Active users"
                   controls={
@@ -468,8 +462,8 @@ export default function AdminUsageClient() {
             {/* Card 2a + 2b: stacked daily content bar chart on the left,
                 all-time content totals on the right. Same split-card pattern
                 as Active users / User counts. */}
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-              <Card className="md:col-span-2">
+            <div className={`grid grid-cols-1 gap-6 ${isPortrait ? '' : 'md:grid-cols-3'}`}>
+              <Card className={isPortrait ? '' : 'md:col-span-2'}>
                 <CardHeader
                   title="Content created"
                   controls={
@@ -607,8 +601,8 @@ export default function AdminUsageClient() {
             </Card>
 
             {/* Card 4a + 4b: leaderboard with a render-by-product pie next to it */}
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-              <Card className="md:col-span-2">
+            <div className={`grid grid-cols-1 gap-6 ${isPortrait ? '' : 'md:grid-cols-3'}`}>
+              <Card className={isPortrait ? '' : 'md:col-span-2'}>
                 <CardHeader
                   title="Top presenters by renders"
                   controls={
@@ -698,8 +692,6 @@ export default function AdminUsageClient() {
                 )}
               </Card>
             </div>
-          </>
-        )}
       </div>
 
       {dauDetail && (
@@ -722,7 +714,7 @@ export default function AdminUsageClient() {
           </div>
         </Modal>
       )}
-    </div>
+    </Page>
   )
 }
 

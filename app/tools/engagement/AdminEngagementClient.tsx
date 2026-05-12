@@ -1,6 +1,5 @@
 'use client'
 
-import Link from 'next/link'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ResponsiveContainer,
@@ -15,10 +14,19 @@ import {
   Pie,
   Cell,
 } from 'recharts'
+import Page from '@/app/components/Page'
+import { useContentIsPortrait } from '@/app/hooks/useContentIsPortrait'
 import { Card, CardHeader } from '@/app/tools/_components/Card'
 import { UsVisitMap, WorldVisitMap } from './VisitMap'
 import { AdminFiltersModal } from '@/app/tools/_components/AdminFiltersModal'
 import { AdminSettingsButton } from '@/app/tools/_components/AdminSettingsButton'
+import {
+  CalendarIcon,
+  DownloadIcon,
+  EyeIcon,
+  LinkIcon,
+  SpinnerIcon,
+} from '@/app/components/icons'
 import {
   EMPTY_FILTER_OPTIONS,
   decodeFiltersFromApi,
@@ -286,14 +294,15 @@ function formatPct(v: number | null): string {
   return `${Math.round(v * 100)}%`
 }
 
-// Compact variant of the shared StatBox: smaller, centered, single-line
-// label so the longest engagement label ("Unique Page Visitors") fits
-// without wrapping inside the col-1 grid cell.
+// Compact variant of the shared StatBox: smaller, centered. Labels wrap to
+// multiple lines as the card narrows — previously forced single-line via
+// whitespace-nowrap, but that locked a ~150px min-content on the stat box
+// that propagated up to the Card and prevented the page from shrinking.
 function CompactStatBox({ label, value }: { label: string; value: number | string }) {
   return (
     <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-background p-4">
       <span className="text-2xl font-semibold text-foreground tabular-nums">{value}</span>
-      <span className="mt-1 whitespace-nowrap text-center text-[10px] font-medium uppercase tracking-tight text-muted">
+      <span className="mt-1 text-center text-[10px] font-medium uppercase tracking-tight text-muted">
         {label}
       </span>
     </div>
@@ -481,85 +490,6 @@ function compareTopShares(
   return String(av).localeCompare(String(bv)) * factor
 }
 
-// Inline icons matching ShareActions's style — kept in this file because
-// they're only used by the leaderboard's CTA columns. SVGs use
-// `currentColor` so they pick up the column header's text color.
-function IconLink() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-    </svg>
-  )
-}
-function IconDownload() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
-      <polyline points="7 10 12 15 17 10" />
-      <line x1="12" y1="15" x2="12" y2="3" />
-    </svg>
-  )
-}
-function IconEye() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
-  )
-}
-function IconCalendar() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-      <line x1="16" y1="2" x2="16" y2="6" />
-      <line x1="8" y1="2" x2="8" y2="6" />
-      <line x1="3" y1="10" x2="21" y2="10" />
-    </svg>
-  )
-}
-
 function TopSharesTable({ rows }: { rows: TopShareEntry[] }) {
   const [sortKey, setSortKey] = useState<TopSharesSortKey>('pageVisits')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
@@ -658,37 +588,50 @@ function TopSharesTable({ rows }: { rows: TopShareEntry[] }) {
     },
     {
       key: 'copyLinkClicks',
-      label: <IconLink />,
+      label: <LinkIcon width={14} height={14} />,
       title: 'Copy Link clicks',
       align: 'right',
       render: (r) => r.copyLinkClicks.toLocaleString(),
     },
     {
       key: 'downloadClicks',
-      label: <IconDownload />,
+      label: <DownloadIcon width={14} height={14} />,
       title: 'Download Video clicks',
       align: 'right',
       render: (r) => r.downloadClicks.toLocaleString(),
     },
     {
       key: 'interactiveClicks',
-      label: <IconEye />,
+      label: <EyeIcon width={14} height={14} />,
       title: 'Explore Interactive Preview clicks',
       align: 'right',
       render: (r) => r.interactiveClicks.toLocaleString(),
     },
     {
       key: 'bookDemoClicks',
-      label: <IconCalendar />,
+      label: <CalendarIcon width={14} height={14} />,
       title: 'Book a Demo clicks',
       align: 'right',
       render: (r) => r.bookDemoClicks.toLocaleString(),
     },
   ]
 
+  // Sticky-column classes. The slug column always sticks to the left so
+  // viewers can identify rows after horizontal scrolling. bg-surface matches
+  // the surrounding row (so it visually disappears but still covers cells
+  // scrolling past underneath); the right border draws the separator line
+  // between the pinned column and the rest of the table. z-10 keeps it
+  // above other cells during scroll.
+  function pinClass(key: TopSharesSortKey): string {
+    if (key === 'slug') {
+      return 'sticky left-0 z-10 bg-surface border-r border-border'
+    }
+    return ''
+  }
+
   return (
-    <div className="overflow-x-auto rounded-md border border-border">
-      <table className="w-full text-left text-sm">
+    <div className="min-w-0 overflow-x-auto rounded-md border border-border">
+      <table className="w-full min-w-[800px] text-left text-sm">
         <thead className="bg-surface text-xs uppercase text-muted">
           <tr>
             {cols.map((c) => {
@@ -700,6 +643,7 @@ function TopSharesTable({ rows }: { rows: TopShareEntry[] }) {
                     'cursor-pointer select-none px-3 py-2 font-medium transition-colors hover:text-foreground',
                     c.align === 'right' ? 'text-right' : 'text-left',
                     active ? 'text-foreground' : '',
+                    pinClass(c.key),
                   ].join(' ')}
                   onClick={() => clickHeader(c.key)}
                   aria-sort={active ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
@@ -728,6 +672,7 @@ function TopSharesTable({ rows }: { rows: TopShareEntry[] }) {
                   className={[
                     'px-3 py-2 tabular-nums',
                     c.align === 'right' ? 'text-right' : 'text-left',
+                    pinClass(c.key),
                   ].join(' ')}
                 >
                   {c.render(r)}
@@ -954,6 +899,7 @@ type FetchState =
   | { status: 'ready'; data: EngagementResponse }
 
 export default function AdminEngagementClient() {
+  const isPortrait = useContentIsPortrait()
   const [fetchState, setFetchState] = useState<FetchState>({ status: 'loading' })
   const data = fetchState.status === 'ready' ? fetchState.data : null
 
@@ -1064,8 +1010,26 @@ export default function AdminEngagementClient() {
     filters.include.length > 0 || filters.exclude.length > 0
   const filterOptions = data?.filterOptions ?? EMPTY_FILTER_OPTIONS
 
+  if (fetchState.status === 'loading') {
+    return (
+      <Page>
+        <div className="flex items-center justify-center py-20">
+          <SpinnerIcon className="animate-spin text-muted" width={32} height={32} />
+        </div>
+      </Page>
+    )
+  }
+
+  if (fetchState.status === 'error') {
+    return (
+      <Page>
+        <p className="text-sm text-red-500">{fetchState.message}</p>
+      </Page>
+    )
+  }
+
   return (
-    <div className="flex min-h-screen w-full justify-center bg-background px-4 py-10 font-sans">
+    <Page>
       <AdminSettingsButton active={filtersActive} onClick={() => setFiltersOpen(true)} />
       {filtersOpen && (
         <AdminFiltersModal
@@ -1076,20 +1040,12 @@ export default function AdminEngagementClient() {
           onClose={() => setFiltersOpen(false)}
         />
       )}
-      <div className="w-full max-w-5xl space-y-6">
-        <div className="grid grid-cols-3 items-start">
-          <div className="col-start-1">
-            <h1 className="text-3xl font-semibold tracking-tight text-foreground">
-              Engagement Statistics
-            </h1>
-            <h3 className="mt-1 text-muted">How shared previews are landing.</h3>
-          </div>
-          <Link
-            href="/tools"
-            className="col-start-3 mt-1 justify-self-end text-sm text-muted hover:text-foreground"
-          >
-            ← Tools
-          </Link>
+      <div className="w-full space-y-6">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight text-foreground">
+            Engagement Statistics
+          </h1>
+          <h3 className="mt-1 text-muted">How shared previews are landing.</h3>
         </div>
 
         {/* Row 1: Top shares leaderboard. Per-slug performance ranking. */}
@@ -1104,15 +1060,9 @@ export default function AdminEngagementClient() {
               />
             }
           />
-          {fetchState.status === 'error' ? (
-            <p className="text-sm text-red-500">{fetchState.message}</p>
-          ) : fetchState.status === 'loading' ? (
-            <p className="text-sm text-muted">Loading…</p>
-          ) : (
-            <TopSharesTable
-              rows={selectTopShares(fetchState.data.topShares, leaderboardWindow)}
-            />
-          )}
+          <TopSharesTable
+            rows={selectTopShares(fetchState.data.topShares, leaderboardWindow)}
+          />
           <p className="mt-2 text-xs text-muted">
             Click a column header to sort. Slug links to the share page in a new
             tab. <span className="font-medium">Visits</span> counts page renders
@@ -1128,8 +1078,8 @@ export default function AdminEngagementClient() {
 
         {/* Row 2: Visits over time (time-series) + Event counts (stat quad).
             Mirrors the Active users / User counts pairing on /tools/usage. */}
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-          <Card className="md:col-span-2">
+        <div className={`grid grid-cols-1 gap-6 ${isPortrait ? '' : 'md:grid-cols-3'}`}>
+          <Card className={isPortrait ? '' : 'md:col-span-2'}>
             <CardHeader
               title="Visits over time"
               controls={
@@ -1140,31 +1090,25 @@ export default function AdminEngagementClient() {
                 />
               }
             />
-            {fetchState.status === 'error' ? (
-              <p className="text-sm text-red-500">{fetchState.message}</p>
-            ) : fetchState.status === 'loading' ? (
-              <p className="text-sm text-muted">Loading…</p>
-            ) : (
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-                  <BarChart
-                    data={visitsChartData}
-                    margin={{ top: 10, right: 10, left: -10, bottom: 0 }}
-                  >
-                    <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" />
-                    <XAxis dataKey="date" stroke="var(--muted)" fontSize={11} />
-                    <YAxis stroke="var(--muted)" fontSize={11} allowDecimals={false} />
-                    <Tooltip contentStyle={TOOLTIP_STYLE} />
-                    <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Bar dataKey="desktop" stackId="visits" fill={COLOR_DESKTOP} name="Desktop" />
-                    <Bar dataKey="mobile" stackId="visits" fill={COLOR_MOBILE} name="Mobile" />
-                    <Bar dataKey="tablet" stackId="visits" fill={COLOR_TABLET} name="Tablet" />
-                    <Bar dataKey="other" stackId="visits" fill={COLOR_OTHER} name="Other" />
-                    <Bar dataKey="bot" stackId="visits" fill={COLOR_BOT} name="Bot" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            )}
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                <BarChart
+                  data={visitsChartData}
+                  margin={{ top: 10, right: 10, left: -10, bottom: 0 }}
+                >
+                  <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" />
+                  <XAxis dataKey="date" stroke="var(--muted)" fontSize={11} />
+                  <YAxis stroke="var(--muted)" fontSize={11} allowDecimals={false} />
+                  <Tooltip contentStyle={TOOLTIP_STYLE} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Bar dataKey="desktop" stackId="visits" fill={COLOR_DESKTOP} name="Desktop" />
+                  <Bar dataKey="mobile" stackId="visits" fill={COLOR_MOBILE} name="Mobile" />
+                  <Bar dataKey="tablet" stackId="visits" fill={COLOR_TABLET} name="Tablet" />
+                  <Bar dataKey="other" stackId="visits" fill={COLOR_OTHER} name="Other" />
+                  <Bar dataKey="bot" stackId="visits" fill={COLOR_BOT} name="Bot" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           </Card>
           <Card className="flex flex-col">
             <CardHeader
@@ -1177,13 +1121,7 @@ export default function AdminEngagementClient() {
                 />
               }
             />
-            {fetchState.status === 'error' ? (
-              <p className="text-sm text-red-500">{fetchState.message}</p>
-            ) : fetchState.status === 'loading' ? (
-              <p className="text-sm text-muted">Loading…</p>
-            ) : (
-              <EventCountsQuad counts={selectCounts(fetchState.data.eventCounts, countsWindow)} />
-            )}
+            <EventCountsQuad counts={selectCounts(fetchState.data.eventCounts, countsWindow)} />
           </Card>
         </div>
 
@@ -1200,15 +1138,9 @@ export default function AdminEngagementClient() {
               />
             }
           />
-          {fetchState.status === 'error' ? (
-            <p className="text-sm text-red-500">{fetchState.message}</p>
-          ) : fetchState.status === 'loading' ? (
-            <p className="text-sm text-muted">Loading…</p>
-          ) : (
-            <ConversionFunnel
-              counts={selectFunnel(fetchState.data.funnel, funnelWindow)}
-            />
-          )}
+          <ConversionFunnel
+            counts={selectFunnel(fetchState.data.funnel, funnelWindow)}
+          />
         </Card>
 
         {/* Row 4: Watch dropoff bucketed by video length. Per-bin, 5 grouped
@@ -1226,15 +1158,9 @@ export default function AdminEngagementClient() {
               />
             }
           />
-          {fetchState.status === 'error' ? (
-            <p className="text-sm text-red-500">{fetchState.message}</p>
-          ) : fetchState.status === 'loading' ? (
-            <p className="text-sm text-muted">Loading…</p>
-          ) : (
-            <WatchDropoffChart
-              bins={selectLengthBins(fetchState.data.lengthBinDropoff, dropoffWindow)}
-            />
-          )}
+          <WatchDropoffChart
+            bins={selectLengthBins(fetchState.data.lengthBinDropoff, dropoffWindow)}
+          />
           <p className="mt-2 text-xs text-muted">
             Each bar shows % of plays in that length bin reaching the stage.
             Play is the baseline (100%). Excludes events from before
@@ -1248,7 +1174,7 @@ export default function AdminEngagementClient() {
           <CardHeader
             title="Pause hotspots"
             controls={
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <SegmentedControl
                   options={[
                     { value: 'normalized', label: '% of video' },
@@ -1265,16 +1191,10 @@ export default function AdminEngagementClient() {
               </div>
             }
           />
-          {fetchState.status === 'error' ? (
-            <p className="text-sm text-red-500">{fetchState.message}</p>
-          ) : fetchState.status === 'loading' ? (
-            <p className="text-sm text-muted">Loading…</p>
-          ) : (
-            <PauseHotspotsChart
-              dropoff={selectPauseDropoff(fetchState.data.pauseDropoff, pauseWindow)}
-              mode={pauseMode}
-            />
-          )}
+          <PauseHotspotsChart
+            dropoff={selectPauseDropoff(fetchState.data.pauseDropoff, pauseWindow)}
+            mode={pauseMode}
+          />
           <p className="mt-2 text-xs text-muted">
             Each bar counts pause events in that bucket. Spikes reveal content
             moments where viewers stop to think (or bail). Normalized view
@@ -1290,7 +1210,7 @@ export default function AdminEngagementClient() {
           <CardHeader
             title="Visit map"
             controls={
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <SegmentedControl
                   options={MAP_VIEW_OPTIONS}
                   value={mapView}
@@ -1304,11 +1224,7 @@ export default function AdminEngagementClient() {
               </div>
             }
           />
-          {fetchState.status === 'error' ? (
-            <p className="text-sm text-red-500">{fetchState.message}</p>
-          ) : fetchState.status === 'loading' ? (
-            <p className="text-sm text-muted">Loading…</p>
-          ) : mapView === 'us' ? (
+          {mapView === 'us' ? (
             <UsVisitMap
               cities={selectCityVisits(fetchState.data.cityVisits, mapWindow)}
             />
@@ -1328,7 +1244,7 @@ export default function AdminEngagementClient() {
 
         {/* Row 7: Where shared — bot platforms vs. human referrers. Two
             halves of the same question; placed side-by-side at equal weight. */}
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+        <div className={`grid grid-cols-1 gap-6 ${isPortrait ? '' : 'md:grid-cols-2'}`}>
           <Card className="flex flex-col">
             <CardHeader
               title="Unfurl bot visits"
@@ -1340,20 +1256,14 @@ export default function AdminEngagementClient() {
                 />
               }
             />
-            {fetchState.status === 'error' ? (
-              <p className="text-sm text-red-500">{fetchState.message}</p>
-            ) : fetchState.status === 'loading' ? (
-              <p className="text-sm text-muted">Loading…</p>
-            ) : (
-              <SharedDonut
-                entries={
-                  selectShared(fetchState.data.sharedBreakdown, unfurlWindow).unfurlBots
-                }
-                labelFn={unfurlLabel}
-                colorFn={unfurlColor}
-                emptyText="No unfurl bot visits in this window."
-              />
-            )}
+            <SharedDonut
+              entries={
+                selectShared(fetchState.data.sharedBreakdown, unfurlWindow).unfurlBots
+              }
+              labelFn={unfurlLabel}
+              colorFn={unfurlColor}
+              emptyText="No unfurl bot visits in this window."
+            />
           </Card>
           <Card className="flex flex-col">
             <CardHeader
@@ -1366,23 +1276,17 @@ export default function AdminEngagementClient() {
                 />
               }
             />
-            {fetchState.status === 'error' ? (
-              <p className="text-sm text-red-500">{fetchState.message}</p>
-            ) : fetchState.status === 'loading' ? (
-              <p className="text-sm text-muted">Loading…</p>
-            ) : (
-              <SharedDonut
-                entries={
-                  selectShared(fetchState.data.sharedBreakdown, referrerWindow).referrers
-                }
-                labelFn={referrerLabel}
-                colorFn={referrerColor}
-                emptyText="No human visits in this window."
-              />
-            )}
+            <SharedDonut
+              entries={
+                selectShared(fetchState.data.sharedBreakdown, referrerWindow).referrers
+              }
+              labelFn={referrerLabel}
+              colorFn={referrerColor}
+              emptyText="No human visits in this window."
+            />
           </Card>
         </div>
       </div>
-    </div>
+    </Page>
   )
 }

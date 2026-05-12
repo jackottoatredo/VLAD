@@ -207,7 +207,7 @@ export async function GET(request: Request) {
       q = q.or(`name.ilike.${t},product_name.ilike.${t}`);
     }
 
-    const { data, error } = await q.limit(200);
+    const { data, error } = await q.limit(50);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     for (const r of (data ?? []) as unknown as RecordingDbRow[]) recordings.push(recordingToRow(r));
   }
@@ -230,14 +230,14 @@ export async function GET(request: Request) {
       q = q.or(`brand.ilike.${t},brand_name.ilike.${t}`);
     }
 
-    const { data, error } = await q.limit(200);
+    const { data, error } = await q.limit(50);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     for (const r of (data ?? []) as unknown as RenderDbRow[]) renders.push(renderToRow(r));
 
     // Per-render log availability. We check the <jobKey>:logs list length
     // (not the job hash itself) because that's the exact key getJobLogs
     // reads — keeps "logsAvailable" honest about what the modal will
-    // actually render. Pipelined into one Redis round-trip; with the 200
+    // actually render. Pipelined into one Redis round-trip; with the 50
     // row cap above this stays a single sub-millisecond op even on a
     // remote Redis.
     const renderJobIds = renders

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { MerchantSearchRow, ScrapeStatus } from '@/types/merchant'
+import { EditIcon, PlayFilledIcon } from './icons'
 
 /**
  * A chip in the merchant picker. Three flavors:
@@ -66,23 +67,6 @@ function chipKey(chip: MerchantChip): string {
 
 const SEARCH_TOOL_BASE = 'https://search-redo-internal-replit.replit.app'
 
-function EditIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 20h9" />
-      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-    </svg>
-  )
-}
-
-function PlayIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
-      <polygon points="5 3 19 12 5 21" />
-    </svg>
-  )
-}
-
 type StatusDescriptor = {
   url: string
   label: string
@@ -98,7 +82,7 @@ function describeStatus(chip: MerchantChip): StatusDescriptor {
       label: 'Scrape Incomplete',
       action: {
         href: `${SEARCH_TOOL_BASE}/previews?q=${encodeURIComponent(chip.websiteUrl)}`,
-        icon: <EditIcon />,
+        icon: <EditIcon width={13} height={13} />,
         title: 'Edit in scrape tool',
       },
     }
@@ -110,7 +94,7 @@ function describeStatus(chip: MerchantChip): StatusDescriptor {
       label: 'Unscraped URL',
       action: {
         href: `${SEARCH_TOOL_BASE}/search`,
-        icon: <PlayIcon />,
+        icon: <PlayFilledIcon width={13} height={13} />,
         title: 'Open scrape tool',
       },
     }

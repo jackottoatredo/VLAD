@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import PageLayout, { type NavButton } from '@/app/components/PageLayout'
+import PageLayout from '@/app/components/PageLayout'
 import Markdown from '@/app/components/Markdown'
 import MediaEditor from '@/app/components/MediaEditor'
 import { DEFAULT_FPS, TARGET_URL } from '@/app/config'
@@ -17,15 +17,11 @@ type LoadingStage = JobStep
 const INITIAL_STAGES: LoadingStage[] = [
   { label: 'Rendering', progress: 0 },
   { label: 'Compositing', progress: 0 },
-  { label: 'Clipping', progress: 0 },
 ]
 
-type Props = {
-  navBack?: NavButton | null
-  navForward?: NavButton | null
-}
+type Props = Record<string, never>
 
-export default function PostprocessStep({ navBack, navForward }: Props) {
+export default function PostprocessStep({}: Props) {
   const { presenter } = useUser()
   const flow = useProductFlow()
   const { product, webcamSettings, trimStartSec, trimEndSec, postprocessVideoUrl, postprocessJobId, flowId, origin } = flow
@@ -140,16 +136,15 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
 
   return (
     <PageLayout
-      navBack={navBack}
-      navForward={navForward}
       instructions={<Markdown>{productPostprocess}</Markdown>}
       settings={null}
     >
-      <div className="flex flex-1 flex-col gap-4 overflow-hidden rounded-2xl border border-border bg-surface p-4 shadow-md">
+      <div className="flex flex-1 flex-col justify-center gap-4 overflow-hidden rounded-2xl border border-border bg-surface p-4 shadow-md">
         <MediaEditor
           videoUrl={videoUrl}
           loading={loading ? { stages: loading } : undefined}
           error={error}
+          errorAction={{ label: 'Try Again', onClick: startRender }}
           emptyMessage="Rendering will start automatically…"
           fps={DEFAULT_FPS}
           onTrimChange={handleTrimChange}

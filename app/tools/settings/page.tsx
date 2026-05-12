@@ -1,11 +1,12 @@
-import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/authOptions'
 import { supabase } from '@/lib/db/supabase'
+import Page from '@/app/components/Page'
 import HubSpotMeetingSetting from './HubSpotMeetingSetting'
 import AdminUserBookingControl from './AdminUserBookingControl'
 import NotificationSettings from './NotificationSettings'
+import ThemeSetting from './ThemeSetting'
 
 type UserRow = {
   book_button_mode: 'website_form' | 'hidden' | 'hubspot' | null
@@ -27,13 +28,11 @@ export default async function SettingsPage() {
   const initialSelectedId = row?.hubspot_meeting_id ?? null
 
   return (
-    <div className="flex min-h-screen w-full items-center justify-center bg-background px-4 font-sans">
-      <main className="w-full max-w-xl space-y-8 rounded-2xl border border-border bg-surface p-8 shadow-md">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight text-foreground">
-            Settings &amp; Notifications
-          </h1>
-        </div>
+    <Page maxWidth="800px">
+      <main className="flex h-full w-full flex-col gap-6 overflow-hidden rounded-2xl border border-border bg-surface p-8 shadow-md">
+        <h1 className="text-3xl font-semibold tracking-tight text-foreground">
+          Settings &amp; Notifications
+        </h1>
 
         <section className="space-y-3">
           <h2 className="text-lg font-medium text-foreground">Booking link</h2>
@@ -63,12 +62,14 @@ export default async function SettingsPage() {
           <NotificationSettings />
         </section>
 
-        <div className="flex justify-start text-xs text-foreground">
-          <Link href="/tools" className="text-muted hover:text-foreground">
-            ← Tools
-          </Link>
-        </div>
+        <section className="space-y-3 border-t border-border pt-6">
+          <h2 className="text-lg font-medium text-foreground">Theme</h2>
+          <p className="text-sm text-muted">
+            Choose how the app looks on this device.
+          </p>
+          <ThemeSetting />
+        </section>
       </main>
-    </div>
+    </Page>
   )
 }

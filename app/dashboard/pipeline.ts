@@ -15,7 +15,6 @@ export const MERGE_STEP_LABELS = [
 export const PRODUCT_ONLY_STEP_LABELS = [
   'Rendering',
   'Compositing',
-  'Clipping',
 ]
 
 export function initialMergeSteps(): PipelineStep[] {

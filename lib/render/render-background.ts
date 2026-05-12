@@ -107,20 +107,11 @@ export async function renderBackgroundToMp4(
       `,
     });
 
-    // Settle phase — wiggle the mouse near the starting cursor position so
-    // hover-gated initialisation runs before capture begins.
-    const SETTLE_MS = 6000;
-    const SETTLE_STEP_MS = 1000 / (options.fps || 30);
-    const settleSteps = Math.ceil(SETTLE_MS / SETTLE_STEP_MS);
-    const hintX = options.settleHint?.x ?? Math.round(vw / zoom / 2);
-    const hintY = options.settleHint?.y ?? Math.round(vh / zoom / 2);
-
-    for (let i = 0; i < settleSteps; i++) {
-      const offsetX = i % 2 === 0 ? 2 : -2;
-      const offsetY = i % 4 < 2 ? 1 : -1;
-      await page.mouse.move(hintX + offsetX, hintY + offsetY, { steps: 1 });
-      await clock.advance(SETTLE_STEP_MS);
-    }
+    // Flush timer-deferred initialisation. The virtual clock freezes
+    // setTimeout / requestIdleCallback, so anything deferred via them won't
+    // run until we advance — separate from the wiggle below, which handles
+    // hover-gated init.
+    await clock.advance(5000);  
 
     const totalDurationMs = await captureBackgroundFrames(page, framesDir, options, clock);
     await encodeBackgroundVideo(framesDir, outputPath, {

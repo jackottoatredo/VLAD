@@ -58,6 +58,23 @@ export const EAGER_PREVIEW_RENDERING = true;
 export const PREVIEW_BRANDS = ['allbirds.com', 'mammut.com', 'andcollar.com'] as const;
 export type PreviewBrand = (typeof PREVIEW_BRANDS)[number];
 
+// Brands shown on the admin /tools/preview-grid demo page (4×3 grid; 11 video
+// tiles + one controls tile in the bottom-left).
+export const ADMIN_PREVIEW_BRANDS = [
+  'allbirds.com',
+  'wolfpak.com', 
+  'mammut.com',
+  'andcollar.com',
+  'nikestrength.com',
+  'adidas.com',
+  'fijiwater.com',
+  'malbon.com',
+  'cozyearth.com',
+  'suitshop.com',
+  'baseballism.com',
+] as const;
+export type AdminPreviewBrand = (typeof ADMIN_PREVIEW_BRANDS)[number];
+
 // Live brand search page that the share-page "Explore interactive demo →" button opens.
 export const INTERACTIVE_DEMO_BASE_URL = "https://redo.com/search/brands/";
 
@@ -70,6 +87,18 @@ export type AppEnv = "dev" | "beta" | "prod";
 export const APP_ENV = (process.env.NEXT_PUBLIC_APP_ENV ?? "dev") as AppEnv;
 export const PROD_URL = "https://vlad-production.up.railway.app/";
 export const BETA_URL = "https://vlad-app-staged.up.railway.app/";
+
+// Internal app origin — where route handlers (e.g. /video-demos/[slug]/go,
+// /tools/*) actually live. Distinct from SHARE_BASE_URL: in prod, redo.com
+// only forwards the share page itself, so anything that needs to hit a real
+// app route must use this origin. Trailing slash stripped so callers can
+// concatenate paths directly.
+export const APP_BASE_URL: string =
+  APP_ENV === "prod"
+    ? PROD_URL.replace(/\/$/, "")
+    : APP_ENV === "beta"
+      ? BETA_URL.replace(/\/$/, "")
+      : "http://localhost:3000";
 
 // Public base URL for share links. In prod, redo.com path-forwards
 // /video-demos/* to the app, so any link or asset under that prefix resolves

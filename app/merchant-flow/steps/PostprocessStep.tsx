@@ -135,19 +135,21 @@ export default function PostprocessStep({}: Props) {
       instructions={<Markdown>{merchantPostprocess}</Markdown>}
       settings={null}
     >
-      <div className="flex flex-1 flex-col justify-center gap-4 overflow-hidden rounded-2xl border border-border bg-surface p-4 shadow-md">
-        <MediaEditor
-          videoUrl={videoUrl}
-          loading={loading ? { stages: loading } : undefined}
-          error={error}
-          errorAction={{ label: 'Try Again', onClick: startRender }}
-          emptyMessage="Rendering will start automatically…"
-          fps={DEFAULT_FPS}
-          onTrimChange={handleTrimChange}
-          initialTrimStart={trimStartSec}
-          initialTrimEnd={trimEndSec}
-          quality="preview"
-        />
+      <div className="relative flex flex-1 items-center justify-center overflow-hidden rounded-2xl border border-border bg-surface p-4 shadow-md [container-type:size]">
+        <div style={{ width: 'min(100cqw, calc(100cqh * 16 / 11))', aspectRatio: '16 / 11' }}>
+          <MediaEditor
+            videoUrl={videoUrl}
+            loading={loading ? { stages: loading } : undefined}
+            error={error}
+            errorAction={{ label: 'Try Again', onClick: startRender }}
+            emptyMessage="Rendering will start automatically…"
+            fps={DEFAULT_FPS}
+            onTrimChange={handleTrimChange}
+            initialTrimStart={trimStartSec}
+            initialTrimEnd={trimEndSec}
+            quality="preview"
+          />
+        </div>
       </div>
     </PageLayout>
   )

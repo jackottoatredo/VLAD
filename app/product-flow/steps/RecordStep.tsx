@@ -107,7 +107,7 @@ export default function RecordStep({ recording }: Props) {
         </div>
       }
     >
-      <div className="relative flex flex-1 items-center justify-center overflow-hidden rounded-2xl border border-border bg-surface p-[10px] shadow-md">
+      <div className="relative flex flex-1 items-center justify-center overflow-hidden rounded-2xl border border-border bg-surface p-[10px] shadow-md [container-type:size]">
         <RecordingFrame
           iframeRef={recording.iframeRef}
           product={product}

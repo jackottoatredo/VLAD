@@ -67,6 +67,10 @@ export default function PreviewStep({}: Props) {
   // jobId → slot (including brandless, so its progress is rendered the same way).
   const activeJobsRef = useRef<Map<string, Slot>>(new Map())
   const didAutoGenerate = useRef(false)
+  // True only while handlePlayAll is mid-flight. Read by each tile's onPlay
+  // handler to decide whether a `play` event came from Play All (keep the
+  // assigned mute state) or from a native-controls click (force unmute).
+  const playingAllRef = useRef(false)
 
   // Polling — consumes the unified JobProgress contract from /api/jobs/:jobId.
   useEffect(() => {
@@ -204,11 +208,31 @@ export default function PreviewStep({}: Props) {
     }
   }
 
-  function handlePlayAll() {
-    for (const slot of SLOTS) {
-      const v = videoRefs.current[slot].current
-      if (v) { v.currentTime = 0; v.play() }
+  async function handlePlayAll() {
+    // All four renders share the same audio track, so only one plays unmuted
+    // to avoid a 4× echo. The first slot is the audio source; the rest mute.
+    // playingAllRef suppresses the onPlay-unmute below for this batch only.
+    playingAllRef.current = true
+    try {
+      await Promise.all(
+        SLOTS.map((slot, i) => {
+          const v = videoRefs.current[slot].current
+          if (!v) return null
+          v.muted = i !== 0
+          v.currentTime = 0
+          return v.play().catch(() => {})
+        }),
+      )
+    } finally {
+      playingAllRef.current = false
     }
+  }
+
+  function handleVideoPlay(e: React.SyntheticEvent<HTMLVideoElement>) {
+    // Native-controls play on a single tile: restore audio. During Play All
+    // this is short-circuited so the assigned mute pattern survives.
+    if (playingAllRef.current) return
+    e.currentTarget.muted = false
   }
 
   const allDone = SLOTS.every((s) => !!slotJobs[s].videoUrl)
@@ -232,18 +256,21 @@ export default function PreviewStep({}: Props) {
         {SLOTS.map((slot) => {
           const sj = slotJobs[slot]
           return (
-            <div key={slot} className="flex flex-col rounded-2xl border border-border bg-surface p-4 shadow-md">
+            <div key={slot} className="flex flex-col overflow-hidden rounded-2xl border border-border bg-surface p-4 shadow-md">
               <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">
                 {slotLabel(slot)}
               </p>
-              <div className="flex flex-1 items-center justify-center">
-                <MediaPlayer
-                  videoUrl={sj.videoUrl}
-                  videoRef={videoRefs.current[slot]}
-                  loading={sj.loading ? { stages: sj.loading } : undefined}
-                  error={sj.error}
-                  emptyMessage="Waiting…"
-                />
+              <div className="flex flex-1 items-center justify-center [container-type:size]">
+                <div style={{ width: 'min(100cqw, calc(100cqh * 16 / 9))' }}>
+                  <MediaPlayer
+                    videoUrl={sj.videoUrl}
+                    videoRef={videoRefs.current[slot]}
+                    loading={sj.loading ? { stages: sj.loading } : undefined}
+                    error={sj.error}
+                    emptyMessage="Waiting…"
+                    onPlay={handleVideoPlay}
+                  />
+                </div>
               </div>
             </div>
           )

@@ -25,7 +25,6 @@ function initialLoadingStages(): JobStep[] {
   return [
     { label: 'Rendering', progress: 0 },
     { label: 'Compositing', progress: 0 },
-    { label: 'Clipping', progress: 0 },
   ]
 }
 

@@ -17,7 +17,6 @@ type LoadingStage = JobStep
 const INITIAL_STAGES: LoadingStage[] = [
   { label: 'Rendering', progress: 0 },
   { label: 'Compositing', progress: 0 },
-  { label: 'Clipping', progress: 0 },
 ]
 
 type Props = Record<string, never>

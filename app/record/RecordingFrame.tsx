@@ -39,8 +39,7 @@ export default function RecordingFrame({ iframeRef, product, recordingKey, targe
       ref={containerRef}
       className="relative overflow-hidden shadow-lg"
       style={{
-        width: '100%',
-        maxHeight: '100%',
+        width: `min(100cqw, calc(100cqh * ${IFRAME_WIDTH} / ${IFRAME_HEIGHT}))`,
         aspectRatio: `${IFRAME_WIDTH} / ${IFRAME_HEIGHT}`,
         border: isRecording ? `1px solid ${WEBCAM_BORDER_COLOR}` : undefined,
       }}

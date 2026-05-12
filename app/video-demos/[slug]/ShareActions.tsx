@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { SHARE_BASE_URL } from '@/app/config'
+import { APP_BASE_URL, SHARE_BASE_URL } from '@/app/config'
 import { useVisitorId } from './useVisitorId'
 import {
   ArrowRightLongIcon,
@@ -73,10 +73,14 @@ export default function ShareActions({ slug, downloadHref, interactiveDemoUrl, s
   // a placeholder href so the button still renders. Append visitor_id
   // when localStorage has resolved so the redirect endpoint can attach
   // it to the click event.
+  //
+  // Hrefs are absolute against APP_BASE_URL (not the share origin): in prod
+  // the share page lives on redo.com, but redo.com only forwards the page
+  // itself — /go must hit the app origin directly or the redirect 404s.
   const visitorParam = visitorId ? `&v=${encodeURIComponent(visitorId)}` : ''
-  const bookDemoHref = `/video-demos/${slug}/go?to=book-demo${visitorParam}`
+  const bookDemoHref = `${APP_BASE_URL}/video-demos/${slug}/go?to=book-demo${visitorParam}`
   const interactiveDemoHref = interactiveDemoUrl
-    ? `/video-demos/${slug}/go?to=interactive-demo${visitorParam}`
+    ? `${APP_BASE_URL}/video-demos/${slug}/go?to=interactive-demo${visitorParam}`
     : '#'
   const interactiveEnabled = !!interactiveDemoUrl
 

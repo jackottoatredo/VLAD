@@ -11,19 +11,21 @@ const HIDE_MENU_PATHS = [
   '/login',
   '/merchant-flow',
   '/product-flow',
-  '/video-demos',
 ]
 
-function shouldHide(pathname: string | null) {
+// Share pages must have no navigation chrome at all — not even an exit button
+// or title that links back into the app.
+const NO_CHROME_PATHS = ['/video-demos']
+
+function matchesPath(pathname: string | null, paths: string[]) {
   if (!pathname) return false
-  return HIDE_MENU_PATHS.some(
-    (p) => pathname === p || pathname.startsWith(`${p}/`),
-  )
+  return paths.some((p) => pathname === p || pathname.startsWith(`${p}/`))
 }
 
 export default function LayoutChrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
-  const hide = shouldHide(pathname)
+  const noChrome = matchesPath(pathname, NO_CHROME_PATHS)
+  const hide = noChrome || matchesPath(pathname, HIDE_MENU_PATHS)
   const { tryNavigate } = useNavigationGuard()
   const [collapsed, setCollapsed] = useState(false)
   const [narrow, setNarrow] = useState(false)
@@ -50,7 +52,7 @@ export default function LayoutChrome({ children }: { children: React.ReactNode }
 
   return (
     <>
-      {hide ? (
+      {noChrome ? null : hide ? (
         <div className="fixed left-3 top-2 z-40 flex items-center gap-2">
           <button
             type="button"

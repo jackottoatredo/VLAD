@@ -57,7 +57,7 @@ export default async function SettingsPage() {
         <section className="space-y-3 border-t border-border pt-6">
           <h2 className="text-lg font-medium text-foreground">Notifications</h2>
           <p className="text-sm text-muted">
-            Slack DMs when leads engage with your shares. All off by default.
+            Slack DMs when leads engage with your shares. All on by default.
           </p>
           <NotificationSettings />
         </section>

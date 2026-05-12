@@ -58,6 +58,23 @@ export const EAGER_PREVIEW_RENDERING = true;
 export const PREVIEW_BRANDS = ['allbirds.com', 'mammut.com', 'andcollar.com'] as const;
 export type PreviewBrand = (typeof PREVIEW_BRANDS)[number];
 
+// Brands shown on the admin /tools/preview-grid demo page (4×3 grid; 11 video
+// tiles + one controls tile in the bottom-left).
+export const ADMIN_PREVIEW_BRANDS = [
+  'allbirds.com',
+  'wolfpak.com', 
+  'mammut.com',
+  'andcollar.com',
+  'nikestrength.com',
+  'adidas.com',
+  'fijiwater.com',
+  'malbon.com',
+  'cozyearth.com',
+  'suitshop.com',
+  'baseballism.com',
+] as const;
+export type AdminPreviewBrand = (typeof ADMIN_PREVIEW_BRANDS)[number];
+
 // Live brand search page that the share-page "Explore interactive demo →" button opens.
 export const INTERACTIVE_DEMO_BASE_URL = "https://redo.com/search/brands/";
 

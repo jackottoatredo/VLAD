@@ -96,7 +96,7 @@ export default function MerchantPickerModal({ onSelect, onClose }: Props) {
             autoFocus
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search by URL (e.g. nike.com)"
+            placeholder="Search by URL (e.g. allbirds.com)"
             className="flex-1 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-black px-3 py-1.5 text-sm text-slate-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500 shadow-inner outline-none focus:border-gray-400 dark:focus:border-gray-500"
           />
           <button

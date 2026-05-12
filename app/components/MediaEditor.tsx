@@ -89,7 +89,7 @@ export default function MediaEditor({
           disabled
           className="flex h-8 w-8 items-center justify-center text-muted opacity-60 cursor-not-allowed"
         >
-          <PlayFilledIcon width={12} height={12} />
+          <PlayFilledIcon width={20} height={20} />
         </button>
         <button
           disabled

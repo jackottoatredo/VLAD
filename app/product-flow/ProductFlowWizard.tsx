@@ -136,7 +136,7 @@ export default function ProductFlowWizard() {
           editing {flow.name}
         </p>
       )}
-      <div className="flex flex-1 items-center justify-center overflow-hidden">
+      <div className="flex flex-1 flex-col overflow-y-auto p-[25px]">
         {flow.step === 0 && <RecordStep recording={recording} navForward={navForward} />}
         {flow.step === 1 && <PostprocessStep navBack={navBack} navForward={navForward} />}
         {flow.step === 2 && <PreviewStep navBack={navBack} navForward={navForward} />}

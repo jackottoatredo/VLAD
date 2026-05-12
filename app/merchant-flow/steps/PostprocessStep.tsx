@@ -241,7 +241,7 @@ export default function PostprocessStep({ navBack, navForward }: Props) {
         </div>
       }
     >
-      <div className="flex flex-1 flex-col gap-4 overflow-hidden rounded-2xl border border-border bg-surface p-4 shadow-md">
+      <div className="flex flex-1 flex-col justify-center gap-4 overflow-hidden rounded-2xl border border-border bg-surface p-4 shadow-md">
         <MediaEditor
           videoUrl={videoUrl}
           loading={loading ? { stages: loading } : undefined}

@@ -292,9 +292,9 @@ export default function VideoTrimmer({ videoUrl, fps, onTrimChange, initialTrimS
           title={isPlaying ? 'Pause' : 'Play'}
         >
           {isPlaying ? (
-            <PauseFilledIcon width={12} height={12} />
+            <PauseFilledIcon width={20} height={20} />
           ) : (
-            <PlayFilledIcon width={12} height={12} />
+            <PlayFilledIcon width={20} height={20} />
           )}
         </button>
 

@@ -2,6 +2,9 @@
 
 import { usePathname } from 'next/navigation'
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { APP_ENV } from '@/app/config'
+import { useNavigationGuard } from '@/app/contexts/NavigationGuardContext'
+import { XIcon } from './icons'
 import SideMenu from './SideMenu'
 
 const HIDE_MENU_PATHS = [
@@ -21,6 +24,7 @@ function shouldHide(pathname: string | null) {
 export default function LayoutChrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const hide = shouldHide(pathname)
+  const { tryNavigate } = useNavigationGuard()
   const [collapsed, setCollapsed] = useState(false)
   const [narrow, setNarrow] = useState(false)
   // Only re-apply auto state when the viewport crosses the portrait boundary,
@@ -46,7 +50,24 @@ export default function LayoutChrome({ children }: { children: React.ReactNode }
 
   return (
     <>
-      {!hide && (
+      {hide ? (
+        <div className="fixed left-3 top-2 z-40 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => tryNavigate('/dashboard')}
+            className="rounded-md p-1 text-muted hover:bg-background hover:text-foreground"
+            aria-label="Exit flow"
+          >
+            <XIcon width={24} height={24} />
+          </button>
+          <span className="text-xl font-bold tracking-tight text-foreground">
+            VLAD
+            {APP_ENV !== 'prod' && (
+              <span className="ml-1 text-sm italic font-normal text-muted">{APP_ENV}</span>
+            )}
+          </span>
+        </div>
+      ) : (
         <SideMenu
           collapsed={collapsed}
           narrow={narrow}

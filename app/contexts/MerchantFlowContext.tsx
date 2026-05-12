@@ -233,6 +233,8 @@ export function MerchantFlowContextProvider({ children }: { children: ReactNode 
     setState((prev) => ({
       ...initialState(),
       merchantId: prev.merchantId,
+      brandName: prev.brandName,
+      websiteUrl: prev.websiteUrl,
       webcamSettings: prev.webcamSettings,
     }));
   }, []);

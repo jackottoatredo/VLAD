@@ -27,7 +27,7 @@ type Props = {
 
 const DEBOUNCE_MS = 200
 
-/** Bare-domain or protocol-prefixed URL detector — accepts `nike.com`, `https://nike.com/foo`. */
+/** Bare-domain or protocol-prefixed URL detector — accepts `allbirds.com`, `https://allbirds.com/foo`. */
 function looksLikeUrl(input: string): boolean {
   const text = input.trim().toLowerCase()
   if (!text) return false
@@ -270,7 +270,7 @@ export default function MerchantChipInput({
 
     for (const { piece, results } of searches) {
       const allSoFar = [...value, ...newChips]
-      // Strip protocol + path so "https://nike.com/foo" matches the bare-domain DB row.
+      // Strip protocol + path so "https://allbirds.com/foo" matches the bare-domain DB row.
       const stripped = piece.toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '')
       const match = results.find(
         (r) =>

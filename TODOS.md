@@ -19,17 +19,17 @@
 - [ ] integrate with ai-sales (task list)
 - [ ] control sending aparatus to track user opens
 - [ ] outro / call to action
-- [ ] hubspot link/ book with rep instead of generic book page
+- [x] hubspot link/ book with rep instead of generic book page
 - [ ] render layer caching for many jobs sharing same webcam
-- [ ] job logging for debugging later
-- [ ] show settings and edit/rerender
+- [x] job logging for debugging later
+- [x] show settings and edit/rerender
 - [ ] press 'space' to stop recording
-- [ ] auto add users to vlad slack channel
+- [x] auto add users to vlad slack channel
 - [ ] select audio input devices
 - [ ] equalize audio volume
-- [ ] reroute share page to /video-demo/[slug]
-- [ ] cloudflare cleanup
-- [ ] rerender, edit intro/product, settings info display
+- [x] reroute share page to /video-demo/[slug]
+- [x] cloudflare cleanup
+- [x] rerender, edit intro/product, settings info display
 
 ## Beta Test Comments
 

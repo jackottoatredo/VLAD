@@ -100,6 +100,7 @@ export default function SideMenu({ collapsed, narrow, onToggle }: Props) {
               Admin
             </div>
             {navItem({ href: '/tools/recordings', label: 'Manage Recordings' })}
+            {navItem({ href: '/tools/preview-grid', label: 'Preview Grid' })}
             {navItem({ href: '/tools/usage', label: 'Usage' })}
           </div>
         )}

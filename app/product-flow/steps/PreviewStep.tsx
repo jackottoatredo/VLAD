@@ -232,18 +232,20 @@ export default function PreviewStep({}: Props) {
         {SLOTS.map((slot) => {
           const sj = slotJobs[slot]
           return (
-            <div key={slot} className="flex flex-col rounded-2xl border border-border bg-surface p-4 shadow-md">
+            <div key={slot} className="flex flex-col overflow-hidden rounded-2xl border border-border bg-surface p-4 shadow-md">
               <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">
                 {slotLabel(slot)}
               </p>
-              <div className="flex flex-1 items-center justify-center">
-                <MediaPlayer
-                  videoUrl={sj.videoUrl}
-                  videoRef={videoRefs.current[slot]}
-                  loading={sj.loading ? { stages: sj.loading } : undefined}
-                  error={sj.error}
-                  emptyMessage="Waiting…"
-                />
+              <div className="flex flex-1 items-center justify-center [container-type:size]">
+                <div style={{ width: 'min(100cqw, calc(100cqh * 16 / 9))' }}>
+                  <MediaPlayer
+                    videoUrl={sj.videoUrl}
+                    videoRef={videoRefs.current[slot]}
+                    loading={sj.loading ? { stages: sj.loading } : undefined}
+                    error={sj.error}
+                    emptyMessage="Waiting…"
+                  />
+                </div>
               </div>
             </div>
           )

@@ -109,7 +109,7 @@ export async function renderBackgroundToMp4(
 
     // Settle phase — wiggle the mouse near the starting cursor position so
     // hover-gated initialisation runs before capture begins.
-    const SETTLE_MS = 4000;
+    const SETTLE_MS = 6000;
     const SETTLE_STEP_MS = 1000 / (options.fps || 30);
     const settleSteps = Math.ceil(SETTLE_MS / SETTLE_STEP_MS);
     const hintX = options.settleHint?.x ?? Math.round(vw / zoom / 2);

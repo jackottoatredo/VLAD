@@ -1,6 +1,12 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  PauseFilledIcon,
+  PlayFilledIcon,
+  SkipBackIcon,
+  SkipForwardIcon,
+} from '@/app/components/icons'
 
 type Props = {
   videoUrl: string
@@ -276,10 +282,7 @@ export default function VideoTrimmer({ videoUrl, fps, onTrimChange, initialTrimS
           className="flex h-7 w-7 items-center justify-center rounded text-muted hover:text-foreground transition-colors"
           title="Jump to start"
         >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-            <rect x="1" y="2" width="2" height="10" />
-            <path d="M12 2 L5 7 L12 12 Z" />
-          </svg>
+          <SkipBackIcon />
         </button>
 
         {/* Play / Pause */}
@@ -289,14 +292,9 @@ export default function VideoTrimmer({ videoUrl, fps, onTrimChange, initialTrimS
           title={isPlaying ? 'Pause' : 'Play'}
         >
           {isPlaying ? (
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-              <rect x="2" y="1" width="3" height="10" />
-              <rect x="7" y="1" width="3" height="10" />
-            </svg>
+            <PauseFilledIcon width={20} height={20} />
           ) : (
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-              <path d="M2 0 L12 6 L2 12 Z" />
-            </svg>
+            <PlayFilledIcon width={20} height={20} />
           )}
         </button>
 
@@ -306,10 +304,7 @@ export default function VideoTrimmer({ videoUrl, fps, onTrimChange, initialTrimS
           className="flex h-7 w-7 items-center justify-center rounded text-muted hover:text-foreground transition-colors"
           title="Jump to end"
         >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-            <path d="M2 2 L9 7 L2 12 Z" />
-            <rect x="11" y="2" width="2" height="10" />
-          </svg>
+          <SkipForwardIcon />
         </button>
       </div>
     </div>

@@ -207,24 +207,10 @@ function buildActions(
 
 type ProduceJobResult = ProduceResult & { renderId?: string };
 
-const PRODUCE_STEP_LABELS = ["Rendering", "Compositing", "Clipping"] as const;
+const PRODUCE_STEP_LABELS = ["Rendering", "Compositing"] as const;
 
 function makeProduceSteps(): JobStep[] {
-  return PRODUCE_STEP_LABELS.map((label, idx) =>
-    idx === 0
-      ? {
-          label,
-          progress: 0,
-          // Render step has two parallel lanes (background browser pass +
-          // overlay browser pass). Cursor is computed in-process and is
-          // effectively instant — not worth its own bar.
-          subTasks: [
-            { label: "Background", progress: 0 },
-            { label: "Overlay", progress: 0 },
-          ],
-        }
-      : { label, progress: 0 },
-  );
+  return PRODUCE_STEP_LABELS.map((label) => ({ label, progress: 0 }));
 }
 
 async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceJobResult> {
@@ -296,7 +282,7 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceJo
   // Reflect warm-start in initial step state — already-done stages are 100%.
   if (d.startFromStep >= 2) steps[0].progress = 100;
   if (d.startFromStep >= 3) steps[1].progress = 100;
-  report(d.startFromStep - 1);
+  report(Math.min(d.startFromStep - 1, steps.length - 1));
 
   // Compute the per-job intermediate dir based on which entity owns the
   // produce. Product-only-export attaches a render row (mergeRenderInsert) →
@@ -349,24 +335,8 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceJo
         steps[0].progress = total > 0 ? Math.round((rendered / total) * 100) : 0;
         report(0);
       },
-      onBackgroundProgress(rendered, total) {
-        if (steps[0].subTasks) {
-          steps[0].subTasks[0].progress = total > 0 ? Math.round((rendered / total) * 100) : 0;
-          report(0);
-        }
-      },
-      onOverlayProgress(rendered, total) {
-        if (steps[0].subTasks) {
-          steps[0].subTasks[1].progress = total > 0 ? Math.round((rendered / total) * 100) : 0;
-          report(0);
-        }
-      },
       onRenderComplete() {
         steps[0].progress = 100;
-        if (steps[0].subTasks) {
-          steps[0].subTasks[0].progress = 100;
-          steps[0].subTasks[1].progress = 100;
-        }
         report(1);
       },
       onComposeProgress(composited, total) {
@@ -378,8 +348,7 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceJo
 
     steps[0].progress = 100;
     steps[1].progress = 100;
-    steps[2].progress = 50;
-    report(2);
+    report(1);
 
     await updateRenderCache(
       d.userId,
@@ -462,9 +431,6 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceJo
       });
     }
 
-    steps[2].progress = 100;
-    report(2);
-
     return { ...result, renderId };
   } finally {
     rm(workDir, { recursive: true, force: true }).catch(() => {});
@@ -488,17 +454,9 @@ const MERGE_STEP_LABELS = [
   "Merging",
 ] as const;
 
-const PRODUCT_ONLY_STEP_LABELS = [
-  "Rendering",
-  "Compositing",
-  "Clipping",
-] as const;
+const PRODUCT_ONLY_STEP_LABELS = ["Rendering", "Compositing"] as const;
 
-const INTRO_ONLY_STEP_LABELS = [
-  "Rendering",
-  "Compositing",
-  "Clipping",
-] as const;
+const INTRO_ONLY_STEP_LABELS = ["Rendering", "Compositing"] as const;
 
 /**
  * Render one section of a merge through the full produce pipeline. Returns
@@ -512,8 +470,6 @@ async function renderMergeSection(
   onRenderProgress: (pct: number) => void,
   onRenderDone: () => void,
   onComposeProgress: (pct: number) => void,
-  onBackgroundProgress?: (pct: number) => void,
-  onOverlayProgress?: (pct: number) => void,
 ): Promise<ProduceResult> {
   const [amplitudeSamples, webcamFrames] = await Promise.all([
     resolveAmplitudeSamples(recording.spec, recording.webcamR2Key),
@@ -540,12 +496,6 @@ async function renderMergeSection(
     amplitudeSamples,
     onRenderProgress(rendered, total) {
       onRenderProgress(total > 0 ? Math.round((rendered / total) * 100) : 0);
-    },
-    onBackgroundProgress(rendered, total) {
-      onBackgroundProgress?.(total > 0 ? Math.round((rendered / total) * 100) : 0);
-    },
-    onOverlayProgress(rendered, total) {
-      onOverlayProgress?.(total > 0 ? Math.round((rendered / total) * 100) : 0);
     },
     onRenderComplete() { onRenderDone(); },
     onComposeProgress(s, total) {
@@ -720,13 +670,9 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
       : PRODUCT_ONLY_STEP_LABELS;
 
   const steps: JobStep[] = stepLabels.map((label, idx) => {
-    // For dual-section merge ("Rendering intro" / "Rendering product" / "Merging"),
-    // give the two render steps Background+Overlay sub-task lanes. For
-    // single-section merge ("Rendering" / "Compositing" / "Clipping"), the
-    // "Rendering" step (idx 0) gets the same lanes — same as produce-job
-    // step 0.
-    const isRenderStep = dualSection ? idx < 2 : idx === 0;
-    if (isRenderStep) {
+    // Dual-section merge gives its two render steps Background+Overlay
+    // sub-task lanes. Single-section flows are a plain two-phase bar.
+    if (dualSection && idx < 2) {
       return {
         label,
         progress: 0,
@@ -980,11 +926,6 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
     } else {
       // ---- Single-section: full produce (render → compose → trim) ----
       logStep(`single-section: ${hasIntro ? "intro" : "product"}`);
-      const setSubTask = (stepIdx: number, subIdx: number, pct: number) => {
-        const sub = steps[stepIdx].subTasks?.[subIdx];
-        if (sub) sub.progress = pct;
-        updateStep(stepIdx, steps[stepIdx].progress);
-      };
       let soleResult: ProduceResult;
       if (hasIntro) {
         const merchantRec = await downloadRecording(
@@ -1000,8 +941,6 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
           (pct) => updateStep(0, pct),
           () => completeStep(0),
           (pct) => updateStep(1, pct),
-          (pct) => setSubTask(0, 0, pct),
-          (pct) => setSubTask(0, 1, pct),
         );
         completeStep(1);
       } else {
@@ -1018,8 +957,6 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
           (pct) => updateStep(0, pct),
           () => completeStep(0),
           (pct) => updateStep(1, pct),
-          (pct) => setSubTask(0, 0, pct),
-          (pct) => setSubTask(0, 1, pct),
         );
         completeStep(1);
       }

@@ -16,6 +16,7 @@ type MediaPlayerProps = {
   emptyAction?: { label: string; onClick: () => void }
   loading?: { stages: LoadingStage[] }
   error?: string | null
+  errorAction?: { label: string; onClick: () => void }
 }
 
 export type { MediaPlayerProps }
@@ -27,6 +28,7 @@ export default function MediaPlayer({
   emptyAction,
   loading,
   error,
+  errorAction,
 }: MediaPlayerProps) {
   // State priority: error > loading > videoUrl > empty
   const showError = !!error
@@ -38,8 +40,16 @@ export default function MediaPlayer({
     <div className="relative w-full aspect-video rounded-lg bg-background overflow-hidden">
 
       {showError && (
-        <div className="flex h-full w-full items-center justify-center p-4">
+        <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-4">
           <p className="text-sm text-red-500">{error}</p>
+          {errorAction && (
+            <button
+              onClick={errorAction.onClick}
+              className="rounded-md bg-white px-4 py-1.5 text-sm font-medium text-black shadow-sm hover:opacity-80"
+            >
+              {errorAction.label}
+            </button>
+          )}
         </div>
       )}
 

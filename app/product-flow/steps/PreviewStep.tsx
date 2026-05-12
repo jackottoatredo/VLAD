@@ -1,16 +1,14 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import PageLayout, { type NavButton } from '@/app/components/PageLayout'
+import PageLayout from '@/app/components/PageLayout'
 import Markdown from '@/app/components/Markdown'
 import MediaPlayer from '@/app/components/MediaPlayer'
 import { PREVIEW_BRANDS, TARGET_URL, type PreviewBrand } from '@/app/config'
 import { useUser } from '@/app/contexts/UserContext'
 import { useProductFlow } from '@/app/contexts/ProductFlowContext'
 import { productPreview } from '@/app/copy/instructions'
-import NameRecordingModal from '@/app/components/NameRecordingModal'
 import type { JobProgress, JobStep } from '@/lib/queue/progress'
-import { slugifyPart } from '@/lib/naming'
 
 const POLL_MS = 500
 const BRANDLESS_SLOT = 'brandless' as const
@@ -35,15 +33,12 @@ function slotLabel(slot: Slot): string {
   return slot === BRANDLESS_SLOT ? 'No brand' : slot
 }
 
-type Props = {
-  navBack?: NavButton | null
-  navForward?: NavButton | null
-}
+type Props = Record<string, never>
 
-export default function PreviewStep({ navBack, navForward }: Props) {
+export default function PreviewStep({}: Props) {
   const { presenter } = useUser()
   const flow = useProductFlow()
-  const { product, webcamSettings, trimStartSec, trimEndSec, brandVideoUrls, brandJobIds, postprocessVideoUrl, postprocessJobId, flowId, name: existingName, origin } = flow
+  const { product, webcamSettings, trimStartSec, trimEndSec, brandVideoUrls, brandJobIds, postprocessVideoUrl, postprocessJobId, flowId } = flow
 
   // Initial slot state seeds from whatever's already in context so the user
   // sees the previous (possibly stale-trim) preview while we regenerate in
@@ -66,10 +61,6 @@ export default function PreviewStep({ navBack, navForward }: Props) {
     }
     return initial
   })
-
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
-  const [saveError, setSaveError] = useState('')
-  const [nameModalOpen, setNameModalOpen] = useState(false)
 
   const videoRefs = useRef<Record<Slot, React.RefObject<HTMLVideoElement | null>>>(
     Object.fromEntries(SLOTS.map((s) => [s, { current: null }])) as Record<Slot, React.RefObject<HTMLVideoElement | null>>,
@@ -221,76 +212,10 @@ export default function PreviewStep({ navBack, navForward }: Props) {
     }
   }
 
-  async function submitSave(tag: string): Promise<{ ok: true; name: string } | { ok: false; error: string }> {
-    if (!presenter || !product || !flowId) return { ok: false, error: 'Flow not ready.' }
-    setSaveStatus('saving')
-    setSaveError('')
-    try {
-      const res = await fetch('/api/save-recording', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          flowId,
-          tag,
-          status: 'saved',
-          type: 'product',
-          productName: product,
-          previewVideoR2Key: flow.postprocessVideoR2Key,
-          webcamSettings: {
-            webcamMode: webcamSettings.webcamMode,
-            webcamVertical: webcamSettings.webcamVertical,
-            webcamHorizontal: webcamSettings.webcamHorizontal,
-          },
-          metadata: { trimStartSec, trimEndSec },
-        }),
-      })
-      const data = (await res.json()) as { ok?: boolean; error?: string; name?: string }
-      if (!res.ok || !data.ok || !data.name) {
-        setSaveStatus('error')
-        const err = data.error ?? 'Failed to save.'
-        setSaveError(err)
-        return { ok: false, error: err }
-      }
-      setSaveStatus('saved')
-      setNameModalOpen(false)
-      flow.markPersisted({ name: data.name, status: 'saved' })
-      flow.setStep(3)
-      return { ok: true, name: data.name }
-    } catch {
-      setSaveStatus('error')
-      setSaveError('Unexpected error.')
-      return { ok: false, error: 'Unexpected error.' }
-    }
-  }
-
   const allDone = SLOTS.every((s) => !!slotJobs[s].videoUrl)
-  const productPrefix = slugifyPart(product)
-  const defaultTag = (() => {
-    if (existingName && productPrefix && existingName.startsWith(`${productPrefix}-`)) {
-      return existingName.slice(productPrefix.length + 1).replace(/-(\d+)$/, '')
-    }
-    return ''
-  })()
-  const isReopened = origin === 'reopened' && !!existingName
-
-  async function handleSaveChanges() {
-    // Server keeps the existing name on re-save; tag is ignored when the row
-    // already has one. Pass empty string to satisfy the signature.
-    if (!existingName) return
-    await submitSave('')
-  }
-
-  function handleDiscardChanges() {
-    if (!flowId) return
-    try { localStorage.removeItem('vlad_product_flow') } catch { /* ignore */ }
-    // Full reload re-enters page.tsx which refetches + re-hydrates the recording.
-    window.location.assign(`/product-flow?recordingId=${flowId}`)
-  }
 
   return (
     <PageLayout
-      navBack={navBack}
-      navForward={navForward}
       instructions={<Markdown>{productPreview}</Markdown>}
       settings={
         <div className="flex flex-col gap-3">
@@ -301,33 +226,6 @@ export default function PreviewStep({ navBack, navForward }: Props) {
           >
             Play All
           </button>
-          {isReopened ? (
-            <>
-              <button
-                onClick={handleSaveChanges}
-                disabled={!allDone || saveStatus === 'saving' || saveStatus === 'saved'}
-                className="w-full rounded-md border border-border bg-surface px-4 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-background disabled:opacity-50"
-              >
-                {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? 'Saved' : 'Save Changes'}
-              </button>
-              <button
-                onClick={handleDiscardChanges}
-                disabled={saveStatus === 'saving'}
-                className="w-full rounded-md border border-red-500/40 bg-surface px-4 py-1.5 text-sm font-medium text-red-500 shadow-sm hover:bg-red-500/10 disabled:opacity-50"
-              >
-                Discard Changes
-              </button>
-            </>
-          ) : (
-            <button
-              onClick={() => setNameModalOpen(true)}
-              disabled={!allDone || saveStatus === 'saving' || saveStatus === 'saved'}
-              className="w-full rounded-md border border-border bg-surface px-4 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-background disabled:opacity-50"
-            >
-              {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? 'Saved' : 'Save'}
-            </button>
-          )}
-          {saveStatus === 'error' && <p className="text-xs text-red-500">{saveError}</p>}
         </div>
       }
     >
@@ -352,16 +250,6 @@ export default function PreviewStep({ navBack, navForward }: Props) {
           )
         })}
       </div>
-      {nameModalOpen && product && productPrefix && (
-        <NameRecordingModal
-          title="Save Recording"
-          prefix={productPrefix}
-          defaultTag={defaultTag}
-          submitLabel="Save"
-          onSubmit={submitSave}
-          onCancel={() => setNameModalOpen(false)}
-        />
-      )}
     </PageLayout>
   )
 }

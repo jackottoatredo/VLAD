@@ -6,13 +6,15 @@ import { useUser } from '@/app/contexts/UserContext'
 import { useRecording } from '@/app/hooks/useRecording'
 import { useNavigationGuard, type GuardPrompt } from '@/app/contexts/NavigationGuardContext'
 import FlowStepper, { type StepState } from '@/app/components/FlowStepper'
+import FlowFooter from '@/app/components/FlowFooter'
 import PageLayout from '@/app/components/PageLayout'
 import RecordStep from '@/app/merchant-flow/steps/RecordStep'
 import PostprocessStep from '@/app/merchant-flow/steps/PostprocessStep'
-import SavedStep from '@/app/merchant-flow/steps/SavedStep'
+import SaveStep from '@/app/merchant-flow/steps/SaveStep'
+import { MERCHANT_TARGET_URL } from '@/app/config'
 import { slugifyPart, deriveMerchantNameFromUrl } from '@/lib/naming'
 
-const STEPS = ['Record', 'Postprocess', 'Saved']
+const STEPS = ['Record', 'Postprocess', 'Save']
 
 // Recover the original optional-tag from a saved name like
 // `{prefix}-{tag}-{count}` so reopened flows can pre-fill the modal.
@@ -99,12 +101,59 @@ export default function MerchantFlowWizard() {
     flow.setStep(s as MerchantFlowStep)
   }
 
+  // Advance from Record → Postprocess. Commits the pending take (or just
+  // advances if already committed) and kicks off the produce job; the
+  // PostprocessStep picks up the jobId via context.
+  function handleRecordContinue() {
+    if (!presenter || !flow.merchantId) return
+    const hasCommitted = !!flow.flowId
+    if (hasCommitted && recording.uploadStatus === 'idle') {
+      flow.setStep(1)
+      return
+    }
+    flow.clearResults()
+    flow.setStep(1)
+    void (async () => {
+      const flowId = await recording.commit()
+      if (!flowId) return
+      const targetUrl = flow.websiteUrl
+        ? `${MERCHANT_TARGET_URL}?brand=${encodeURIComponent(flow.websiteUrl)}`
+        : MERCHANT_TARGET_URL
+      const res = await fetch('/api/produce', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          flowId,
+          presenter, merchantId: flow.merchantId, url: targetUrl,
+          webcamMode: flow.webcamSettings.webcamMode,
+          webcamVertical: flow.webcamSettings.webcamVertical,
+          webcamHorizontal: flow.webcamSettings.webcamHorizontal,
+          preview: true,
+        }),
+      })
+        .then((r) => r.json() as Promise<{ jobId?: string; videoUrl?: string; videoR2Key?: string; error?: string }>)
+        .catch(() => ({} as { jobId?: string; videoUrl?: string; videoR2Key?: string; error?: string }))
+      if (res.videoUrl) flow.setPostprocessVideoUrl(res.videoUrl, res.videoR2Key)
+      else if (res.jobId) flow.setPostprocessJobId(res.jobId)
+    })()
+  }
+
   const navBack = flow.step > 0 && stepStates[flow.step - 1] !== 'locked'
     ? { label: STEPS[flow.step - 1], onClick: () => goTo(flow.step - 1) }
     : null
-  const navForward = flow.step < STEPS.length - 2 && stepStates[flow.step + 1] !== 'locked'
-    ? { label: STEPS[flow.step + 1], onClick: () => goTo(flow.step + 1) }
-    : null
+  const navForward = (() => {
+    if (flow.step >= STEPS.length - 1) return null
+    const label = STEPS[flow.step + 1]
+    if (flow.step === 0) {
+      const canAdvance = recording.uploadStatus === 'ready' || (!!flow.flowId && recording.uploadStatus === 'idle')
+      return { label, onClick: handleRecordContinue, disabled: !canAdvance }
+    }
+    return {
+      label,
+      onClick: () => goTo(flow.step + 1),
+      disabled: stepStates[flow.step + 1] === 'locked',
+    }
+  })()
 
   if (!presenter) {
     return (
@@ -127,10 +176,11 @@ export default function MerchantFlowWizard() {
         </p>
       )}
       <div className="flex flex-1 flex-col overflow-y-auto p-[25px]">
-        {flow.step === 0 && <RecordStep recording={recording} navForward={navForward} />}
-        {flow.step === 1 && <PostprocessStep navBack={navBack} navForward={navForward} />}
-        {flow.step === 2 && <SavedStep />}
+        {flow.step === 0 && <RecordStep recording={recording} />}
+        {flow.step === 1 && <PostprocessStep />}
+        {flow.step === 2 && <SaveStep />}
       </div>
+      <FlowFooter navBack={navBack} navForward={navForward} />
     </div>
   )
 }

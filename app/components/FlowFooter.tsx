@@ -30,10 +30,10 @@ export default function FlowFooter({ navBack, navForward }: Props) {
             type="button"
             onClick={navForward.disabled ? undefined : navForward.onClick}
             disabled={navForward.disabled}
-            className={`flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm shadow-sm transition ${
+            className={`flex items-center gap-2 rounded-md bg-orange-500 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition ${
               navForward.disabled
-                ? 'border-border bg-background text-muted opacity-60 cursor-not-allowed'
-                : 'border-border bg-surface text-foreground hover:bg-background'
+                ? 'cursor-not-allowed opacity-50'
+                : 'hover:bg-orange-600'
             }`}
           >
             <span>{navForward.label}</span>

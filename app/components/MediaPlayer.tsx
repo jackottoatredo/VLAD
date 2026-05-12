@@ -17,6 +17,7 @@ type MediaPlayerProps = {
   loading?: { stages: LoadingStage[] }
   error?: string | null
   errorAction?: { label: string; onClick: () => void }
+  onPlay?: React.ReactEventHandler<HTMLVideoElement>
 }
 
 export type { MediaPlayerProps }
@@ -29,6 +30,7 @@ export default function MediaPlayer({
   loading,
   error,
   errorAction,
+  onPlay,
 }: MediaPlayerProps) {
   // State priority: error > loading > videoUrl > empty
   const showError = !!error
@@ -91,7 +93,7 @@ export default function MediaPlayer({
       )}
 
       {showVideo && (
-        <video ref={videoRef} src={videoUrl!} controls className="h-full w-full object-contain" />
+        <video ref={videoRef} src={videoUrl!} controls onPlay={onPlay} className="h-full w-full object-contain" />
       )}
 
       {showEmpty && (

@@ -98,7 +98,7 @@ export const APP_BASE_URL: string =
     ? PROD_URL.replace(/\/$/, "")
     : APP_ENV === "beta"
       ? BETA_URL.replace(/\/$/, "")
-      : "http://localhost:3000";
+      : "http://localhost:7140";
 
 // Public base URL for share links. In prod, redo.com path-forwards
 // /video-demos/* to the app, so any link or asset under that prefix resolves

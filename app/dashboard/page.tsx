@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import DeleteModal from '@/app/components/DeleteModal'
 import RecordingPreviewModal from '@/app/components/RecordingPreviewModal'
 import RenderPreviewModal from '@/app/components/RenderPreviewModal'
@@ -61,7 +61,7 @@ function initialStepsForEndpoint(endpoint: string | null | undefined): PipelineS
   return initialMergeSteps()
 }
 
-export default function MergeExportPage() {
+function MergeExportPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   // Tracks the renderId we've already auto-opened via the ?renderId=
@@ -796,5 +796,13 @@ export default function MergeExportPage() {
         />
       )}
     </div>
+  )
+}
+
+export default function DashboardPage() {
+  return (
+    <Suspense fallback={null}>
+      <MergeExportPage />
+    </Suspense>
   )
 }

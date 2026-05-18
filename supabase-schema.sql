@@ -39,6 +39,9 @@ create table vlad_user_preferences (
   notify_visit                  boolean not null default false,
   notify_daily_digest           boolean not null default false,
   notify_weekly_digest          boolean not null default false,
+  -- Admin-only opt-in: DM whenever a brand-new VLAD user signs in for
+  -- the first time. UI hidden + API gated for non-admin sessions.
+  notify_new_user_signup        boolean not null default false,
   slack_user_id                 text,
   created_at                    timestamptz not null default now(),
   updated_at                    timestamptz not null default now()

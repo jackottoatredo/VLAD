@@ -1,6 +1,6 @@
 'use client'
 
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import DeleteModal from '@/app/components/DeleteModal'
 import RecordingPreviewModal from '@/app/components/RecordingPreviewModal'
@@ -63,6 +63,11 @@ function initialStepsForEndpoint(endpoint: string | null | undefined): PipelineS
 
 export default function MergeExportPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  // Tracks the renderId we've already auto-opened via the ?renderId=
+  // deep-link, so re-renders of the renders list don't keep re-opening
+  // the same modal.
+  const deepLinkOpenedRef = useRef<string | null>(null)
   // When the content area is taller than wide, stack the columns vertically
   // instead of side-by-side.
   const isPortrait = useContentIsPortrait()
@@ -170,6 +175,30 @@ export default function MergeExportPage() {
       .then((d) => setProducts(d.recordings ?? []))
     fetchRenders()
   }, [fetchRenders])
+
+  // Deep-link: when arriving via ?renderId=…, find the matching render and
+  // auto-open its preview modal once it loads. Only fires for 'done' renders
+  // — for in-flight ones the row is already visible in the renders column.
+  useEffect(() => {
+    const targetId = searchParams.get('renderId')
+    if (!targetId) return
+    if (deepLinkOpenedRef.current === targetId) return
+    if (renders.length === 0) return
+    const match = renders.find((r) => r.id === targetId)
+    if (!match || match.status !== 'done') return
+    deepLinkOpenedRef.current = targetId
+    const label = match.brand ?? match.id.slice(0, 8)
+    if (!match.seen) markSeen(match.id)
+    setPreviewTarget({
+      kind: 'render',
+      title: label,
+      videoUrl: match.video_url,
+      renderId: match.id,
+      downloadName: label,
+      slug: match.slug,
+      jobRequest: match.job_request,
+    })
+  }, [renders, searchParams])
 
   // Resume / start polling for any rendering row with a job_id. Idempotent
   // via pollingRef — the same renderId is never polled twice even though

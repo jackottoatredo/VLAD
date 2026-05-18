@@ -6,6 +6,7 @@ type Prefs = {
   notify_visit: boolean
   notify_daily_digest: boolean
   notify_weekly_digest: boolean
+  notify_new_user_signup: boolean
 }
 
 type Key = keyof Prefs
@@ -17,7 +18,9 @@ type State =
 
 type TestStatus = 'idle' | 'sending' | { kind: 'sent' } | { kind: 'failed'; message: string }
 
-const ROWS: { key: Key; label: string; description: string }[] = [
+type Row = { key: Key; label: string; description: string; adminOnly?: boolean }
+
+const ROWS: Row[] = [
   {
     key: 'notify_visit',
     label: 'Per-render engagement',
@@ -35,16 +38,26 @@ const ROWS: { key: Key; label: string; description: string }[] = [
     label: 'Weekly digest',
     description: 'A roll-up Monday at 8am Mountain Time covering the previous week.',
   },
+  {
+    key: 'notify_new_user_signup',
+    label: 'New user signups (admin)',
+    description:
+      'A Slack DM the first time a brand-new user signs into VLAD. Admin-only.',
+    adminOnly: true,
+  },
 ]
 
-export default function NotificationSettings() {
+export default function NotificationSettings({ isAdmin = false }: { isAdmin?: boolean }) {
   const [state, setState] = useState<State>({ kind: 'loading' })
   const [savingKey, setSavingKey] = useState<Key | null>(null)
   const [testStatus, setTestStatus] = useState<Record<Key, TestStatus>>({
     notify_visit: 'idle',
     notify_daily_digest: 'idle',
     notify_weekly_digest: 'idle',
+    notify_new_user_signup: 'idle',
   })
+
+  const visibleRows = ROWS.filter((row) => !row.adminOnly || isAdmin)
 
   useEffect(() => {
     let cancelled = false
@@ -52,8 +65,18 @@ export default function NotificationSettings() {
       try {
         const res = await fetch('/api/users/me/notifications')
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        const data = (await res.json()) as Prefs
-        if (!cancelled) setState({ kind: 'ready', prefs: data })
+        const data = (await res.json()) as Partial<Prefs>
+        if (!cancelled) {
+          setState({
+            kind: 'ready',
+            prefs: {
+              notify_visit: !!data.notify_visit,
+              notify_daily_digest: !!data.notify_daily_digest,
+              notify_weekly_digest: !!data.notify_weekly_digest,
+              notify_new_user_signup: !!data.notify_new_user_signup,
+            },
+          })
+        }
       } catch (err) {
         if (!cancelled) {
           setState({
@@ -147,7 +170,7 @@ export default function NotificationSettings() {
 
   return (
     <div className="space-y-1">
-      {ROWS.map((row) => {
+      {visibleRows.map((row) => {
         const status = testStatus[row.key]
         const sending = status === 'sending'
         return (

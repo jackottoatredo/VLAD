@@ -8,12 +8,22 @@ import {
   buildDigestBlocks,
   formatDigestHeading,
 } from "@/lib/notifications/processDigest";
+import { buildNewUserSignupText } from "@/lib/notifications/newUserSignup";
+import { emailToName } from "@/lib/nameUtils";
 import type { EngagementType } from "@/lib/stats/engagement";
 
 export const runtime = "nodejs";
 
-const TEST_KEYS = ["notify_visit", "notify_daily_digest", "notify_weekly_digest"] as const;
+const TEST_KEYS = [
+  "notify_visit",
+  "notify_daily_digest",
+  "notify_weekly_digest",
+  "notify_new_user_signup",
+] as const;
 type TestKey = (typeof TEST_KEYS)[number];
+
+// Keys only admins are allowed to test — same gate as the main toggle API.
+const ADMIN_ONLY_TEST_KEYS = new Set<TestKey>(["notify_new_user_signup"]);
 
 function isTestKey(s: unknown): s is TestKey {
   return typeof s === "string" && (TEST_KEYS as readonly string[]).includes(s);
@@ -51,6 +61,9 @@ export async function POST(request: Request) {
   if (!isTestKey(key)) {
     return NextResponse.json({ error: "Invalid key." }, { status: 400 });
   }
+  if (ADMIN_ONLY_TEST_KEYS.has(key) && session.role !== "admin") {
+    return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+  }
 
   // Filter URL points the rep at their own engagement dashboard so the
   // "View Stats" button works end-to-end in the sample.
@@ -58,21 +71,39 @@ export async function POST(request: Request) {
     { kind: "presenter", value: session.email, label: session.email },
   ]);
 
-  const fallback = `[TEST] ${formatStatLines(SAMPLE_COUNTS)}`;
-  let blocks: unknown[];
+  let fallback: string;
+  let blocks: unknown[] | undefined;
   if (key === "notify_visit") {
+    fallback = `[TEST] ${formatStatLines(SAMPLE_COUNTS)}`;
     blocks = buildPerRenderBlocks({
       renderName: `[TEST] ${SAMPLE_RENDER_NAME}`,
       counts: SAMPLE_COUNTS,
       viewUrl,
     });
-  } else {
+  } else if (
+    key === "notify_daily_digest" ||
+    key === "notify_weekly_digest"
+  ) {
+    fallback = `[TEST] ${formatStatLines(SAMPLE_COUNTS)}`;
     const window = key === "notify_daily_digest" ? "daily" : "weekly";
     const headingRange = `[TEST] ${formatDigestHeading(window)}`;
     blocks = buildDigestBlocks({ headingRange, counts: SAMPLE_COUNTS, viewUrl });
+  } else {
+    // notify_new_user_signup: send the admin a sample of the signup ping
+    // using their own identity as the "new user" so they see the format.
+    const { firstName, lastName } = emailToName(session.email);
+    fallback = `[TEST] ${buildNewUserSignupText({
+      email: session.email,
+      firstName,
+      lastName,
+    })}`;
   }
 
-  const result = await sendUserDM({ email: session.email, text: fallback, blocks });
+  const result = await sendUserDM({
+    email: session.email,
+    text: fallback,
+    ...(blocks ? { blocks } : {}),
+  });
   if (result.status === "sent") {
     return NextResponse.json({ ok: true });
   }

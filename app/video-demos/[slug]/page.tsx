@@ -100,7 +100,7 @@ function buildShareTitle(row: ShareRow): string {
 async function resolveBaseUrl(): Promise<string> {
   if (SHARE_BASE_URL) return SHARE_BASE_URL;
   const h = await headers();
-  const host = h.get("host") ?? "localhost:3000";
+  const host = h.get("host") ?? "localhost:7140";
   const proto = h.get("x-forwarded-proto") ?? (host.includes("localhost") ? "http" : "https");
   return `${proto}://${host}`;
 }

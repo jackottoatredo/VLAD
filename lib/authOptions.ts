@@ -3,6 +3,7 @@ import GoogleProvider from "next-auth/providers/google";
 import { supabase } from "@/lib/db/supabase";
 import { emailToName } from "@/lib/nameUtils";
 import { inviteUserToVladChannel } from "@/lib/slack/inviteToChannel";
+import { notifyAdminsOfNewSignup } from "@/lib/notifications/newUserSignup";
 import { logEvent } from "@/lib/stats/events";
 import type { UserRole } from "@/types/next-auth";
 
@@ -37,6 +38,18 @@ export const authOptions: NextAuthOptions = {
       const domain = email.split("@")[1];
       if (!ALLOWED_DOMAINS.includes(domain)) return false;
 
+      // Detect first-ever signup *before* the upsert so we can fan a Slack
+      // DM out to opted-in admins. Upsert returns the row but not whether
+      // it was an insert vs update, so a pre-check is the simplest reliable
+      // signal. Missing/error treated as "not new" — DM is opt-in noise,
+      // not a load-bearing flow.
+      const { data: existing } = await supabase
+        .from("vlad_users")
+        .select("id")
+        .eq("id", email)
+        .maybeSingle();
+      const isNewUser = !existing;
+
       // Auto-create user in vlad_users on first login. Omits `role` so an
       // existing admin's role is preserved across re-sign-ins.
       const { firstName, lastName } = emailToName(email);
@@ -51,6 +64,10 @@ export const authOptions: NextAuthOptions = {
       await supabase
         .from("vlad_user_preferences")
         .upsert({ user_id: email }, { onConflict: "user_id", ignoreDuplicates: true });
+
+      if (isNewUser) {
+        void notifyAdminsOfNewSignup({ email, firstName, lastName });
+      }
 
       return true;
     },

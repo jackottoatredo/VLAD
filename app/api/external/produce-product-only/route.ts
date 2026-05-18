@@ -11,6 +11,8 @@ type RequestBody = {
   userId?: unknown;
   productRecordingId?: unknown;
   merchantBrand?: unknown;
+  /** If true, skip the render cache and always enqueue a fresh job. */
+  force?: unknown;
 };
 
 type MerchantBrand = { websiteUrl: string; brandName: string };
@@ -62,6 +64,7 @@ export async function POST(request: Request) {
     productRecordingId,
     merchantBrand: merchant,
     productSettings: null,
+    force: body.force === true,
     jobRequestBody: body,
   });
 

@@ -5,13 +5,15 @@ import { supabase } from "@/lib/db/supabase";
 export const runtime = "nodejs";
 
 const RENDER_FIELDS =
-  "id, slug, brand, brand_name, product_name, video_url, poster_key, status, progress, stale, created_at";
+  "id, slug, brand, brand_name, brand_url, product_recording_id, product_name, video_url, poster_key, status, progress, stale, created_at";
 
 type RenderRow = {
   id: string;
   slug: string | null;
   brand: string | null;
   brand_name: string | null;
+  brand_url: string | null;
+  product_recording_id: string | null;
   product_name: string | null;
   video_url: string | null;
   poster_key: string | null;
@@ -47,6 +49,8 @@ export async function GET(request: Request) {
     slug: r.slug,
     brand: r.brand,
     brandName: r.brand_name,
+    brandUrl: r.brand_url,
+    productRecordingId: r.product_recording_id,
     productName: r.product_name,
     videoUrl: r.video_url,
     posterKey: r.poster_key,

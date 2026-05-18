@@ -28,6 +28,8 @@ export type ProduceProductOnlyInput = {
   merchantBrand: { websiteUrl: string; brandName: string };
   /** Optional resolved form settings; falls back to recording metadata. */
   productSettings?: SectionFormSettings | null;
+  /** Skip the render cache check and always queue a fresh job. */
+  force?: boolean;
   /** Stored verbatim in vlad_renders.job_request for retry/replay. */
   jobRequestBody: unknown;
 };
@@ -172,8 +174,10 @@ export async function produceProductOnly(
     base: slugBase,
   });
 
-  const cached = await findCachedRender(userId, productRecordingId, urlHash, mouseHash, specHash, tKey, "full");
-  if (cached.trimmedR2Key) {
+  const cached = input.force
+    ? { startFromStep: 1 as const }
+    : await findCachedRender(userId, productRecordingId, urlHash, mouseHash, specHash, tKey, "full");
+  if ("trimmedR2Key" in cached && cached.trimmedR2Key) {
     const { data: renderRow, error: rErr } = await supabase
       .from("vlad_renders")
       .insert({

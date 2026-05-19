@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/db/supabase";
-import { getPresignedUrl } from "@/lib/storage/r2";
+import { getPresignedUrl, headR2Object } from "@/lib/storage/r2";
 import { logEngagementEvent } from "@/lib/stats/engagement";
 
 export const runtime = "nodejs";
@@ -77,6 +77,27 @@ export async function GET(
   const resolved = resolveAsset(asset, data as ShareRow, slug);
   if (!resolved) {
     return new NextResponse("Not Found", { status: 404 });
+  }
+
+  // Guard against the race between status="done" and R2 object availability.
+  // The worker now validates artifacts before finalize (see
+  // validateRenderArtifacts in worker.ts), but a HEAD here protects against
+  // any drift, manual DB edits, or in-flight cache rows from before the
+  // validation existed. Distinguishes:
+  //   - key missing entirely → 404 (no retry)
+  //   - key present but 0 bytes → 425 Too Early (client may retry)
+  const head = await headR2Object(resolved.key);
+  if (!head) {
+    return new NextResponse("Not Found", {
+      status: 404,
+      headers: { "Cache-Control": "no-store" },
+    });
+  }
+  if (head.contentLength <= 0) {
+    return new NextResponse("Asset not ready", {
+      status: 425,
+      headers: { "Cache-Control": "no-store", "Retry-After": "2" },
+    });
   }
 
   // Log only the click-equivalent assets. video.mp4/poster.jpg/preview.gif

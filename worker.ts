@@ -30,6 +30,7 @@ import {
   uploadToR2,
   downloadFromR2,
   copyR2Object,
+  headR2Object,
   recordingDir,
   recordingJobDir,
   renderDir,
@@ -83,6 +84,66 @@ async function generateAndUploadShareAssets(
   ]);
 
   return { posterKey, posterSquareKey, gifKey };
+}
+
+// Minimum acceptable video duration. Anything shorter is almost certainly a
+// Remotion render that exited "successfully" with an empty/partial output.
+const MIN_VIDEO_DURATION_SEC = 0.5;
+
+/**
+ * Validate a freshly-uploaded render's artifacts BEFORE flipping the DB row
+ * to status="done". Catches three failure modes that otherwise surface to the
+ * recipient as a black or silently-broken video:
+ *
+ *   1. Remotion renders an empty/black MP4 → `probeVideoDurationSec` < 0.5s
+ *   2. R2 PutObjectCommand resolves on a zero-byte body (network hiccup,
+ *      partial buffer) → HeadObject returns ContentLength=0
+ *   3. A share asset (poster/poster_square/gif) is missing in R2 entirely
+ *
+ * Throws on any of these so BullMQ moves the job to `failed`, which the
+ * "failed" handler already translates into a `status=error` row update.
+ * Returns the probed duration so the caller can pass it to logEvent without
+ * re-probing the local file.
+ */
+async function validateRenderArtifacts(
+  localVideoPath: string,
+  keys: {
+    videoKey: string;
+    posterKey: string;
+    posterSquareKey: string;
+    gifKey: string;
+  },
+): Promise<{ videoLengthSec: number }> {
+  const videoLengthSec = await probeVideoDurationSec(localVideoPath);
+  if (!videoLengthSec || videoLengthSec < MIN_VIDEO_DURATION_SEC) {
+    throw new Error(
+      `Render validation failed: video duration ${videoLengthSec ?? 0}s < ${MIN_VIDEO_DURATION_SEC}s ` +
+        `(local: ${localVideoPath}). Render likely produced an empty/black output.`,
+    );
+  }
+
+  const labeled: Array<{ label: string; key: string }> = [
+    { label: "video", key: keys.videoKey },
+    { label: "poster", key: keys.posterKey },
+    { label: "poster_square", key: keys.posterSquareKey },
+    { label: "gif", key: keys.gifKey },
+  ];
+  const heads = await Promise.all(labeled.map((a) => headR2Object(a.key)));
+  heads.forEach((head, i) => {
+    const { label, key } = labeled[i]!;
+    if (!head) {
+      throw new Error(
+        `Render validation failed: ${label} missing in R2 (key=${key})`,
+      );
+    }
+    if (head.contentLength <= 0) {
+      throw new Error(
+        `Render validation failed: ${label} has 0 bytes in R2 (key=${key})`,
+      );
+    }
+  });
+
+  return { videoLengthSec };
 }
 
 async function finalizeRenderRow(
@@ -409,6 +470,15 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceJo
         path.dirname(result.finalPath),
         result.backgroundR2Key,
       );
+
+      logStep("validate render artifacts");
+      const { videoLengthSec } = await validateRenderArtifacts(result.finalPath, {
+        videoKey,
+        posterKey,
+        posterSquareKey,
+        gifKey,
+      });
+
       logStep(`finalize render row: renderId=${d.mergeRenderInsert.renderId}`);
       await finalizeRenderRow(d.mergeRenderInsert.renderId, {
         video_url: videoKey,
@@ -418,7 +488,6 @@ async function processProduceJob(job: Job<ProduceJobPayload>): Promise<ProduceJo
       });
       renderId = d.mergeRenderInsert.renderId;
 
-      const videoLengthSec = await probeVideoDurationSec(result.finalPath);
       void logEvent({
         type: "render_completed",
         userId: d.userId,
@@ -977,6 +1046,14 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
       posterSourceR2Key,
     );
 
+    logStep("validate render artifacts");
+    const { videoLengthSec } = await validateRenderArtifacts(finalLocalPath, {
+      videoKey: finalR2Key,
+      posterKey,
+      posterSquareKey,
+      gifKey,
+    });
+
     logStep(`finalize render row: renderId=${d.renderId} videoKey=${finalR2Key}`);
     await finalizeRenderRow(d.renderId, {
       video_url: finalR2Key,
@@ -985,7 +1062,6 @@ async function processMergeJob(job: Job<MergeJobPayload>): Promise<MergeResult> 
       gif_key: gifKey,
     });
 
-    const videoLengthSec = await probeVideoDurationSec(finalLocalPath);
     void logEvent({
       type: "render_completed",
       userId,

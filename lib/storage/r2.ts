@@ -2,6 +2,7 @@ import {
   S3Client,
   PutObjectCommand,
   GetObjectCommand,
+  HeadObjectCommand,
   CopyObjectCommand,
   DeleteObjectCommand,
   DeleteObjectsCommand,
@@ -92,6 +93,31 @@ export async function getPresignedUrl(
     }),
     { expiresIn }
   );
+}
+
+/**
+ * HEAD an R2 object. Returns `{ contentLength }` if the key exists, or null
+ * if it does not. Used by render-finalize validation and the public asset
+ * route to distinguish "missing" from "uploaded but empty" — both of which
+ * cause the video player to render a black frame with no error.
+ */
+export async function headR2Object(
+  key: string,
+): Promise<{ contentLength: number } | null> {
+  try {
+    const res = await r2Client.send(
+      new HeadObjectCommand({ Bucket: BUCKET, Key: key }),
+    );
+    return { contentLength: res.ContentLength ?? 0 };
+  } catch (err: unknown) {
+    const status = (err as { $metadata?: { httpStatusCode?: number } })
+      ?.$metadata?.httpStatusCode;
+    const name = (err as { name?: string })?.name;
+    if (status === 404 || name === "NotFound" || name === "NoSuchKey") {
+      return null;
+    }
+    throw err;
+  }
 }
 
 /**

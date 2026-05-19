@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { requireBearerToken } from "@/lib/apiAuth";
 import { supabase } from "@/lib/db/supabase";
@@ -15,6 +16,32 @@ function normalizeDomain(input: string): string {
     .replace(/\/+$/, "")
     .split("/")[0];
 }
+
+const CHOMP_SCRAPE_CONFIG = {
+  scraperBackend: "api",
+  apiProvider: "firecrawl",
+  apiScrapeMode: "full",
+  firecrawlScreenshot: true,
+  firecrawlScreenshotMode: "parallel",
+  colorExtractionMode: "firecrawl",
+  useLLM: true,
+  useOCR: true,
+  useHeroScoring: true,
+  heroScoringMethod: "sharp-vision",
+  rerunStep2IfNoProducts: true,
+  useStoreleads: true,
+  blockResources: true,
+  skipMode: "none",
+  useAmazon: false,
+  useCache: true,
+  endStep: 3,
+  debug: false,
+  maxProducts: 250,
+  maxProductPages: 1,
+  pageLoadTimeout: 60,
+  extractorTimeout: 60,
+  jobTimeout: 120000,
+} as const;
 
 export async function GET(request: Request) {
   if (!requireBearerToken(request)) {
@@ -83,4 +110,79 @@ export async function GET(request: Request) {
       featuredProductCount: featuredCount,
     },
   });
+}
+
+export async function POST(request: Request) {
+  if (!requireBearerToken(request)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  let body: { domain?: unknown };
+  try {
+    body = (await request.json()) as { domain?: unknown };
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+  }
+
+  const rawDomain = typeof body.domain === "string" ? body.domain.trim() : "";
+  if (!rawDomain) {
+    return NextResponse.json({ error: "Missing domain." }, { status: 400 });
+  }
+  const domain = normalizeDomain(rawDomain);
+  if (!domain || !domain.includes(".")) {
+    return NextResponse.json({ error: "Invalid domain." }, { status: 400 });
+  }
+
+  const chompUrl = process.env.CHOMP_API_URL?.replace(/\/+$/, "");
+  const chompKey = process.env.CHOMP_API_KEY_PUBLIC ?? process.env.CHOMP_API_KEY;
+  if (!chompUrl || !chompKey) {
+    return NextResponse.json(
+      { error: "Scraper not configured." },
+      { status: 503 },
+    );
+  }
+
+  const payload = { url: `https://${domain}`, ...CHOMP_SCRAPE_CONFIG };
+  const payloadJson = JSON.stringify(payload);
+  const idempotencyKey = createHash("sha256").update(payloadJson).digest("hex");
+
+  let chompResponse: Response;
+  try {
+    chompResponse = await fetch(`${chompUrl}/scrape`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${chompKey}`,
+        "Idempotency-Key": idempotencyKey,
+      },
+      body: payloadJson,
+      signal: AbortSignal.timeout(15000),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return NextResponse.json(
+      { error: `Failed to reach scraper: ${message}` },
+      { status: 502 },
+    );
+  }
+
+  const chompJson = (await chompResponse.json().catch(() => null)) as
+    | Record<string, unknown>
+    | null;
+
+  if (!chompResponse.ok) {
+    return NextResponse.json(
+      { error: "Scraper error", chomp: chompJson },
+      { status: chompResponse.status },
+    );
+  }
+
+  return NextResponse.json(
+    {
+      status: "pending" as const,
+      domain,
+      chomp: chompJson,
+    },
+    { status: 202 },
+  );
 }
